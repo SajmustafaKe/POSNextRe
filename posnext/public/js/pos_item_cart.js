@@ -857,22 +857,38 @@ this.highlight_checkout_btn(true);
 
 	update_totals_section(frm) {
 		if (!frm) frm = this.events.get_frm();
-		this.render_net_total(frm.doc.net_total);
+		frm.cscript.calculate_taxes_and_totals();
+	
+		this.render_net_total(frm.doc.items);
 		this.render_total_item_qty(frm.doc.items);
-		const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? frm.doc.grand_total : frm.doc.rounded_total;
+	
+		let grand_total = cint(frappe.sys_defaults.disable_rounded_total)
+			? frm.doc.grand_total
+			: frm.doc.rounded_total;
+	
+		if (!frm.doc.items || frm.doc.items.length === 0) {
+			if (Math.abs(grand_total) != 0.005) {
+				grand_total = 0.000;
+			}
+		}
+	
 		this.render_grand_total(grand_total);
-
 		this.render_taxes(frm.doc.taxes);
 	}
 
-	render_net_total(value) {
+	render_net_total(items) {
 		const currency = this.events.get_frm().doc.currency;
+		var total_net_amount = 0;
+		items.map((item) => {
+			total_net_amount = total_net_amount + item.net_amount;
+		});
+
 		this.$totals_section.find('.net-total-container').html(
-			`<div>${__('Net Total')}</div><div>${format_currency(value, currency)}</div>`
+			`<div>${__('Net Total')}</div><div>${format_currency(total_net_amount, currency)}</div>`
 		)
 
 		this.$numpad_section.find('.numpad-net-total').html(
-			`<div>${__('Net Total')}: <span>${format_currency(value, currency)}</span></div>`
+			`<div>${__('Net Total')}: <span>${format_currency(total_net_amount, currency)}</span></div>`
 		);
 	}
 
@@ -1745,7 +1761,6 @@ this.highlight_checkout_btn(true);
 					this.update_item_html(item);
 				});
 			}
-			this.update_totals_section(frm);
 		});
 	}
 
