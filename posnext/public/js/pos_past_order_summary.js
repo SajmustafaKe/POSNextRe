@@ -4,7 +4,8 @@ posnext.PointOfSale.PastOrderSummary = class {
 		this.wrapper = wrapper;
 		this.pos_profile = pos_profile;
 		this.events = events;
-
+		this.print_receipt_on_order_complete = settings.print_receipt_on_order_complete;
+		
 		this.init_component();
 	}
 
