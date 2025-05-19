@@ -1,6 +1,6 @@
 frappe.provide('posnext.PointOfSale');
 posnext.PointOfSale.PastOrderSummary = class {
-	constructor({ wrapper, pos_profile,events }) {
+	constructor({ wrapper, pos_profile,events,settings }) {
 		this.wrapper = wrapper;
 		this.pos_profile = pos_profile;
 		this.events = events;
