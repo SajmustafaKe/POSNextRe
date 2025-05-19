@@ -246,7 +246,7 @@ posnext.PointOfSale.PastOrderSummary = class {
         .then(({ message }) => {
             if (message && message.enable_raw_printing === "1") {
                 // Use QZ Tray for direct printing
-                this.print_via_qz(doctype, docname, print_format, letterhead, lang_code);
+                this._print_via_qz(doctype, docname, print_format, letterhead, lang_code);
             } else {
                 // Fallback to regular print dialog
                 frappe.utils.print(
@@ -260,32 +260,33 @@ posnext.PointOfSale.PastOrderSummary = class {
         });
 },
 
-print_via_qz(doctype, docname, print_format, letterhead, lang_code) {
+// Add these helper methods at the appropriate location in your class (not inside another method)
+_print_via_qz(doctype, docname, print_format, letterhead, lang_code) {
     // First check if we have a mapped printer for this print format
-    const print_format_printer_map = this.get_print_format_printer_map();
-    const mapped_printer = this.get_mapped_printer(print_format_printer_map, doctype, print_format);
+    const print_format_printer_map = this._get_print_format_printer_map();
+    const mapped_printer = this._get_mapped_printer(print_format_printer_map, doctype, print_format);
     
     if (mapped_printer.length === 1) {
         // Printer is already mapped in localStorage
-        this.print_with_mapped_printer(doctype, docname, print_format, letterhead, lang_code, mapped_printer[0]);
-    } else if (this.is_raw_printing(print_format)) {
+        this._print_with_mapped_printer(doctype, docname, print_format, letterhead, lang_code, mapped_printer[0]);
+    } else if (this._is_raw_printing(print_format)) {
         // Printer not mapped but current format is raw printing
         frappe.show_alert({
             message: __("Printer mapping not set."),
             subtitle: __("Please set a printer mapping for this print format in the Printer Settings"),
             indicator: "warning"
         }, 14);
-        this.printer_setting_dialog(doctype, print_format);
+        this._printer_setting_dialog(doctype, print_format);
     } else {
         // Regular printing via dialog
-        this.render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code);
+        this._render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code);
     }
 },
 
-print_with_mapped_printer(doctype, docname, print_format, letterhead, lang_code, printer_map) {
-    if (this.is_raw_printing(print_format)) {
+_print_with_mapped_printer(doctype, docname, print_format, letterhead, lang_code, printer_map) {
+    if (this._is_raw_printing(print_format)) {
         // Get raw commands and send to printer
-        this.get_raw_commands(doctype, docname, print_format, lang_code, (out) => {
+        this._get_raw_commands(doctype, docname, print_format, lang_code, (out) => {
             frappe.ui.form.qz_connect()
                 .then(() => {
                     let config = qz.configs.create(printer_map.printer);
@@ -304,11 +305,11 @@ print_with_mapped_printer(doctype, docname, print_format, letterhead, lang_code,
             indicator: "info"
         }, 14);
         // Fallback to regular print
-        this.render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code);
+        this._render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code);
     }
 },
 
-get_raw_commands(doctype, docname, print_format, lang_code, callback) {
+_get_raw_commands(doctype, docname, print_format, lang_code, callback) {
     frappe.call({
         method: "frappe.www.printview.get_rendered_raw_commands",
         args: {
@@ -324,7 +325,7 @@ get_raw_commands(doctype, docname, print_format, lang_code, callback) {
     });
 },
 
-is_raw_printing(format) {
+_is_raw_printing(format) {
     let print_format = {};
     if (locals["Print Format"] && locals["Print Format"][format]) {
         print_format = locals["Print Format"][format];
@@ -332,7 +333,7 @@ is_raw_printing(format) {
     return print_format.raw_printing === 1;
 },
 
-get_print_format_printer_map() {
+_get_print_format_printer_map() {
     try {
         return JSON.parse(localStorage.print_format_printer_map || "{}");
     } catch (e) {
@@ -340,7 +341,7 @@ get_print_format_printer_map() {
     }
 },
 
-get_mapped_printer(print_format_printer_map, doctype, print_format) {
+_get_mapped_printer(print_format_printer_map, doctype, print_format) {
     if (print_format_printer_map[doctype]) {
         return print_format_printer_map[doctype].filter(
             (printer_map) => printer_map.print_format === print_format
@@ -349,7 +350,7 @@ get_mapped_printer(print_format_printer_map, doctype, print_format) {
     return [];
 },
 
-render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code) {
+_render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code) {
     // Fallback to regular print method
     frappe.utils.print(
         doctype,
@@ -360,9 +361,9 @@ render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_cod
     );
 },
 
-printer_setting_dialog(doctype, current_print_format) {
+_printer_setting_dialog(doctype, current_print_format) {
     // Dialog for Printer Settings similar to the one in print.js
-    let print_format_printer_map = this.get_print_format_printer_map();
+    let print_format_printer_map = this._get_print_format_printer_map();
     let data = print_format_printer_map[doctype] || [];
     
     frappe.ui.form.qz_get_printer_list().then((printer_list) => {
@@ -423,14 +424,14 @@ printer_setting_dialog(doctype, current_print_format) {
                     printer_mapping = [];
                 }
                 
-                let saved_print_format_printer_map = this.get_print_format_printer_map();
+                let saved_print_format_printer_map = this._get_print_format_printer_map();
                 saved_print_format_printer_map[doctype] = printer_mapping;
                 localStorage.print_format_printer_map = JSON.stringify(saved_print_format_printer_map);
                 
                 dialog.hide();
                 
                 // Try printing again with the new settings
-                this.print_via_qz(doctype, this.doc.name, current_print_format, this.doc.letter_head, this.doc.language || frappe.boot.lang);
+                this._print_via_qz(doctype, this.doc.name, current_print_format, this.doc.letter_head, this.doc.language || frappe.boot.lang);
             },
             primary_action_label: __("Save")
         });
@@ -438,7 +439,7 @@ printer_setting_dialog(doctype, current_print_format) {
         dialog.show();
     });
 }
-	attach_shortcuts() {
+attach_shortcuts() {
 		const ctrl_label = frappe.utils.is_mac() ? '⌘' : 'Ctrl';
 		this.$summary_container.find('.print-btn').attr("title", `${ctrl_label}+P`);
 		frappe.ui.keys.add_shortcut({
