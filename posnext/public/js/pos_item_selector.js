@@ -1,5 +1,6 @@
 frappe.provide('posnext.PointOfSale');
 var view = "List"
+import onScan from "onscan.js";
 
 posnext.PointOfSale.ItemSelector = class {
 	// eslint-disable-next-line no-unused-vars
@@ -446,6 +447,7 @@ posnext.PointOfSale.ItemSelector = class {
 					me.filter_items();
 				},
 				get_query: function () {
+					//const doc = me.events.get_frm().doc;
 					return {
 						query: 'erpnext.selling.page.point_of_sale.point_of_sale.item_group_query',
 						filters: {
@@ -489,8 +491,6 @@ posnext.PointOfSale.ItemSelector = class {
 
 	bind_events() {
 		const me = this;
-		if(!window.onScan){
-			frappe.require("https://cdn.jsdelivr.net/npm/onscan.js/onscan.min.js", function() {
 			window.onScan = onScan;
 
 			onScan.decodeKeyEvent = function (oEvent) {
@@ -527,11 +527,7 @@ posnext.PointOfSale.ItemSelector = class {
 					}
 				}
 			});
-		})
-		}
-
-
-
+		
 		this.$component.on('click', '.item-wrapper', function() {
 			const $item = $(this);
 			const item_code = unescape($item.attr('data-item-code'));
