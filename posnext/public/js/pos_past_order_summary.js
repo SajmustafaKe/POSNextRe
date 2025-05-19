@@ -565,6 +565,10 @@ attach_shortcuts() {
 
 		this.add_summary_btns(condition_btns_map);
 		this.$summary_wrapper.css("width",after_submission ? "35%" : "60%")
+
+		if (after_submission && this.print_receipt_on_order_complete) {
+                this.print_receipt();
+                }
 	}
 
 	attach_document_info(doc) {
