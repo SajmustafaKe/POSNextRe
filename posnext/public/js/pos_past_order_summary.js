@@ -258,7 +258,7 @@ posnext.PointOfSale.PastOrderSummary = class {
                 );
             }
         });
-},
+}
 
 // Add these helper methods at the appropriate location in your class (not inside another method)
 _print_via_qz(doctype, docname, print_format, letterhead, lang_code) {
@@ -281,7 +281,7 @@ _print_via_qz(doctype, docname, print_format, letterhead, lang_code) {
         // Regular printing via dialog
         this._render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code);
     }
-},
+}
 
 _print_with_mapped_printer(doctype, docname, print_format, letterhead, lang_code, printer_map) {
     if (this._is_raw_printing(print_format)) {
@@ -307,7 +307,7 @@ _print_with_mapped_printer(doctype, docname, print_format, letterhead, lang_code
         // Fallback to regular print
         this._render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code);
     }
-},
+}
 
 _get_raw_commands(doctype, docname, print_format, lang_code, callback) {
     frappe.call({
@@ -323,7 +323,7 @@ _get_raw_commands(doctype, docname, print_format, lang_code, callback) {
             }
         }
     });
-},
+}
 
 _is_raw_printing(format) {
     let print_format = {};
@@ -331,7 +331,7 @@ _is_raw_printing(format) {
         print_format = locals["Print Format"][format];
     }
     return print_format.raw_printing === 1;
-},
+}
 
 _get_print_format_printer_map() {
     try {
@@ -339,8 +339,7 @@ _get_print_format_printer_map() {
     } catch (e) {
         return {};
     }
-},
-
+}
 _get_mapped_printer(print_format_printer_map, doctype, print_format) {
     if (print_format_printer_map[doctype]) {
         return print_format_printer_map[doctype].filter(
@@ -348,7 +347,7 @@ _get_mapped_printer(print_format_printer_map, doctype, print_format) {
         );
     }
     return [];
-},
+}
 
 _render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code) {
     // Fallback to regular print method
@@ -359,7 +358,7 @@ _render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_co
         letterhead,
         lang_code
     );
-},
+}
 
 _printer_setting_dialog(doctype, current_print_format) {
     // Dialog for Printer Settings similar to the one in print.js
