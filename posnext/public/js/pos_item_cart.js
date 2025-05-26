@@ -456,7 +456,7 @@ bind_events() {
                     {
                         label: 'Secret Key',
                         fieldname: 'secret_key',
-                        fieldtype: 'Data',
+                        fieldtype: 'Password',
                         reqd: 1
                     },
                     {
