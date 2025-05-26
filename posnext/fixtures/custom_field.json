@@ -950,18 +950,5 @@
   "translatable": 0,
   "unique": 0,
   "width": null
- },
- {
-    "doctype": "Custom Field",
-    "name": "POS Invoice-created_by_name",
-    "dt": "POS Invoice",
-    "fieldname": "created_by_name",
-    "label": "Created By Name",
-    "fieldtype": "Data",
-    "insert_after": "customer",
-    "reqd": 1,
-    "read_only": 1,
-    "module": "Posnext",
-    "is_system_generated": 0
-}
+ }
 ]
