@@ -470,7 +470,7 @@ bind_events() {
                 primary_action_label: 'Continue',
                 primary_action: function(values) {
                     frappe.call({
-                        method: "posnext.utils.get_user_name_from_secret_key",
+                        method: "posnext.posnext.page.posnext.point_of_sale.get_user_name_from_secret_key",
                         args: {
                             secret_key: values['secret_key']
                         },
