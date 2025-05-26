@@ -206,41 +206,109 @@ posnext.PointOfSale.Controller = class {
 	}
 
 	save_draft_invoice() {
-        console.log("save_draft_invoice called, this:", this);
-        const frm = this.frm; // Use this.frm directly
-        if (!frm) {
-            frappe.throw("Form not initialized. Please try again.");
-            return;
-        }
-        if (!frm.doc.items.length) {
-            frappe.throw("Cannot save empty invoice");
-            return;
-        }
-        console.log("Saving draft with doc:", frm.doc);
-        frappe.call({
-            method: "posnext.posnext.page.posnext.point_of_sale.save_draft_invoice",
-            args: {
-                doc: frm.doc
-            },
-            callback: (r) => {
-                console.log("Save draft response:", r);
-                frappe.dom.unfreeze(); // Ensure unfreeze
-                if (r.exc) {
-                    frappe.msgprint("Error saving draft: " + r.exc);
-                    return;
-                }
-                if (r.message) {
-                    frappe.msgprint("Draft invoice saved successfully");
-                    frm.reload_doc();
-                }
-            },
-            error: (xhr, status, error) => {
-                console.error("Save draft AJAX error:", status, error);
-                frappe.dom.unfreeze(); // Ensure unfreeze
-                frappe.msgprint("Failed to save draft. Please check your connection or contact support.");
-            }
+    if (!this.$components_wrapper.is(":visible")) {
+        frappe.show_alert({
+            message: __("POS interface is not visible."),
+            indicator: 'red'
         });
+        frappe.dom.unfreeze();
+        return;
     }
+    const frm = this.frm;
+    if (!frm) {
+        frappe.show_alert({
+            message: __("Form not initialized. Please try again."),
+            indicator: 'red'
+        });
+        frappe.dom.unfreeze();
+        return;
+    }
+    if (!frm.doc.items.length) {
+        frappe.show_alert({
+            message: __("You must add at least one item to save it as draft."),
+            indicator: 'red'
+        });
+        frappe.utils.play_sound("error");
+        frappe.dom.unfreeze();
+        return;
+    }
+    if (!frm.doc.pos_profile) {
+        frappe.show_alert({
+            message: __("POS Profile is required for draft invoice"),
+            indicator: 'red'
+        });
+        frappe.dom.unfreeze();
+        return;
+    }
+    if (!frm.doc.customer) {
+        frappe.show_alert({
+            message: __("Customer is required for draft invoice"),
+            indicator: 'red'
+        });
+        frappe.dom.unfreeze();
+        return;
+    }
+    console.log("Saving draft with doc:", frm.doc);
+    frappe.call({
+        method: "posnext.posnext.page.posnext.point_of_sale.save_draft_invoice",
+        args: {
+            doc: {
+                customer: frm.doc.customer,
+                items: frm.doc.items.map(item => ({
+                    item_code: item.item_code,
+                    qty: item.qty,
+                    rate: item.rate,
+                    uom: item.uom,
+                    warehouse: item.warehouse,
+                    serial_no: item.serial_no,
+                    batch_no: item.batch_no
+                })),
+                created_by_name: frm.doc.created_by_name,
+                pos_profile: frm.doc.pos_profile,
+                company: frm.doc.company
+            }
+        },
+        callback: (r) => {
+            console.log("Save draft response:", r);
+            frappe.dom.unfreeze();
+            if (r.exc) {
+                let error_msg = r.exc;
+                try {
+                    const exc = JSON.parse(r.exc);
+                    error_msg = exc._error_message || exc.message || r.exc;
+                } catch (e) {
+                    // Fallback
+                }
+                frappe.show_alert({
+                    message: __(`Error saving draft: ${error_msg}`),
+                    indicator: 'red'
+                });
+                frappe.utils.play_sound("error");
+                return;
+            }
+            if (r.message) {
+                frappe.show_alert({
+                    message: __("Draft invoice saved successfully"),
+                    indicator: 'green'
+                });
+                frappe.run_serially([
+                    () => frappe.dom.freeze(),
+                    () => this.make_new_invoice(true),
+                    () => frappe.dom.unfreeze()
+                ]);
+            }
+        },
+        error: (xhr, status, error) => {
+            console.error("Save draft AJAX error:", status, error);
+            frappe.dom.unfreeze();
+            frappe.show_alert({
+                message: __("Failed to save draft. Please check your connection or contact support."),
+                indicator: 'red'
+            });
+            frappe.utils.play_sound("error");
+        }
+    });
+}
 
 	close_pos() {
 		if (!this.$components_wrapper.is(":visible")) return;
