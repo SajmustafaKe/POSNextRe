@@ -211,7 +211,7 @@ posnext.PointOfSale.Controller = class {
      */
     save_draft_invoice() {
         console.log("save_draft_invoice called, this:", this);
-        const frm = this.get_frm();
+        const frm = this.frm();
         if (!frm.doc.items.length) {
             frappe.throw("Cannot save empty invoice");
             return;
