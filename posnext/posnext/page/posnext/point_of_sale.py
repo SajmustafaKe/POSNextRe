@@ -409,7 +409,7 @@ def generate_pdf_and_save(docname, doctype, print_format=None):
 	print(file_doc)
 	return file_doc
 
-@frappe.whitelist()
+
 @frappe.whitelist()
 def save_draft_invoice(doc):
     try:
@@ -486,7 +486,6 @@ def save_draft_invoice(doc):
         return {"name": invoice.name}
     except Exception as e:
         frappe.log_error(f"Save Draft Error: {str(e)}", "POSNext")
-        raise
         raise
 
 @frappe.whitelist()
