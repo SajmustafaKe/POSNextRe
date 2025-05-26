@@ -411,17 +411,73 @@ def generate_pdf_and_save(docname, doctype, print_format=None):
 
 @frappe.whitelist()
 def save_draft_invoice(doc):
-    doc = frappe.parse_json(doc)
-    invoice = frappe.get_doc({
-        "doctype": "POS Invoice",
-        "customer": doc.get("customer"),
-        "items": doc.get("items"),
-        "created_by_name": doc.get("created_by_name"),  # Add this field
-        "is_pos": 1,
-        "docstatus": 0  # Draft status
-    })
-    invoice.insert()
-    return invoice.name
+    try:
+        doc = frappe.parse_json(doc)
+        frappe.log_error(f"Save Draft Input: {doc}", "POSNext Debug")
+        
+        # Validate required fields
+        if not doc.get("pos_profile"):
+            frappe.throw("POS Profile is required for draft invoice")
+        if not doc.get("customer"):
+            frappe.throw("Customer is required for draft invoice")
+        if not doc.get("items"):
+            frappe.throw("Items are required for draft invoice")
+        
+        # Fetch POS Profile
+        pos_profile_doc = frappe.get_doc("POS Profile", doc.get("pos_profile"))
+        
+        # Ensure "Cash" Mode of Payment exists
+        if not frappe.db.exists("Mode of Payment", "Cash"):
+            frappe.get_doc({
+                "doctype": "Mode of Payment",
+                "mode_of_payment": "Cash",
+                "enabled": 1
+            }).insert(ignore_permissions=True)
+        
+        # Set payment methods
+        payment_methods = pos_profile_doc.get("payments", [])
+        default_payment = (
+            [{"mode_of_payment": payment_methods[0].mode_of_payment, "amount": 0}]
+            if payment_methods
+            else [{"mode_of_payment": "Cash", "amount": 0}]
+        )
+        
+        # Structure items
+        items = []
+        for item in doc.get("items", []):
+            items.append({
+                "item_code": item.get("item_code"),
+                "qty": item.get("qty", 1),
+                "rate": item.get("rate", 0),
+                "uom": item.get("uom"),
+                "warehouse": item.get("warehouse") or pos_profile_doc.warehouse,
+                "serial_no": item.get("serial_no"),
+                "batch_no": item.get("batch_no")
+            })
+        
+        # Create POS Invoice
+        invoice = frappe.get_doc({
+            "doctype": "POS Invoice",
+            "customer": doc.get("customer"),
+            "items": items,
+            "created_by_name": doc.get("created_by_name"),
+            "is_pos": 1,
+            "pos_profile": doc.get("pos_profile"),
+            "company": doc.get("company") or pos_profile_doc.company,
+            "payments": default_payment,
+            "set_warehouse": pos_profile_doc.warehouse,
+            "posting_date": frappe.utils.nowdate(),
+            "posting_time": frappe.utils.nowtime(),
+            "currency": pos_profile_doc.currency or frappe.defaults.get_global_default("currency"),
+            "docstatus": 0
+        })
+        
+        frappe.log_error(f"Invoice Before Insert: {invoice.as_dict()}", "POSNext Debug")
+        invoice.insert()
+        return {"name": invoice.name}
+    except Exception as e:
+        frappe.log_error(f"Save Draft Error: {str(e)}", "POSNext")
+        raise
 
 @frappe.whitelist()
 def get_user_name_from_secret_key(secret_key):
