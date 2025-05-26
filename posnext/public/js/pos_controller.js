@@ -205,13 +205,13 @@ posnext.PointOfSale.Controller = class {
 		this.toggle_recent_order_list(show);
 	}
 
-	/**
-     * Saves a draft POS Invoice.
-     * @returns {void}
-     */
-    save_draft_invoice() {
+	save_draft_invoice() {
         console.log("save_draft_invoice called, this:", this);
-        const frm = this.frm();
+        const frm = this.frm; // Use this.frm directly
+        if (!frm) {
+            frappe.throw("Form not initialized. Please try again.");
+            return;
+        }
         if (!frm.doc.items.length) {
             frappe.throw("Cannot save empty invoice");
             return;
@@ -224,9 +224,9 @@ posnext.PointOfSale.Controller = class {
             },
             callback: (r) => {
                 console.log("Save draft response:", r);
+                frappe.dom.unfreeze(); // Ensure unfreeze
                 if (r.exc) {
                     frappe.msgprint("Error saving draft: " + r.exc);
-                    frappe.dom.unfreeze(); // Ensure unfreeze on error
                     return;
                 }
                 if (r.message) {
@@ -236,8 +236,8 @@ posnext.PointOfSale.Controller = class {
             },
             error: (xhr, status, error) => {
                 console.error("Save draft AJAX error:", status, error);
+                frappe.dom.unfreeze(); // Ensure unfreeze
                 frappe.msgprint("Failed to save draft. Please check your connection or contact support.");
-                frappe.dom.unfreeze(); // Ensure unfreeze on error
             }
         });
     }
