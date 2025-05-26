@@ -408,3 +408,24 @@ def generate_pdf_and_save(docname, doctype, print_format=None):
 	print("FILE DOOOOC")
 	print(file_doc)
 	return file_doc
+
+@frappe.whitelist()
+def save_draft_invoice(doc):
+    doc = frappe.parse_json(doc)
+    invoice = frappe.get_doc({
+        "doctype": "POS Invoice",
+        "customer": doc.get("customer"),
+        "items": doc.get("items"),
+        "created_by_name": doc.get("created_by_name"),  # Add this field
+        "is_pos": 1,
+        "docstatus": 0  # Draft status
+    })
+    invoice.insert()
+    return invoice.name
+
+@frappe.whitelist()
+def get_user_name_from_secret_key(secret_key):
+    if frappe.db.exists("User Secret Key", {"secret_key": secret_key}):
+        return frappe.get_value("User Secret Key", {"secret_key": secret_key}, "user_name")
+    else:
+        frappe.throw("Invalid secret key")

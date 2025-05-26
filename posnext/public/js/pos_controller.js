@@ -205,37 +205,25 @@ posnext.PointOfSale.Controller = class {
 		this.toggle_recent_order_list(show);
 	}
 
-	save_draft_invoice() {
-		if (!this.$components_wrapper.is(":visible")) return;
-
-		if (this.frm.doc.items.length == 0) {
-			frappe.show_alert({
-				message: __("You must add atleast one item to save it as draft."),
-				indicator:'red'
-			});
-			frappe.utils.play_sound("error");
-			return;
-		}
-
-		this.frm.save(undefined, undefined, undefined, () => {
-			frappe.show_alert({
-				message: __("There was an error saving the document."),
-				indicator: 'red'
-			});
-			frappe.utils.play_sound("error");
-		}).then(() => {
-			frappe.run_serially([
-				() => frappe.dom.freeze(),
-				() => this.make_new_invoice(true),
-				() => frappe.dom.unfreeze()
-
-
-			]);
-
-
-
-		});
-	}
+save_draft_invoice: function() {
+    const frm = this.get_frm();
+    if (!frm.doc.items.length) {
+        frappe.throw("Cannot save empty invoice");
+    }
+    frappe.call({
+        method: "posnext.posnext.page.posnext.point_of_sale.save_draft_invoice",
+        args: {
+            doc: frm.doc
+        },
+        callback: function(r) {
+            if (r.message) {
+                frappe.msgprint("Draft invoice saved successfully");
+                // Optionally reset form or update UI
+                frm.reload_doc();
+            }
+        }
+    });
+}
 
 	close_pos() {
 		if (!this.$components_wrapper.is(":visible")) return;

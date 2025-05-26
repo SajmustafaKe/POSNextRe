@@ -191,300 +191,383 @@ this.highlight_checkout_btn(true);
 		)
 	}
 
-	bind_events() {
-		const me = this;
-		this.$customer_section.on('click', '.reset-customer-btn', function () {
-			me.reset_customer_selector();
-		});
+bind_events() {
+    const me = this;
+    this.$customer_section.on('click', '.reset-customer-btn', function () {
+        me.reset_customer_selector();
+    });
 
-		this.$customer_section.on('click', '.close-details-btn', function () {
-			me.toggle_customer_info(false);
-		});
+    this.$customer_section.on('click', '.close-details-btn', function () {
+        me.toggle_customer_info(false);
+    });
 
-		this.$customer_section.on('click', '.customer-display', function(e) {
-			if ($(e.target).closest('.reset-customer-btn').length) return;
+    this.$customer_section.on('click', '.customer-display', function(e) {
+        if ($(e.target).closest('.reset-customer-btn').length) return;
+        const show = me.$cart_container.is(':visible');
+        me.toggle_customer_info(show);
+    });
 
-			const show = me.$cart_container.is(':visible');
-			me.toggle_customer_info(show);
-		});
+    this.$cart_items_wrapper.on('click', '.cart-item-wrapper', function() {
+        const $cart_item = $(this);
+        me.toggle_item_highlight(this);
+        const payment_section_hidden = !me.$totals_section.find('.edit-cart-btn').is(':visible');
+        if (!payment_section_hidden) {
+            me.$totals_section.find(".edit-cart-btn").click();
+        }
+        const item_row_name = unescape($cart_item.attr('data-row-name'));
+        me.events.cart_item_clicked({ name: item_row_name });
+        this.numpad_value = '';
+    });
 
-		this.$cart_items_wrapper.on('click', '.cart-item-wrapper', function() {
-			const $cart_item = $(this);
+    this.$component.on('click', '.checkout-btn', async function() {
+        if ($(this).attr('style').indexOf('--blue-500') == -1) return;
+        if ($(this).attr('class').indexOf('checkout-btn-held') !== -1) return;
+        if ($(this).attr('class').indexOf('checkout-btn-order') !== -1) return;
+        if (!cur_frm.doc.customer && me.mobile_number_based_customer) {
+            let d = new frappe.ui.Dialog({
+                title: 'Enter Mobile Number',
+                fields: [
+                    {
+                        label: 'Mobile Number',
+                        fieldname: 'mobile_number',
+                        fieldtype: 'Data',
+                        reqd: 1
+                    },
+                    {
+                        label: '',
+                        fieldname: 'mobile_number_numpad',
+                        fieldtype: 'HTML',
+                        options: '<div class="mobile_number_numpad"></div>'
+                    },
+                ],
+                size: 'small',
+                primary_action_label: 'Continue',
+                primary_action: function(values) {
+                    if (values['mobile_number'].length !== me.settings.custom_mobile_number_length) {
+                        frappe.throw("Mobile Number Length is " + me.settings.custom_mobile_number_length.toString());
+                    }
+                    frappe.call({
+                        method: "posnext.posnext.page.posnext.point_of_sale.create_customer",
+                        args: {
+                            customer: values['mobile_number']
+                        },
+                        freeze: true,
+                        freeze_message: "Creating Customer....",
+                        callback: async function() {
+                            const frm = me.events.get_frm();
+                            frappe.dom.freeze();
+                            frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'customer', values['mobile_number']);
+                            frm.script_manager.trigger('customer', frm.doc.doctype, frm.doc.name).then(() => {
+                                frappe.run_serially([
+                                    () => me.fetch_customer_details(values['mobile_number']),
+                                    () => me.events.customer_details_updated(me.customer_info),
+                                    () => me.update_customer_section(),
+                                    () => frappe.dom.unfreeze()
+                                ]);
+                            });
+                            await me.events.checkout();
+                            me.toggle_checkout_btn(false);
+                            me.allow_discount_change && me.$add_discount_elem.removeClass("d-none");
+                            d.hide();
+                        }
+                    });
+                }
+            });
+            var mobile_number_numpad_div = d.wrapper.find(".mobile_number_numpad");
+            mobile_number_numpad_div.append(`
+                <div class="custom-numpad">
+                    <style>
+                    .custom-numpad {
+                        display: grid;
+                        grid-template-columns: repeat(3, 1fr);
+                        gap: 10px;
+                        max-width: 350px;
+                        margin: 0 auto;
+                    }
+                    .numpad-button {
+                        padding: 15px;
+                        font-size: 18px;
+                        cursor: pointer;
+                        background-color: #f1f1f1;
+                        border: 1px solid #ccc;
+                        border-radius: 5px;
+                        text-align: center;
+                    }
+                    .numpad-button:hover {
+                        background-color: #ddd;
+                    }
+                    </style>
+                    <button class="numpad-button one">1</button>
+                    <button class="numpad-button two">2</button>
+                    <button class="numpad-button three">3</button>
+                    <button class="numpad-button four">4</button>
+                    <button class="numpad-button five">5</button>
+                    <button class="numpad-button six">6</button>
+                    <button class="numpad-button seven">7</button>
+                    <button class="numpad-button eight">8</button>
+                    <button class="numpad-button nine">9</button>
+                    <button class="numpad-button delete" style="color: red">x</button>
+                    <button class="numpad-button zero">0</button>
+                    <button class="numpad-button clear">C</button>
+                </div>`);
+            d.show();
+            var numpad_num = d.wrapper.find(".custom-numpad");
+            var numbers = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "zero"];
+            for (var xx = 0; xx < numbers.length; xx += 1) {
+                numpad_num.on('click', '.' + numbers[xx], function() {
+                    var current_value = d.get_value("mobile_number");
+                    d.set_value('mobile_number', current_value + $(this)[0].innerHTML.toString());
+                });
+            }
+            numpad_num.on('click', '.clear', function() {
+                d.set_value('mobile_number', "");
+            });
+            numpad_num.on('click', '.delete', function() {
+                var current_value = d.get_value("mobile_number");
+                d.set_value('mobile_number', current_value.slice(0, -1));
+            });
+        } else {
+            if (!cur_frm.doc.customer && !me.mobile_number_based_customer) {
+                frappe.throw("Please Select a customer and add items first");
+            }
+            await me.events.checkout();
+            me.toggle_checkout_btn(false);
+            me.allow_discount_change && me.$add_discount_elem.removeClass("d-none");
+        }
+    });
 
-			me.toggle_item_highlight(this);
+    this.$component.on('click', '.checkout-btn-held', function() {
+        if ($(this).attr('style').indexOf('--blue-500') == -1) return;
+        if (!cur_frm.doc.items.length) {
+            frappe.throw("Cannot save empty invoice");
+        }
+        if (!cur_frm.doc.customer && me.mobile_number_based_customer) {
+            let mobile_dialog = new frappe.ui.Dialog({
+                title: 'Enter Mobile Number',
+                fields: [
+                    {
+                        label: 'Mobile Number',
+                        fieldname: 'mobile_number',
+                        fieldtype: 'Data',
+                        reqd: 1
+                    },
+                    {
+                        label: '',
+                        fieldname: 'mobile_number_numpad',
+                        fieldtype: 'HTML',
+                        options: '<div class="mobile_number_numpad"></div>'
+                    },
+                ],
+                size: 'small',
+                primary_action_label: 'Continue',
+                primary_action: function(values) {
+                    if (values['mobile_number'].length !== me.settings.custom_mobile_number_length) {
+                        frappe.throw("Mobile Number Length is " + me.settings.custom_mobile_number_length.toString());
+                    }
+                    frappe.call({
+                        method: "posnext.posnext.page.posnext.point_of_sale.create_customer",
+                        args: {
+                            customer: values['mobile_number']
+                        },
+                        freeze: true,
+                        freeze_message: "Creating Customer....",
+                        callback: function() {
+                            const frm = me.events.get_frm();
+                            frappe.dom.freeze();
+                            frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'customer', values['mobile_number']);
+                            frm.script_manager.trigger('customer', frm.doc.doctype, frm.doc.name).then(() => {
+                                frappe.run_serially([
+                                    () => me.fetch_customer_details(values['mobile_number']),
+                                    () => me.events.customer_details_updated(me.customer_info),
+                                    () => me.update_customer_section(),
+                                    () => frappe.dom.unfreeze(),
+                                    () => show_secret_key_popup(values['mobile_number'])
+                                ]);
+                            });
+                            mobile_dialog.hide();
+                        }
+                    });
+                }
+            });
+            var mobile_number_numpad_div = mobile_dialog.wrapper.find(".mobile_number_numpad");
+            mobile_number_numpad_div.append(`
+                <div class="custom-numpad">
+                    <style>
+                    .custom-numpad {
+                        display: grid;
+                        grid-template-columns: repeat(3, 1fr);
+                        gap: 10px;
+                        max-width: 350px;
+                        margin: 0 auto;
+                    }
+                    .numpad-button {
+                        padding: 15px;
+                        font-size: 18px;
+                        cursor: pointer;
+                        background-color: #f1f1f1;
+                        border: 1px solid #ccc;
+                        border-radius: 5px;
+                        text-align: center;
+                    }
+                    .numpad-button:hover {
+                        background-color: #ddd;
+                    }
+                    </style>
+                    <button class="numpad-button one">1</button>
+                    <button class="numpad-button two">2</button>
+                    <button class="numpad-button three">3</button>
+                    <button class="numpad-button four">4</button>
+                    <button class="numpad-button five">5</button>
+                    <button class="numpad-button six">6</button>
+                    <button class="numpad-button seven">7</button>
+                    <button class="numpad-button eight">8</button>
+                    <button class="numpad-button nine">9</button>
+                    <button class="numpad-button delete" style="color: red">x</button>
+                    <button class="numpad-button zero">0</button>
+                    <button class="numpad-button clear">C</button>
+                </div>`);
+            mobile_dialog.show();
+            var numpad_num = mobile_dialog.wrapper.find(".custom-numpad");
+            var numbers = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "zero"];
+            for (var xx = 0; xx < numbers.length; xx += 1) {
+                numpad_num.on('click', '.' + numbers[xx], function() {
+                    var current_value = mobile_dialog.get_value("mobile_number");
+                    mobile_dialog.set_value('mobile_number', current_value + $(this)[0].innerHTML.toString());
+                });
+            }
+            numpad_num.on('click', '.clear', function() {
+                mobile_dialog.set_value('mobile_number', "");
+            });
+            numpad_num.on('click', '.delete', function() {
+                var current_value = mobile_dialog.get_value("mobile_number");
+                mobile_dialog.set_value('mobile_number', current_value.slice(0, -1));
+            });
+        } else {
+            if (!cur_frm.doc.customer && !me.mobile_number_based_customer) {
+                frappe.throw("Please select a customer before holding the invoice");
+            }
+            show_secret_key_popup();
+        }
 
-			const payment_section_hidden = !me.$totals_section.find('.edit-cart-btn').is(':visible');
-			if (!payment_section_hidden) {
-				// payment section is visible
-				// edit cart first and then open item details section
-				me.$totals_section.find(".edit-cart-btn").click();
-			}
+        function show_secret_key_popup(mobile_number = null) {
+            let secret_dialog = new frappe.ui.Dialog({
+                title: 'Enter Secret Key',
+                fields: [
+                    {
+                        label: 'Secret Key',
+                        fieldname: 'secret_key',
+                        fieldtype: 'Data',
+                        reqd: 1
+                    },
+                    {
+                        label: '',
+                        fieldname: 'secret_key_numpad',
+                        fieldtype: 'HTML',
+                        options: '<div class="secret_key_numpad"></div>'
+                    },
+                ],
+                size: 'small',
+                primary_action_label: 'Continue',
+                primary_action: function(values) {
+                    frappe.call({
+                        method: "posnext.posnext.utils.get_user_name_from_secret_key",
+                        args: {
+                            secret_key: values['secret_key']
+                        },
+                        freeze: true,
+                        freeze_message: "Validating Secret Key...",
+                        callback: function(r) {
+                            if (r.message) {
+                                const frm = me.events.get_frm();
+                                frappe.dom.freeze();
+                                frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', r.message);
+                                frm.script_manager.trigger('created_by_name', frm.doc.doctype, frm.doc.name).then(() => {
+                                    frappe.run_serially([
+                                        () => me.events.save_draft_invoice(),
+                                        () => frappe.dom.unfreeze(),
+                                        () => frappe.msgprint(`Invoice held successfully by ${r.message}`)
+                                    ]);
+                                });
+                                secret_dialog.hide();
+                            }
+                        }
+                    });
+                }
+            });
+            var secret_key_numpad_div = secret_dialog.wrapper.find(".secret_key_numpad");
+            secret_key_numpad_div.append(`
+                <div class="custom-numpad">
+                    <style>
+                    .custom-numpad {
+                        display: grid;
+                        grid-template-columns: repeat(3, 1fr);
+                        gap: 10px;
+                        max-width: 350px;
+                        margin: 0 auto;
+                    }
+                    .numpad-button {
+                        padding: 15px;
+                        font-size: 18px;
+                        cursor: pointer;
+                        background-color: #f1f1f1;
+                        border: 1px solid #ccc;
+                        border-radius: 5px;
+                        text-align: center;
+                    }
+                    .numpad-button:hover {
+                        background-color: #ddd;
+                    }
+                    </style>
+                    <button class="numpad-button one">1</button>
+                    <button class="numpad-button two">2</button>
+                    <button class="numpad-button three">3</button>
+                    <button class="numpad-button four">4</button>
+                    <button class="numpad-button five">5</button>
+                    <button class="numpad-button six">6</button>
+                    <button class="numpad-button seven">7</button>
+                    <button class="numpad-button eight">8</button>
+                    <button class="numpad-button nine">9</button>
+                    <button class="numpad-button delete" style="color: red">x</button>
+                    <button class="numpad-button zero">0</button>
+                    <button class="numpad-button clear">C</button>
+                </div>`);
+            secret_dialog.show();
+            var numpad_num = secret_dialog.wrapper.find(".custom-numpad");
+            var numbers = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "zero"];
+            for (var xx = 0; xx < numbers.length; xx += 1) {
+                numpad_num.on('click', '.' + numbers[xx], function() {
+                    var current_value = secret_dialog.get_value("secret_key");
+                    secret_dialog.set_value('secret_key', current_value + $(this)[0].innerHTML.toString());
+                });
+            }
+            numpad_num.on('click', '.clear', function() {
+                secret_dialog.set_value('secret_key', "");
+            });
+            numpad_num.on('click', '.delete', function() {
+                var current_value = secret_dialog.get_value("secret_key");
+                secret_dialog.set_value('secret_key', current_value.slice(0, -1));
+            });
+        }
+    });
 
-			const item_row_name = unescape($cart_item.attr('data-row-name'));
-			me.events.cart_item_clicked({ name: item_row_name });
-			this.numpad_value = '';
-		});
+    this.$component.on('click', '.checkout-btn-order', () => {
+        this.events.toggle_recent_order();
+    });
 
-		this.$component.on('click', '.checkout-btn', async function() {
-			if ($(this).attr('style').indexOf('--blue-500') == -1) return;
-			if ($(this).attr('class').indexOf('checkout-btn-held') !== -1) return;
-			if ($(this).attr('class').indexOf('checkout-btn-order') !== -1) return;
-			if(!cur_frm.doc.customer &&  me.mobile_number_based_customer){
-				let d = new frappe.ui.Dialog({
-					title: 'Enter Mobile Number',
-					fields: [
-						{
-							label: 'Mobile Number',
-							fieldname: 'mobile_number',
-							fieldtype: 'Data',
-							reqd: 1
-						},
-						{
-							label: '',
-							fieldname: 'mobile_number_numpad',
-							fieldtype: 'HTML',
-							options: '<div class="mobile_number_numpad"></div>'
-						},
-					],
-					size: 'small',
-					primary_action_label: 'Continue',
-					primary_action: function(values) {
-						if(values['mobile_number'].length !== me.settings.custom_mobile_number_length){
-							frappe.throw("Mobile Number Length is " + me.settings.custom_mobile_number_length.toString())
-						}
-						frappe.call({
-							method: "posnext.posnext.page.posnext.point_of_sale.create_customer",
-							args: {
-								customer: values['mobile_number']
-							},
-							freeze: true,
-							freeze_message: "Creating Customer....",
-							callback: async function(){
-								const frm = me.events.get_frm();
-								frappe.dom.freeze();
-								frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'customer', values['mobile_number']);
-								frm.script_manager.trigger('customer', frm.doc.doctype, frm.doc.name).then(() => {
-									frappe.run_serially([
-										() => me.fetch_customer_details(values['mobile_number']),
-										() => me.events.customer_details_updated(me.customer_info),
-										() => me.update_customer_section(),
-										() => frappe.dom.unfreeze()
-									]);
-								})
-								// me.fetch_customer_details(values['mobile_number'])
-								// me.events.customer_details_updated(me.customer_info)
-								// me.update_customer_section()
-								await me.events.checkout();
-								me.toggle_checkout_btn(false);
-								me.allow_discount_change && me.$add_discount_elem.removeClass("d-none");
-								d.hide();
-							}
-						})
-					}
-				});
-				var mobile_number_numpad_div = d.wrapper.find(".mobile_number_numpad")
-				mobile_number_numpad_div.append(`
-					<div class="custom-numpad">
-						<style>
-						.custom-numpad {
-							display: grid;
-							grid-template-columns: repeat(3, 1fr);
-							gap: 10px;
-							max-width: 350px;
-							margin: 0 auto;
-						}
-						
-						.numpad-button {
-							padding: 15px;
-							font-size: 18px;
-							cursor: pointer;
-							background-color: #f1f1f1;
-							border: 1px solid #ccc;
-							border-radius: 5px;
-							text-align: center;
-						}
-						
-						.numpad-button:hover {
-							background-color: #ddd;
-						}
-						</style>
-						<button class="numpad-button one">1</button>
-						<button class="numpad-button two">2</button>
-						<button class="numpad-button three">3</button>
-						<button class="numpad-button four">4</button>
-						<button class="numpad-button five">5</button>
-						<button class="numpad-button six">6</button>
-						<button class="numpad-button seven">7</button>
-						<button class="numpad-button eight">8</button>
-						<button class="numpad-button nine">9</button>
-						<button class="numpad-button delete" style="color: red">x</button>
-						<button class="numpad-button zero">0</button>
-						<button class="numpad-button clear">C</button> <!-- Clear button -->
-					</div>`)
+    this.$totals_section.on('click', '.edit-cart-btn', () => {
+        this.events.edit_cart();
+        this.toggle_checkout_btn(true);
+    });
 
-				d.show();
-				var numpad_num = d.wrapper.find(".custom-numpad")
-				var numbers = ["one",'two','three','four','five','six','seven','eight','nine','zero',"plus"]
-				for(var xx=0;xx<numbers.length;xx+=1){
-					numpad_num.on('click', '.' + numbers[xx], function() {
-						var current_value = d.get_value("mobile_number")
-						d.set_value('mobile_number', current_value + $(this)[0].innerHTML.toString());
-					})
-				}
-				numpad_num.on('click', '.clear', function() {
-						d.set_value('mobile_number', "");
-					})
-				numpad_num.on('click', '.delete', function() {
-					var current_value = d.get_value("mobile_number")
-						d.set_value('mobile_number', current_value.slice(0, -1));
-					})
+    this.$component.on('click', '.add-discount-wrapper', () => {
+        const can_edit_discount = this.$add_discount_elem.find('.edit-discount-btn').length;
+        if (!this.discount_field || can_edit_discount) this.show_discount_control();
+    });
 
-
-			} else {
-				if(!cur_frm.doc.customer &&  !me.mobile_number_based_customer){
-					frappe.throw("Please Select a customer and add items first")
-				}
-				await me.events.checkout();
-				me.toggle_checkout_btn(false);
-				me.allow_discount_change && me.$add_discount_elem.removeClass("d-none");
-			}
-
-
-
-		});
-
-		this.$component.on('click', '.checkout-btn-held', function() {
-			if ($(this).attr('style').indexOf('--blue-500') == -1) return;
-			if(!cur_frm.doc.customer && me.mobile_number_based_customer){
-				let d = new frappe.ui.Dialog({
-					title: 'Enter Mobile Number',
-					fields: [
-						{
-							label: 'Mobile Number',
-							fieldname: 'mobile_number',
-							fieldtype: 'Data',
-							reqd: 1
-						},
-						{
-							label: '',
-							fieldname: 'mobile_number_numpad',
-							fieldtype: 'HTML',
-							options: '<div class="mobile_number_numpad"></div>'
-						},
-					],
-					size: 'small',
-					primary_action_label: 'Continue',
-					primary_action: function(values) {
-						if(values['mobile_number'].length !== me.settings.custom_mobile_number_length){
-							frappe.throw("Mobile Number Length is " + me.settings.custom_mobile_number_length.toString())
-						}
-						frappe.call({
-							method: "posnext.posnext.page.posnext.point_of_sale.create_customer",
-							args: {
-								customer: values['mobile_number']
-							},
-							freeze: true,
-							freeze_message: "Creating Customer....",
-							callback: async function(){
-								const frm = me.events.get_frm();
-								frappe.dom.freeze();
-								frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'customer', values['mobile_number']);
-								frm.script_manager.trigger('customer', frm.doc.doctype, frm.doc.name).then(() => {
-									frappe.run_serially([
-										() => me.fetch_customer_details(values['mobile_number']),
-										() => me.events.customer_details_updated(me.customer_info),
-										() => me.update_customer_section(),
-										() => frappe.dom.unfreeze()
-									]);
-								})
-								me.events.save_draft_invoice()
-
-								d.hide();
-							}
-						})
-					}
-				});
-				var mobile_number_numpad_div = d.wrapper.find(".mobile_number_numpad")
-				mobile_number_numpad_div.append(`
-					<div class="custom-numpad">
-						<style>
-						.custom-numpad {
-							display: grid;
-							grid-template-columns: repeat(3, 1fr);
-							gap: 10px;
-							max-width: 350px;
-							margin: 0 auto;
-						}
-						
-						.numpad-button {
-							padding: 15px;
-							font-size: 18px;
-							cursor: pointer;
-							background-color: #f1f1f1;
-							border: 1px solid #ccc;
-							border-radius: 5px;
-							text-align: center;
-						}
-						
-						.numpad-button:hover {
-							background-color: #ddd;
-						}
-						</style>
-						<button class="numpad-button one">1</button>
-						<button class="numpad-button two">2</button>
-						<button class="numpad-button three">3</button>
-						<button class="numpad-button four">4</button>
-						<button class="numpad-button five">5</button>
-						<button class="numpad-button six">6</button>
-						<button class="numpad-button seven">7</button>
-						<button class="numpad-button eight">8</button>
-						<button class="numpad-button nine">9</button>
-						<button class="numpad-button delete" style="color: red">x</button>
-						<button class="numpad-button zero">0</button>
-						<button class="numpad-button clear">C</button> <!-- Clear button -->
-					</div>`)
-
-				d.show();
-				var numpad_num = d.wrapper.find(".custom-numpad")
-				var numbers = ["one",'two','three','four','five','six','seven','eight','nine','zero',"plus"]
-				for(var xx=0;xx<numbers.length;xx+=1){
-					numpad_num.on('click', '.' + numbers[xx], function() {
-						var current_value = d.get_value("mobile_number")
-						d.set_value('mobile_number', current_value + $(this)[0].innerHTML.toString());
-					})
-				}
-				numpad_num.on('click', '.clear', function() {
-						d.set_value('mobile_number', "");
-					})
-numpad_num.on('click', '.delete', function() {
-					var current_value = d.get_value("mobile_number")
-						d.set_value('mobile_number', current_value.slice(0, -1));
-					})
-			} else {
-				me.events.save_draft_invoice();
-			}
-		});
-		this.$component.on('click', '.checkout-btn-order', () => {
-			this.events.toggle_recent_order();
-		});
-
-		this.$totals_section.on('click', '.edit-cart-btn', () => {
-			this.events.edit_cart();
-
-			this.toggle_checkout_btn(true);
-		});
-
-		this.$component.on('click', '.add-discount-wrapper', () => {
-			const can_edit_discount = this.$add_discount_elem.find('.edit-discount-btn').length;
-
-			if(!this.discount_field || can_edit_discount) this.show_discount_control();
-		});
-
-		frappe.ui.form.on("POS Invoice", "paid_amount", frm => {
-			// called when discount is applied
-			this.update_totals_section(frm);
-		});
-	}
+    frappe.ui.form.on("POS Invoice", "paid_amount", frm => {
+        this.update_totals_section(frm);
+    });
+}
 
 	attach_shortcuts() {
 		for (let row of this.number_pad.keys) {

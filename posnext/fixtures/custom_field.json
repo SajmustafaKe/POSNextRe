@@ -950,5 +950,15 @@
   "translatable": 0,
   "unique": 0,
   "width": null
- }
+ },
+ {
+        "doctype": "Custom Field",
+        "dt": "POS Invoice",
+        "fieldname": "created_by_name",
+        "label": "Created By Name",
+        "fieldtype": "Data",
+        "insert_after": "customer",
+        "reqd": 0,
+        "read_only": 1
+    }
 ]
