@@ -410,10 +410,19 @@ def generate_pdf_and_save(docname, doctype, print_format=None):
 	return file_doc
 
 @frappe.whitelist()
+@frappe.whitelist()
 def save_draft_invoice(doc):
     try:
         doc = frappe.parse_json(doc)
-        frappe.log_error(f"Save Draft Input: {doc}", "POSNext Debug")
+        # Summarize input for logging
+        log_input = {
+            "customer": doc.get("customer"),
+            "item_count": len(doc.get("items", [])),
+            "pos_profile": doc.get("pos_profile"),
+            "company": doc.get("company"),
+            "created_by_name": doc.get("created_by_name")
+        }
+        frappe.log_error(f"Save Draft Input: {log_input}", "POSNext Debug")
         
         # Validate required fields
         if not doc.get("pos_profile"):
@@ -472,11 +481,12 @@ def save_draft_invoice(doc):
             "docstatus": 0
         })
         
-        frappe.log_error(f"Invoice Before Insert: {invoice.as_dict()}", "POSNext Debug")
+        frappe.log_error(f"Invoice Before Insert: customer={invoice.customer}, items={len(invoice.items)}, payments={invoice.payments}", "POSNext Debug")
         invoice.insert()
         return {"name": invoice.name}
     except Exception as e:
         frappe.log_error(f"Save Draft Error: {str(e)}", "POSNext")
+        raise
         raise
 
 @frappe.whitelist()
