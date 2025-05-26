@@ -422,8 +422,14 @@ def save_draft_invoice(doc):
             "company": doc.get("company"),
             "created_by_name": doc.get("created_by_name")
         }
-        frappe.log_error(f"Save Draft Input: {log_input}", "POSNext Debug")
         
+        # Use shorter title for logging to avoid character limit
+        try:
+            frappe.log_error(f"Save Draft Input: {log_input}", "POSNext")
+        except Exception:
+            # If logging fails, continue without logging to avoid blocking the main operation
+            pass
+       
         # Validate required fields
         if not doc.get("pos_profile"):
             frappe.throw("POS Profile is required for draft invoice")
@@ -431,10 +437,10 @@ def save_draft_invoice(doc):
             frappe.throw("Customer is required for draft invoice")
         if not doc.get("items"):
             frappe.throw("Items are required for draft invoice")
-        
+       
         # Fetch POS Profile
         pos_profile_doc = frappe.get_doc("POS Profile", doc.get("pos_profile"))
-        
+       
         # Ensure "Cash" Mode of Payment exists
         if not frappe.db.exists("Mode of Payment", "Cash"):
             frappe.get_doc({
@@ -442,7 +448,7 @@ def save_draft_invoice(doc):
                 "mode_of_payment": "Cash",
                 "enabled": 1
             }).insert(ignore_permissions=True)
-        
+       
         # Set payment methods
         payment_methods = pos_profile_doc.get("payments", [])
         default_payment = (
@@ -450,7 +456,7 @@ def save_draft_invoice(doc):
             if payment_methods
             else [{"mode_of_payment": "Cash", "amount": 0}]
         )
-        
+       
         # Structure items
         items = []
         for item in doc.get("items", []):
@@ -463,7 +469,7 @@ def save_draft_invoice(doc):
                 "serial_no": item.get("serial_no"),
                 "batch_no": item.get("batch_no")
             })
-        
+       
         # Create POS Invoice
         invoice = frappe.get_doc({
             "doctype": "POS Invoice",
@@ -480,12 +486,26 @@ def save_draft_invoice(doc):
             "currency": pos_profile_doc.currency or frappe.defaults.get_global_default("currency"),
             "docstatus": 0
         })
-        
-        frappe.log_error(f"Invoice Before Insert: customer={invoice.customer}, items={len(invoice.items)}, payments={invoice.payments}", "POSNext Debug")
+       
+        # Log before insert with shorter message
+        try:
+            frappe.log_error(f"Invoice Before Insert: customer={invoice.customer[:20]}..., items={len(invoice.items)}", "POSNext")
+        except Exception:
+            pass
+            
         invoice.insert()
         return {"name": invoice.name}
     except Exception as e:
-        frappe.log_error(f"Save Draft Error: {str(e)}", "POSNext")
+        # Truncate error message to avoid character limit issues
+        error_msg = str(e)
+        if len(error_msg) > 100:
+            error_msg = error_msg[:100] + "..."
+        
+        try:
+            frappe.log_error(f"Save Draft Error: {error_msg}", "POSNext")
+        except Exception:
+            # If logging the error also fails, just continue to raise the original exception
+            pass
         raise
 
 @frappe.whitelist()
