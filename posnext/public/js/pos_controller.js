@@ -205,7 +205,7 @@ posnext.PointOfSale.Controller = class {
 		this.toggle_recent_order_list(show);
 	}
 
-save_draft_invoice: function() {
+save_draft_invoice = () => {
     const frm = this.get_frm();
     if (!frm.doc.items.length) {
         frappe.throw("Cannot save empty invoice");
@@ -215,10 +215,9 @@ save_draft_invoice: function() {
         args: {
             doc: frm.doc
         },
-        callback: function(r) {
+        callback: (r) => {
             if (r.message) {
                 frappe.msgprint("Draft invoice saved successfully");
-                // Optionally reset form or update UI
                 frm.reload_doc();
             }
         }
