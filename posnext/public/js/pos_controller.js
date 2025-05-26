@@ -205,24 +205,42 @@ posnext.PointOfSale.Controller = class {
 		this.toggle_recent_order_list(show);
 	}
 
-save_draft_invoice = () => {
-    const frm = this.get_frm();
-    if (!frm.doc.items.length) {
-        frappe.throw("Cannot save empty invoice");
-    }
-    frappe.call({
-        method: "posnext.posnext.page.posnext.point_of_sale.save_draft_invoice",
-        args: {
-            doc: frm.doc
-        },
-        callback: (r) => {
-            if (r.message) {
-                frappe.msgprint("Draft invoice saved successfully");
-                frm.reload_doc();
-            }
+	/**
+     * Saves a draft POS Invoice.
+     * @returns {void}
+     */
+    save_draft_invoice() {
+        console.log("save_draft_invoice called, this:", this);
+        const frm = this.get_frm();
+        if (!frm.doc.items.length) {
+            frappe.throw("Cannot save empty invoice");
+            return;
         }
-    });
-}
+        console.log("Saving draft with doc:", frm.doc);
+        frappe.call({
+            method: "posnext.posnext.page.posnext.point_of_sale.save_draft_invoice",
+            args: {
+                doc: frm.doc
+            },
+            callback: (r) => {
+                console.log("Save draft response:", r);
+                if (r.exc) {
+                    frappe.msgprint("Error saving draft: " + r.exc);
+                    frappe.dom.unfreeze(); // Ensure unfreeze on error
+                    return;
+                }
+                if (r.message) {
+                    frappe.msgprint("Draft invoice saved successfully");
+                    frm.reload_doc();
+                }
+            },
+            error: (xhr, status, error) => {
+                console.error("Save draft AJAX error:", status, error);
+                frappe.msgprint("Failed to save draft. Please check your connection or contact support.");
+                frappe.dom.unfreeze(); // Ensure unfreeze on error
+            }
+        });
+    }
 
 	close_pos() {
 		if (!this.$components_wrapper.is(":visible")) return;
