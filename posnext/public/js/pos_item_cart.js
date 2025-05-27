@@ -469,29 +469,86 @@ bind_events() {
                 size: 'small',
                 primary_action_label: 'Continue',
                 primary_action: function(values) {
-                    frappe.call({
-                        method: "posnext.posnext.page.posnext.point_of_sale.get_user_name_from_secret_key",
-                        args: {
-                            secret_key: values['secret_key']
-                        },
-                        freeze: true,
-                        freeze_message: "Validating Secret Key...",
-                        callback: function(r) {
-                            if (r.message) {
-                                const frm = me.events.get_frm();
-                                frappe.dom.freeze();
-                                frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', r.message);
-                                frm.script_manager.trigger('created_by_name', frm.doc.doctype, frm.doc.name).then(() => {
-                                    frappe.run_serially([
-                                        () => me.events.save_draft_invoice(),
-                                        () => frappe.dom.unfreeze(),
-                                        () => frappe.msgprint(`Invoice held successfully by ${r.message}`)
-                                    ]);
+                    const frm = me.events.get_frm();
+                    const invoice_name = frm.doc.name;
+                    
+                    // Check if invoice is an existing draft (has a name and is not a new doc)
+                    if (invoice_name && !frm.doc.__islocal) {
+                        // Validate secret key against invoice's created_by_name
+                        frappe.call({
+                            method: "posnext.posnext.page.posnext.point_of_sale.check_edit_permission",
+                            args: {
+                                invoice_name: invoice_name,
+                                secret_key: values['secret_key']
+                            },
+                            freeze: true,
+                            freeze_message: "Validating Secret Key...",
+                            callback: function(r) {
+                                if (r.message.can_edit) {
+                                    // Proceed with saving the invoice
+                                    frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', r.message.created_by_name);
+                                    frm.script_manager.trigger('created_by_name', frm.doc.doctype, frm.doc.name).then(() => {
+                                        frappe.run_serially([
+                                            () => me.events.save_draft_invoice(),
+                                            () => frappe.dom.unfreeze(),
+                                            () => frappe.msgprint(`Invoice held successfully by ${r.message.created_by_name}`)
+                                        ]);
+                                    });
+                                    secret_dialog.hide();
+                                } else {
+                                    // Show error and keep invoice unchanged
+                                    frappe.show_alert({
+                                        message: __(`You did not create this invoice, hence you cannot edit it. Only the creator (${r.message.created_by_name}) can edit it.`),
+                                        indicator: 'red'
+                                    });
+                                    frappe.utils.play_sound("error");
+                                    frappe.dom.unfreeze();
+                                    secret_dialog.hide();
+                                }
+                            },
+                            error: (xhr, status, error) => {
+                                console.error("Permission check error:", status, error);
+                                frappe.dom.unfreeze();
+                                frappe.show_alert({
+                                    message: __("Failed to validate secret key. Please try again or contact support."),
+                                    indicator: 'red'
                                 });
+                                frappe.utils.play_sound("error");
                                 secret_dialog.hide();
                             }
-                        }
-                    });
+                        });
+                    } else {
+                        // New invoice: validate secret key and proceed
+                        frappe.call({
+                            method: "posnext.posnext.page.posnext.point_of_sale.get_user_name_from_secret_key",
+                            args: {
+                                secret_key: values['secret_key']
+                            },
+                            freeze: true,
+                            freeze_message: "Validating Secret Key...",
+                            callback: function(r) {
+                                if (r.message) {
+                                    frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', r.message);
+                                    frm.script_manager.trigger('created_by_name', frm.doc.doctype, frm.doc.name).then(() => {
+                                        frappe.run_serially([
+                                            () => me.events.save_draft_invoice(),
+                                            () => frappe.dom.unfreeze(),
+                                            () => frappe.msgprint(`Invoice held successfully by ${r.message}`)
+                                        ]);
+                                    });
+                                    secret_dialog.hide();
+                                } else {
+                                    frappe.show_alert({
+                                        message: __("Invalid secret key"),
+                                        indicator: 'red'
+                                    });
+                                    frappe.utils.play_sound("error");
+                                    frappe.dom.unfreeze();
+                                    secret_dialog.hide();
+                                }
+                            }
+                        });
+                    }
                 }
             });
             var secret_key_numpad_div = secret_dialog.wrapper.find(".secret_key_numpad");
@@ -551,12 +608,12 @@ bind_events() {
     });
 
     this.$component.on('click', '.checkout-btn-order', () => {
-        this.events.toggle_recent_order();
+        me.events.toggle_recent_order();
     });
 
     this.$totals_section.on('click', '.edit-cart-btn', () => {
-        this.events.edit_cart();
-        this.toggle_checkout_btn(true);
+        me.events.edit_cart();
+        me.toggle_checkout_btn(true);
     });
 
     this.$component.on('click', '.add-discount-wrapper', () => {
@@ -568,7 +625,6 @@ bind_events() {
         this.update_totals_section(frm);
     });
 }
-
 	attach_shortcuts() {
 		for (let row of this.number_pad.keys) {
 			for (let btn of row) {
