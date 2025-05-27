@@ -523,6 +523,34 @@ def save_draft_invoice(doc):
         raise
 
 @frappe.whitelist()
+def check_edit_permission(invoice_name, secret_key):
+    try:
+        if not frappe.db.exists("POS Invoice", {"name": invoice_name, "docstatus": 0}):
+            frappe.throw("Invoice not found or is not in draft status")
+        
+        # Get the user associated with the secret key
+        user = frappe.call("posnext.posnext.page.posnext.point_of_sale.get_user_name_from_secret_key", secret_key=secret_key).message
+        if not user:
+            frappe.throw("Invalid secret key", frappe.AuthenticationError)
+        
+        invoice = frappe.get_doc("POS Invoice", invoice_name)
+        
+        # Check if the user matches created_by_name
+        if invoice.created_by_name != user:
+            frappe.throw(
+                f"You did not create this invoice, hence you cannot edit it. Only the creator ({invoice.created_by_name}) can edit it.",
+                frappe.PermissionError
+            )
+        
+        return {
+            "can_edit": True,
+            "created_by_name": invoice.created_by_name
+        }
+    except Exception as e:
+        frappe.log_error(f"Permission Check Failed: {str(e)[:100]}", "POSNext")
+        raise
+
+@frappe.whitelist()
 def get_user_name_from_secret_key(secret_key):
     if frappe.db.exists("User Secret Key", {"secret_key": secret_key}):
         return frappe.get_value("User Secret Key", {"secret_key": secret_key}, "user_name")
