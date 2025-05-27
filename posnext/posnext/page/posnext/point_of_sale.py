@@ -529,7 +529,7 @@ def check_edit_permission(invoice_name, secret_key):
             frappe.throw("Invoice not found or is not in draft status")
         
         # Get the user associated with the secret key
-        user = frappe.call("posnext.posnext.page.posnext.point_of_sale.get_user_name_from_secret_key", secret_key=secret_key).message
+        user = frappe.call("posnext.posnext.page.posnext.point_of_sale.get_user_name_from_secret_key", secret_key=secret_key)
         if not user:
             frappe.throw("Invalid secret key", frappe.AuthenticationError)
         
