@@ -422,6 +422,8 @@ def save_draft_invoice(doc):
             frappe.throw("Customer is required for draft invoice")
         if not doc.get("items"):
             frappe.throw("Items are required for draft invoice")
+        if not doc.get("created_by_name"):
+            frappe.throw("Created By Name is required for draft invoice")
         
         # Fetch POS Profile
         pos_profile_doc = frappe.get_doc("POS Profile", doc.get("pos_profile"))
@@ -442,28 +444,35 @@ def save_draft_invoice(doc):
             else [{"mode_of_payment": "Cash", "amount": 0}]
         )
         
-        # Structure items
-        items = []
-        for item in doc.get("items", []):
-            items.append({
-                "item_code": item.get("item_code"),
-                "qty": item.get("qty", 1),
-                "rate": item.get("rate", 0),
-                "uom": item.get("uom"),
-                "warehouse": item.get("warehouse") or pos_profile_doc.warehouse,
-                "serial_no": item.get("serial_no"),
-                "batch_no": item.get("batch_no")
-            })
-        
         # Check if invoice with the provided name exists and is in draft status
         invoice_name = doc.get("name")
+        input_created_by_name = doc.get("created_by_name")
+        
         if invoice_name and frappe.db.exists("POS Invoice", {"name": invoice_name, "docstatus": 0}):
-            # Update existing draft invoice
+            # Load existing draft invoice
             invoice = frappe.get_doc("POS Invoice", invoice_name)
-            invoice.update({
+            
+            # Check if the input created_by_name matches the existing invoice's created_by_name
+            if invoice.created_by_name != input_created_by_name:
+                frappe.throw(
+                    f"You are not authorized to edit this invoice. Only the creator ({invoice.created_by_name}) can edit it.",
+                    frappe.PermissionError
+                )
+            
+            # Update existing draft invoice
+            invoice_data = {
                 "customer": doc.get("customer"),
-                "items": items,
-                "created_by_name": doc.get("created_by_name"),
+                "items": [
+                    {
+                        "item_code": item.get("item_code"),
+                        "qty": item.get("qty", 1),
+                        "rate": item.get("rate", 0),
+                        "uom": item.get("uom"),
+                        "warehouse": item.get("warehouse") or pos_profile_doc.warehouse,
+                        "serial_no": item.get("serial_no"),
+                        "batch_no": item.get("batch_no")
+                    } for item in doc.get("items", [])
+                ],
                 "pos_profile": doc.get("pos_profile"),
                 "company": doc.get("company") or pos_profile_doc.company,
                 "payments": default_payment,
@@ -472,15 +481,30 @@ def save_draft_invoice(doc):
                 "posting_time": frappe.utils.nowtime(),
                 "currency": pos_profile_doc.currency or frappe.defaults.get_global_default("currency"),
                 "docstatus": 0
-            })
+            }
+            # Update created_by_name only if explicitly provided and valid
+            if doc.get("created_by_name"):
+                invoice_data["created_by_name"] = doc.get("created_by_name")
+                
+            invoice.update(invoice_data)
             invoice.save()
         else:
             # Create new POS Invoice
             invoice = frappe.get_doc({
                 "doctype": "POS Invoice",
                 "customer": doc.get("customer"),
-                "items": items,
-                "created_by_name": doc.get("created_by_name"),
+                "items": [
+                    {
+                        "item_code": item.get("item_code"),
+                        "qty": item.get("qty", 1),
+                        "rate": item.get("rate", 0),
+                        "uom": item.get("uom"),
+                        "warehouse": item.get("warehouse") or pos_profile_doc.warehouse,
+                        "serial_no": item.get("serial_no"),
+                        "batch_no": item.get("batch_no")
+                    } for item in doc.get("items", [])
+                ],
+                "created_by_name": input_created_by_name,
                 "is_pos": 1,
                 "pos_profile": doc.get("pos_profile"),
                 "company": doc.get("company") or pos_profile_doc.company,
