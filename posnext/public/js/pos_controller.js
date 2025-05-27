@@ -253,6 +253,7 @@ posnext.PointOfSale.Controller = class {
         method: "posnext.posnext.page.posnext.point_of_sale.save_draft_invoice",
         args: {
             doc: {
+                name: frm.doc.name, // Include the invoice name
                 customer: frm.doc.customer,
                 items: frm.doc.items.map(item => ({
                     item_code: item.item_code,
