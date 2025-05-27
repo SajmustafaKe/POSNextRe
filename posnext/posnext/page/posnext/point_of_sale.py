@@ -455,24 +455,44 @@ def save_draft_invoice(doc):
                 "batch_no": item.get("batch_no")
             })
         
-        # Create POS Invoice
-        invoice = frappe.get_doc({
-            "doctype": "POS Invoice",
-            "customer": doc.get("customer"),
-            "items": items,
-            "created_by_name": doc.get("created_by_name"),
-            "is_pos": 1,
-            "pos_profile": doc.get("pos_profile"),
-            "company": doc.get("company") or pos_profile_doc.company,
-            "payments": default_payment,
-            "set_warehouse": pos_profile_doc.warehouse,
-            "posting_date": frappe.utils.nowdate(),
-            "posting_time": frappe.utils.nowtime(),
-            "currency": pos_profile_doc.currency or frappe.defaults.get_global_default("currency"),
-            "docstatus": 0
-        })
+        # Check if invoice with the provided name exists and is in draft status
+        invoice_name = doc.get("name")
+        if invoice_name and frappe.db.exists("POS Invoice", {"name": invoice_name, "docstatus": 0}):
+            # Update existing draft invoice
+            invoice = frappe.get_doc("POS Invoice", invoice_name)
+            invoice.update({
+                "customer": doc.get("customer"),
+                "items": items,
+                "created_by_name": doc.get("created_by_name"),
+                "pos_profile": doc.get("pos_profile"),
+                "company": doc.get("company") or pos_profile_doc.company,
+                "payments": default_payment,
+                "set_warehouse": pos_profile_doc.warehouse,
+                "posting_date": frappe.utils.nowdate(),
+                "posting_time": frappe.utils.nowtime(),
+                "currency": pos_profile_doc.currency or frappe.defaults.get_global_default("currency"),
+                "docstatus": 0
+            })
+            invoice.save()
+        else:
+            # Create new POS Invoice
+            invoice = frappe.get_doc({
+                "doctype": "POS Invoice",
+                "customer": doc.get("customer"),
+                "items": items,
+                "created_by_name": doc.get("created_by_name"),
+                "is_pos": 1,
+                "pos_profile": doc.get("pos_profile"),
+                "company": doc.get("company") or pos_profile_doc.company,
+                "payments": default_payment,
+                "set_warehouse": pos_profile_doc.warehouse,
+                "posting_date": frappe.utils.nowdate(),
+                "posting_time": frappe.utils.nowtime(),
+                "currency": pos_profile_doc.currency or frappe.defaults.get_global_default("currency"),
+                "docstatus": 0
+            })
+            invoice.insert()
         
-        invoice.insert()
         return {"name": invoice.name}
     except Exception as e:
         frappe.log_error(f"Save Draft Failed: {str(e)[:100]}", "POSNext")
