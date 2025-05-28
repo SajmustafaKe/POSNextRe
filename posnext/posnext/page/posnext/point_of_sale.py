@@ -410,7 +410,7 @@ def generate_pdf_and_save(docname, doctype, print_format=None):
 	return file_doc
 
 
-@@frappe.whitelist()
+@frappe.whitelist()
 def save_draft_invoice(doc):
     try:
         doc = frappe.parse_json(doc)
