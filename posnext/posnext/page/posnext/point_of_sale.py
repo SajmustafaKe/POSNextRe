@@ -428,24 +428,6 @@ def save_draft_invoice(doc):
         # Fetch POS Profile
         pos_profile_doc = frappe.get_doc("POS Profile", doc.get("pos_profile"))
         
-        # Check if there's an open POS Opening Entry for this POS Profile (any user)
-        open_entry = frappe.db.get_value(
-            "POS Opening Entry",
-            {
-                "pos_profile": doc.get("pos_profile"),
-                "pos_closing_entry": ["in", ["", None]],
-                "docstatus": 1
-            },
-            ["name", "user"],
-            order_by="creation desc"
-        )
-        
-        # If an open entry exists but not for current user, temporarily switch context
-        original_user = None
-        if open_entry and open_entry[1] != frappe.session.user:
-            original_user = frappe.session.user
-            frappe.set_user(open_entry[1])  # Switch to the user who created the opening entry
-        
         # Ensure "Cash" Mode of Payment exists
         if not frappe.db.exists("Mode of Payment", "Cash"):
             frappe.get_doc({
@@ -466,85 +448,76 @@ def save_draft_invoice(doc):
         invoice_name = doc.get("name")
         input_created_by_name = doc.get("created_by_name")
         
-        try:
-            if invoice_name and frappe.db.exists("POS Invoice", {"name": invoice_name, "docstatus": 0}):
-                # Load existing draft invoice
-                invoice = frappe.get_doc("POS Invoice", invoice_name)
-                
-                # Check if the input created_by_name matches the existing invoice's created_by_name
-                if invoice.created_by_name != input_created_by_name:
-                    frappe.throw(
-                        f"You are not authorized to edit this invoice. Only the creator ({invoice.created_by_name}) can edit it.",
-                        frappe.PermissionError
-                    )
-                
-                # Update existing draft invoice
-                invoice_data = {
-                    "customer": doc.get("customer"),
-                    "items": [
-                        {
-                            "item_code": item.get("item_code"),
-                            "qty": item.get("qty", 1),
-                            "rate": item.get("rate", 0),
-                            "uom": item.get("uom"),
-                            "warehouse": item.get("warehouse") or pos_profile_doc.warehouse,
-                            "serial_no": item.get("serial_no"),
-                            "batch_no": item.get("batch_no")
-                        } for item in doc.get("items", [])
-                    ],
-                    "pos_profile": doc.get("pos_profile"),
-                    "company": doc.get("company") or pos_profile_doc.company,
-                    "payments": default_payment,
-                    "set_warehouse": pos_profile_doc.warehouse,
-                    "posting_date": frappe.utils.nowdate(),
-                    "posting_time": frappe.utils.nowtime(),
-                    "currency": pos_profile_doc.currency or frappe.defaults.get_global_default("currency"),
-                    "docstatus": 0
-                }
-                # Update created_by_name only if explicitly provided and valid
-                if doc.get("created_by_name"):
-                    invoice_data["created_by_name"] = doc.get("created_by_name")
-                    
-                invoice.update(invoice_data)
-                invoice.save(ignore_permissions=True)
-            else:
-                # Create new POS Invoice
-                invoice = frappe.get_doc({
-                    "doctype": "POS Invoice",
-                    "customer": doc.get("customer"),
-                    "items": [
-                        {
-                            "item_code": item.get("item_code"),
-                            "qty": item.get("qty", 1),
-                            "rate": item.get("rate", 0),
-                            "uom": item.get("uom"),
-                            "warehouse": item.get("warehouse") or pos_profile_doc.warehouse,
-                            "serial_no": item.get("serial_no"),
-                            "batch_no": item.get("batch_no")
-                        } for item in doc.get("items", [])
-                    ],
-                    "created_by_name": input_created_by_name,
-                    "is_pos": 1,
-                    "pos_profile": doc.get("pos_profile"),
-                    "company": doc.get("company") or pos_profile_doc.company,
-                    "payments": default_payment,
-                    "set_warehouse": pos_profile_doc.warehouse,
-                    "posting_date": frappe.utils.nowdate(),
-                    "posting_time": frappe.utils.nowtime(),
-                    "currency": pos_profile_doc.currency or frappe.defaults.get_global_default("currency"),
-                    "docstatus": 0
-                })
-                invoice.insert(ignore_permissions=True)
+        if invoice_name and frappe.db.exists("POS Invoice", {"name": invoice_name, "docstatus": 0}):
+            # Load existing draft invoice
+            invoice = frappe.get_doc("POS Invoice", invoice_name)
             
-            result = {"name": invoice.name}
+            # Check if the input created_by_name matches the existing invoice's created_by_name
+            if invoice.created_by_name != input_created_by_name:
+                frappe.throw(
+                    f"You are not authorized to edit this invoice. Only the creator ({invoice.created_by_name}) can edit it.",
+                    frappe.PermissionError
+                )
             
-        finally:
-            # Always restore the original user context
-            if original_user:
-                frappe.set_user(original_user)
+            # Update existing draft invoice
+            invoice_data = {
+                "customer": doc.get("customer"),
+                "items": [
+                    {
+                        "item_code": item.get("item_code"),
+                        "qty": item.get("qty", 1),
+                        "rate": item.get("rate", 0),
+                        "uom": item.get("uom"),
+                        "warehouse": item.get("warehouse") or pos_profile_doc.warehouse,
+                        "serial_no": item.get("serial_no"),
+                        "batch_no": item.get("batch_no")
+                    } for item in doc.get("items", [])
+                ],
+                "pos_profile": doc.get("pos_profile"),
+                "company": doc.get("company") or pos_profile_doc.company,
+                "payments": default_payment,
+                "set_warehouse": pos_profile_doc.warehouse,
+                "posting_date": frappe.utils.nowdate(),
+                "posting_time": frappe.utils.nowtime(),
+                "currency": pos_profile_doc.currency or frappe.defaults.get_global_default("currency"),
+                "docstatus": 0
+            }
+            # Update created_by_name only if explicitly provided and valid
+            if doc.get("created_by_name"):
+                invoice_data["created_by_name"] = doc.get("created_by_name")
+                
+            invoice.update(invoice_data)
+            invoice.save()
+        else:
+            # Create new POS Invoice
+            invoice = frappe.get_doc({
+                "doctype": "POS Invoice",
+                "customer": doc.get("customer"),
+                "items": [
+                    {
+                        "item_code": item.get("item_code"),
+                        "qty": item.get("qty", 1),
+                        "rate": item.get("rate", 0),
+                        "uom": item.get("uom"),
+                        "warehouse": item.get("warehouse") or pos_profile_doc.warehouse,
+                        "serial_no": item.get("serial_no"),
+                        "batch_no": item.get("batch_no")
+                    } for item in doc.get("items", [])
+                ],
+                "created_by_name": input_created_by_name,
+                "is_pos": 1,
+                "pos_profile": doc.get("pos_profile"),
+                "company": doc.get("company") or pos_profile_doc.company,
+                "payments": default_payment,
+                "set_warehouse": pos_profile_doc.warehouse,
+                "posting_date": frappe.utils.nowdate(),
+                "posting_time": frappe.utils.nowtime(),
+                "currency": pos_profile_doc.currency or frappe.defaults.get_global_default("currency"),
+                "docstatus": 0
+            })
+            invoice.insert()
         
-        return result
-        
+        return {"name": invoice.name}
     except Exception as e:
         frappe.log_error(f"Save Draft Failed: {str(e)[:100]}", "POSNext")
         raise
