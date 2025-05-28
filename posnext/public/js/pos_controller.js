@@ -22,8 +22,8 @@ posnext.PointOfSale.Controller = class {
 
 	check_opening_entry(value = "") {
 	// Check if current user has 'waiter' role
-	const user_roles = frappe.user_roles || [];
-	const is_waiter = user_roles.includes('waiter') || user_roles.includes('Waiter');
+	// const user_roles = frappe.user_roles || [];
+	const is_waiter = frappe.user_roles.includes('waiter') || frappe.user_roles.includes('Waiter');
 	
 	this.fetch_opening_entry(value).then((r) => {
 		if (r.message.length) {
