@@ -551,6 +551,101 @@ def check_edit_permission(invoice_name, secret_key):
         raise
 
 @frappe.whitelist()
+def get_available_opening_entry():
+	"""
+	Get any available POS Opening Entry for waiters to use
+	Returns the most recent opening entry that hasn't been closed
+	"""
+	# Get all open POS Opening Entries (not closed)
+	open_vouchers = frappe.db.get_all(
+		"POS Opening Entry",
+		filters={
+			"pos_closing_entry": ["in", ["", None]], 
+			"docstatus": 1
+		},
+		fields=["name", "company", "pos_profile", "period_start_date", "user"],
+		order_by="period_start_date desc",
+		limit=1  # Get the most recent one
+	)
+	
+	return open_vouchers
+
+@frappe.whitelist()
+def check_opening_entry(user, value):
+	"""
+	Modified check_opening_entry to handle waiter role
+	"""
+	# Check if user has waiter role
+	user_roles = frappe.get_roles(user)
+	is_waiter = 'waiter' in [role.lower() for role in user_roles] or 'Waiter' in user_roles
+	
+	if is_waiter:
+		# For waiters, first check if they have their own opening entry
+		filters = {"user": user, "pos_closing_entry": ["in", ["", None]], "docstatus": 1}
+		if value:
+			filters['pos_profile'] = value
+			
+		user_vouchers = frappe.db.get_all(
+			"POS Opening Entry",
+			filters=filters,
+			fields=["name", "company", "pos_profile", "period_start_date"],
+			order_by="period_start_date desc",
+		)
+		
+		if user_vouchers:
+			return user_vouchers
+		
+		# If waiter has no personal opening entry, return any available one
+		return get_available_opening_entry()
+	else:
+		# Original logic for non-waiters
+		filters = {"user": user, "pos_closing_entry": ["in", ["", None]], "docstatus": 1}
+		if value:
+			filters['pos_profile'] = value
+			
+		open_vouchers = frappe.db.get_all(
+			"POS Opening Entry",
+			filters=filters,
+			fields=["name", "company", "pos_profile", "period_start_date"],
+			order_by="period_start_date desc",
+		)
+		
+		return open_vouchers
+
+@frappe.whitelist()
+def get_waiter_pos_stats(pos_opening_entry):
+	"""
+	Get statistics for waiters using shared POS opening entry
+	Shows how many invoices they've created under this opening entry
+	"""
+	user = frappe.session.user
+	
+	# Count invoices created by this waiter under the shared opening entry
+	invoice_count = frappe.db.count(
+		"POS Invoice",
+		filters={
+			"pos_opening_entry": pos_opening_entry,
+			"owner": user,
+			"docstatus": ["!=", 2]  # Exclude cancelled invoices
+		}
+	)
+	
+	# Get total amount for this waiter's invoices
+	total_amount = frappe.db.sql("""
+		SELECT COALESCE(SUM(grand_total), 0) as total
+		FROM `tabPOS Invoice`
+		WHERE pos_opening_entry = %s 
+		AND owner = %s 
+		AND docstatus != 2
+	""", (pos_opening_entry, user), as_dict=True)
+	
+	return {
+		"invoice_count": invoice_count,
+		"total_amount": total_amount[0].total if total_amount else 0,
+		"user": frappe.get_value("User", user, "full_name") or user
+	}
+
+@frappe.whitelist()
 def get_user_name_from_secret_key(secret_key):
     if frappe.db.exists("User Secret Key", {"secret_key": secret_key}):
         return frappe.get_value("User Secret Key", {"secret_key": secret_key}, "user_name")

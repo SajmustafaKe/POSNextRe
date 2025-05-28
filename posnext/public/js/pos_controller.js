@@ -21,16 +21,55 @@ posnext.PointOfSale.Controller = class {
 	}
 
 	check_opening_entry(value = "") {
-
-		this.fetch_opening_entry(value).then((r) => {
-			if (r.message.length) {
-				// assuming only one opening voucher is available for the current user
-				this.prepare_app_defaults(r.message[0]);
+	// Check if current user has 'waiter' role
+	const user_roles = frappe.user_roles || [];
+	const is_waiter = user_roles.includes('waiter') || user_roles.includes('Waiter');
+	
+	this.fetch_opening_entry(value).then((r) => {
+		if (r.message.length) {
+			// If opening entries exist, use the first one
+			this.prepare_app_defaults(r.message[0]);
+		} else {
+			// If no opening entry exists
+			if (is_waiter) {
+				// For waiters, show a message and try to find any available opening entry
+				this.find_available_opening_entry();
 			} else {
+				// For other users, create new opening voucher as usual
 				this.create_opening_voucher();
 			}
-		});
-	}
+		}
+	});
+}
+
+// New method to find any available opening entry for waiters
+find_available_opening_entry() {
+	const me = this;
+	
+	// Call server method to get any available opening entry
+	frappe.call({
+		method: "posnext.posnext.page.posnext.point_of_sale.get_available_opening_entry",
+		callback: (r) => {
+			if (r.message && r.message.length > 0) {
+				// Use the first available opening entry
+				me.prepare_app_defaults(r.message[0]);
+				
+				// Show info message to waiter
+				frappe.show_alert({
+					message: __("Using existing POS Opening Entry: {0}", [r.message[0].name]),
+					indicator: 'blue'
+				});
+			} else {
+				// No opening entries available at all
+				frappe.msgprint({
+					title: __('No POS Opening Entry Available'),
+					message: __('No POS Opening Entry is currently available. Please contact your manager to create one.'),
+					indicator: 'red'
+				});
+			}
+		}
+	});
+}
 
 	create_opening_voucher() {
 		const me = this;
