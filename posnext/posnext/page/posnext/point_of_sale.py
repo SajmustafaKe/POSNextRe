@@ -576,3 +576,68 @@ def get_user_name_from_secret_key(secret_key):
         return frappe.get_value("User Secret Key", {"secret_key": secret_key}, "user_name")
     else:
         frappe.throw("Invalid secret key")
+
+@frappe.whitelist()
+def print_captain_order(invoice_name, current_items, print_format, _lang):
+    try:
+        # Fetch the existing POS Invoice
+        if frappe.db.exists("POS Invoice", invoice_name):
+            pos_invoice = frappe.get_doc("POS Invoice", invoice_name)
+            saved_items = [
+                {
+                    "item_code": item.item_code,
+                    "qty": item.qty,
+                    "uom": item.uom,
+                    "rate": item.rate,
+                    "name": item.name
+                } for item in pos_invoice.items
+            ]
+        else:
+            saved_items = []
+
+        # Convert items to dictionaries for comparison
+        current_items_dict = {item["name"]: item for item in current_items}
+        saved_items_dict = {item["name"]: item for item in saved_items}
+
+        # Identify new or updated items
+        new_items = []
+        for item in current_items:
+            item_name = item["name"]
+            if item_name not in saved_items_dict:
+                # New item
+                new_items.append(item)
+            elif saved_items_dict[item_name]["qty"] != item["qty"]:
+                # Quantity changed, add the difference
+                qty_diff = item["qty"] - saved_items_dict[item_name]["qty"]
+                if qty_diff > 0:
+                    new_item = item.copy()
+                    new_item["qty"] = qty_diff
+                    new_items.append(new_item)
+
+        if not new_items:
+            return {"success": False, "error": "No new items to print"}
+
+        # Create a temporary doc with new items for raw command generation
+        temp_doc = frappe.get_doc({
+            "doctype": "POS Invoice",
+            "name": invoice_name,
+            "items": new_items,
+            "timestamp": frappe.utils.now(),
+            "pos_profile": pos_invoice.pos_profile if frappe.db.exists("POS Invoice", invoice_name) else ""
+        })
+
+        # Generate raw commands
+        raw_commands = frappe.get_print(
+            doctype="POS Invoice",
+            name=invoice_name,
+            print_format=print_format,
+            doc=temp_doc,
+            as_raw=True,
+            lang=_lang
+        )
+
+        return {"success": True, "raw_commands": raw_commands}
+
+    except Exception as e:
+        frappe.log_error(f"Error in print_captain_order: {str(e)}")
+        return {"success": False, "error": str(e)}
