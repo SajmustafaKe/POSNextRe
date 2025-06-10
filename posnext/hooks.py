@@ -21,6 +21,7 @@ app_include_js = [
     # "/assets/posnext/js/pos_past_order_list.js",
     # "/assets/posnext/js/pos_past_order_summary.js",
     # "/assets/posnext/js/pos_payment.js",
+    "/assets/posnext/js/pos_invoice.js",
     "posnext.bundle.js",
 ]
 
