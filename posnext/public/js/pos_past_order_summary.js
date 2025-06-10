@@ -72,6 +72,18 @@ posnext.PointOfSale.PastOrderSummary = class {
 			primary_action_label: __('Print'),
 		});
 		this.print_dialog = print_dialog;
+
+		const print_order_dialog = new frappe.ui.Dialog({
+			title: 'Print Order',
+			fields: [
+				{fieldname: 'print', fieldtype: 'Data', label: 'Print Preview'}
+			],
+			primary_action: () => {
+				this.print_order();
+			},
+			primary_action_label: __('Print'),
+		});
+		this.print_order_dialog = print_order_dialog;
 	}
 
 	get_upper_section_html(doc) {
@@ -228,6 +240,9 @@ posnext.PointOfSale.PastOrderSummary = class {
 			this.email_dialog.fields_dict.email_id.set_value(this.customer_email);
 			this.email_dialog.show();
 		});
+		this.$summary_container.on('click', '.print-order-btn', () => {
+			this.print_order();
+		});
 
 		this.$summary_container.on('click', '.print-btn', () => {
 			this.print_receipt();
@@ -244,6 +259,32 @@ posnext.PointOfSale.PastOrderSummary = class {
     
     // Check if QZ printing is enabled in Print Settings
     frappe.db.get_value("Print Settings", "Print Settings", "enable_raw_printing")
+        .then(({ message }) => {
+            if (message && message.enable_raw_printing === "1") {
+                // Use QZ Tray for direct printing
+                this._print_via_qz(doctype, docname, print_format, letterhead, lang_code);
+            } else {
+                // Fallback to regular print dialog
+                frappe.utils.print(
+                    doctype,
+                    docname,
+                    print_format,
+                    letterhead,
+                    lang_code
+                );
+            }
+        });
+}
+
+print_order(){
+	//const frm = this.events.get_frm();
+    const print_format = "Captain Order";
+    const doctype = this.doc.doctype;
+    const docname = this.doc.name;
+    const letterhead = this.doc.letter_head || __("No Letterhead");
+    const lang_code = this.doc.language || frappe.boot.lang;
+
+	frappe.db.get_value("Print Settings", "Print Settings", "enable_raw_printing")
         .then(({ message }) => {
             if (message && message.enable_raw_printing === "1") {
                 // Use QZ Tray for direct printing
@@ -449,6 +490,14 @@ attach_shortcuts() {
 			description: __("Print Receipt"),
 			page: cur_page.page.page
 		});
+		this.$summary_container.find('.print-order-btn').attr("title", `${ctrl_label}+O`);
+		frappe.ui.keys.add_shortcut({
+			shortcut: "ctrl+p",
+			action: () => this.$summary_container.find('.print-order-btn').click(),
+			condition: () => this.$component.is(':visible') && this.$summary_container.find('.print-order-btn').is(":visible"),
+			description: __("Print Order"),
+			page: cur_page.page.page
+		});
 		this.$summary_container.find('.new-btn').attr("title", `${ctrl_label}+Enter`);
 		frappe.ui.keys.on("ctrl+enter", () => {
 			const summary_is_visible = this.$component.is(":visible");
@@ -539,7 +588,7 @@ attach_shortcuts() {
 			return [{ condition: true, visible_btns: ['Print Receipt', 'Email Receipt','Send Whatsapp', 'New Order'] }];
 
 		return [
-			{ condition: this.doc.docstatus === 0, visible_btns: ['Print Receipt','Edit Order', 'Delete Order','Send Whatsapp'] },
+			{ condition: this.doc.docstatus === 0, visible_btns: ['Print Receipt','Edit Order', 'Delete Order','Send Whatsapp','Print Order'] },
 			{ condition: !this.doc.is_return && this.doc.docstatus === 1, visible_btns: ['Print Receipt', 'Email Receipt', 'Return','Send Whatsapp']},
 			{ condition: this.doc.is_return && this.doc.docstatus === 1, visible_btns: ['Print Receipt', 'Email Receipt','Send Whatsapp']}
 		];
