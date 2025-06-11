@@ -242,6 +242,7 @@ posnext.PointOfSale.PastOrderSummary = class {
 		});
 		this.$summary_container.on('click', '.print-order-btn', () => {
 			this.print_order();
+			console.log("Print Order button clicked");
 		});
 
 		this.$summary_container.on('click', '.print-btn', () => {
@@ -748,7 +749,7 @@ attach_shortcuts() {
 		});
 		this.$summary_container.find('.print-order-btn').attr("title", `${ctrl_label}+O`);
 		frappe.ui.keys.add_shortcut({
-			shortcut: "ctrl+p",
+			shortcut: "ctrl+o",
 			action: () => this.$summary_container.find('.print-order-btn').click(),
 			condition: () => this.$component.is(':visible') && this.$summary_container.find('.print-order-btn').is(":visible"),
 			description: __("Print Order"),
