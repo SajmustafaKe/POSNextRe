@@ -276,32 +276,254 @@ posnext.PointOfSale.PastOrderSummary = class {
         });
 }
 	print_order() {
-    const print_format = "Captain Order";
     const doctype = this.doc.doctype;
     const docname = this.doc.name;
+    const print_format = "Captain Order";
     const letterhead = this.doc.letter_head || __("No Letterhead");
     const lang_code = this.doc.language || frappe.boot.lang;
-    
-    // Check if QZ printing is enabled in Print Settings
+
+    // Helper methods for QZ printing (include if not already defined in the class)
+    const _print_via_qz = (doctype, docname, print_format, letterhead, lang_code) => {
+        const print_format_printer_map = _get_print_format_printer_map();
+        const mapped_printer = _get_mapped_printer(print_format_printer_map, doctype, print_format);
+
+        if (mapped_printer.length === 1) {
+            _print_with_mapped_printer(doctype, docname, print_format, letterhead, lang_code, mapped_printer[0]);
+        } else if (_is_raw_printing(print_format)) {
+            frappe.show_alert({
+                message: __("Printer mapping not set."),
+                subtitle: __("Please set a printer mapping for this print format in the Printer Settings"),
+                indicator: "warning"
+            }, 14);
+            _printer_setting_dialog(doctype, print_format);
+        } else {
+            _render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code);
+        }
+    };
+
+    const _print_with_mapped_printer = (doctype, docname, print_format, letterhead, lang_code, printer_map) => {
+        if (_is_raw_printing(print_format)) {
+            _get_raw_commands(doctype, docname, print_format, lang_code, (out) => {
+                frappe.ui.form.qz_connect()
+                    .then(() => {
+                        let config = qz.configs.create(printer_map.printer);
+                        let data = [out.raw_commands];
+                        return qz.print(config, data);
+                    })
+                    .then(frappe.ui.form.qz_success)
+                    .catch((err) => {
+                        frappe.ui.form.qz_fail(err);
+                    });
+            });
+        } else {
+            frappe.show_alert({
+                message: __('PDF printing via "Raw Print" is not supported.'),
+                subtitle: __("Please remove the printer mapping in Printer Settings and try again."),
+                indicator: "info"
+            }, 14);
+            _render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code);
+        }
+    };
+
+    const _get_raw_commands = (doctype, docname, print_format, lang_code, callback) => {
+        // For "Captain Order" print format, use your custom method
+        if (print_format === "Captain Order") {
+            frappe.call({
+                method: "posnext.posnext.page.posnext.point_of_sale.print_captain_order",
+                args: {
+                    invoice_name: docname,
+                    current_items: this.doc.items.map(item => ({
+                        item_code: item.item_code,
+                        qty: item.qty,
+                        uom: item.uom,
+                        rate: item.rate,
+                        name: item.name
+                    })),
+                    print_format: print_format,
+                    _lang: lang_code
+                },
+                callback: (r) => {
+                    if (!r.exc && r.message && r.message.success) {
+                        callback({ raw_commands: r.message.raw_commands });
+                    } else {
+                        frappe.show_alert({
+                            message: __("Failed to generate raw commands: " + (r.message.error || "Unknown error")),
+                            indicator: 'red'
+                        });
+                        frappe.utils.play_sound("error");
+                    }
+                }
+            });
+        } else {
+            // For other print formats, use the standard method
+            frappe.call({
+                method: "frappe.www.printview.get_rendered_raw_commands",
+                args: {
+                    doc: frappe.get_doc(doctype, docname),
+                    print_format: print_format,
+                    _lang: lang_code
+                },
+                callback: (r) => {
+                    if (!r.exc) {
+                        callback(r.message);
+                    } else {
+                        frappe.show_alert({
+                            message: __("Failed to generate raw commands"),
+                            indicator: 'red'
+                        });
+                        frappe.utils.play_sound("error");
+                    }
+                }
+            });
+        }
+    };
+
+    const _is_raw_printing = (format) => {
+        let print_format = {};
+        if (locals["Print Format"] && locals["Print Format"][format]) {
+            print_format = locals["Print Format"][format];
+        }
+        return print_format.raw_printing === 1;
+    };
+
+    const _get_print_format_printer_map = () => {
+        try {
+            return JSON.parse(localStorage.print_format_printer_map || "{}");
+        } catch (e) {
+            return {};
+        }
+    };
+
+    const _get_mapped_printer = (print_format_printer_map, doctype, print_format) => {
+        if (print_format_printer_map[doctype]) {
+            return print_format_printer_map[doctype].filter(
+                (printer_map) => printer_map.print_format === print_format
+            );
+        }
+        return [];
+    };
+
+    const _render_pdf_or_regular_print = (doctype, docname, print_format, letterhead, lang_code) => {
+        // CRITICAL FIX: Ensure we use the Captain Order print format
+        frappe.utils.print(
+            doctype,
+            docname,
+            print_format, // This ensures "Captain Order" is used, not the POS profile format
+            letterhead,
+            lang_code
+        );
+    };
+
+    const _printer_setting_dialog = (doctype, current_print_format) => {
+        let print_format_printer_map = _get_print_format_printer_map();
+        let data = print_format_printer_map[doctype] || [];
+
+        frappe.ui.form.qz_get_printer_list().then((printer_list) => {
+            if (!(printer_list && printer_list.length)) {
+                frappe.throw(__("No Printer is Available."));
+                return;
+            }
+
+            const dialog = new frappe.ui.Dialog({
+                title: __("Printer Settings"),
+                fields: [
+                    { fieldtype: "Section Break" },
+                    {
+                        fieldname: "printer_mapping",
+                        fieldtype: "Table",
+                        label: __("Printer Mapping"),
+                        in_place_edit: true,
+                        data: data,
+                        get_data: () => data,
+                        fields: [
+                            {
+                                fieldtype: "Select",
+                                fieldname: "print_format",
+                                default: 0,
+                                options: frappe.meta.get_print_formats(doctype),
+                                read_only: 0,
+                                in_list_view: 1,
+                                label: __("Print Format")
+                            },
+                            {
+                                fieldtype: "Select",
+                                fieldname: "printer",
+                                default: 0,
+                                options: printer_list,
+                                read_only: 0,
+                                in_list_view: 1,
+                                label: __("Printer")
+                            }
+                        ]
+                    }
+                ],
+                primary_action: () => {
+                    let printer_mapping = dialog.get_values()["printer_mapping"];
+                    if (printer_mapping && printer_mapping.length) {
+                        let print_format_list = printer_mapping.map((a) => a.print_format);
+                        let has_duplicate = print_format_list.some(
+                            (item, idx) => print_format_list.indexOf(item) != idx
+                        );
+                        if (has_duplicate) {
+                            frappe.throw(__("Cannot have multiple printers mapped to a single print format."));
+                            return;
+                        }
+                    } else {
+                        printer_mapping = [];
+                    }
+
+                    let saved_print_format_printer_map = _get_print_format_printer_map();
+                    saved_print_format_printer_map[doctype] = printer_mapping;
+                    localStorage.print_format_printer_map = JSON.stringify(saved_print_format_printer_map);
+
+                    dialog.hide();
+
+                    // CRITICAL FIX: Use current_print_format (which is "Captain Order") not just print_format
+                    _print_via_qz(doctype, docname, current_print_format, letterhead, lang_code);
+                },
+                primary_action_label: __("Save")
+            });
+
+            dialog.show();
+        });
+    };
+
+    // Main logic
+    if (!this.doc.items.length) {
+        frappe.show_alert({
+            message: __("No items in the invoice to print."),
+            indicator: 'red'
+        });
+        frappe.utils.play_sound("error");
+        return;
+    }
+
+    frappe.dom.freeze();
     frappe.db.get_value("Print Settings", "Print Settings", "enable_raw_printing")
         .then(({ message }) => {
+            frappe.dom.unfreeze();
             if (message && message.enable_raw_printing === "1") {
-                // Use QZ Tray for direct printing
-                this._print_via_qz(doctype, docname, print_format, letterhead, lang_code);
+                _print_via_qz(doctype, docname, print_format, letterhead, lang_code);
             } else {
-                // Fallback to regular print dialog
+                // CRITICAL FIX: Fallback to regular print dialog with Captain Order format
                 frappe.utils.print(
                     doctype,
                     docname,
-                    print_format,
+                    print_format, // This ensures "Captain Order" is used, not the POS profile format
                     letterhead,
                     lang_code
                 );
             }
+        })
+        .catch(() => {
+            frappe.dom.unfreeze();
+            frappe.show_alert({
+                message: __("Failed to check Print Settings."),
+                indicator: 'red'
+            });
+            frappe.utils.play_sound("error");
         });
 }
-
-
 
 // Add these helper methods at the appropriate location in your class (not inside another method)
 _print_via_qz(doctype, docname, print_format, letterhead, lang_code) {
