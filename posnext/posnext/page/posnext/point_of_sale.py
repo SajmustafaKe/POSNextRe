@@ -612,7 +612,7 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
             name=invoice_name,
             print_format=print_format,
             doc=temp_doc,
-            as_raw=True,
+            #as_raw=True,
             lang=_lang
         )
 
