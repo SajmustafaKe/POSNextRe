@@ -580,6 +580,28 @@ def get_user_name_from_secret_key(secret_key):
 @frappe.whitelist()
 def print_captain_order(invoice_name, current_items, print_format, _lang):
     try:
+        # Parse current_items if it's a string
+        if isinstance(current_items, str):
+            try:
+                current_items = json.loads(current_items)
+            except json.JSONDecodeError as e:
+                frappe.log_error(f"Failed to parse current_items: {str(e)}")
+                return {"success": False, "error": "Invalid current_items format: not a valid JSON string"}
+
+        # Validate that current_items is a list
+        if not isinstance(current_items, list):
+            frappe.log_error(f"Invalid current_items type: expected list, got {type(current_items)}")
+            return {"success": False, "error": "current_items must be a list"}
+
+        # Validate each item in current_items
+        required_fields = ["item_code", "qty", "uom", "rate", "name"]
+        for item in current_items:
+            if not isinstance(item, dict):
+                return {"success": False, "error": "Each item must be a dictionary"}
+            for field in required_fields:
+                if field not in item:
+                    return {"success": False, "error": f"Item missing required field: {field}"}
+
         # Fetch the existing POS Invoice
         if frappe.db.exists("POS Invoice", invoice_name):
             pos_invoice = frappe.get_doc("POS Invoice", invoice_name)
