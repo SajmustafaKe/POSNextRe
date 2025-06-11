@@ -580,6 +580,9 @@ def get_user_name_from_secret_key(secret_key):
 @frappe.whitelist()
 def print_captain_order(invoice_name, current_items, print_format, _lang):
     try:
+        # FORCE Captain Order print format regardless of what's passed
+        captain_order_format = "Captain Order"
+        
         # Fetch the existing POS Invoice
         if frappe.db.exists("POS Invoice", invoice_name):
             pos_invoice = frappe.get_doc("POS Invoice", invoice_name)
@@ -594,6 +597,9 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
             ]
         else:
             saved_items = []
+            # If invoice doesn't exist, we still need a POS Invoice doc for printing
+            pos_invoice = frappe.new_doc("POS Invoice")
+            pos_invoice.name = invoice_name
 
         # Convert items to dictionaries for comparison
         current_items_dict = {item["name"]: item for item in current_items}
@@ -623,18 +629,58 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
             "name": invoice_name,
             "items": new_items,
             "timestamp": frappe.utils.now(),
-            "pos_profile": pos_invoice.pos_profile if frappe.db.exists("POS Invoice", invoice_name) else ""
+            "pos_profile": pos_invoice.pos_profile if hasattr(pos_invoice, 'pos_profile') else ""
         })
 
-        # Generate raw commands
-        raw_commands = frappe.get_print(
-            doctype="POS Invoice",
-            name=invoice_name,
-            print_format=print_format,
-            doc=temp_doc,
-            as_raw=True,
-            lang=_lang
-        )
+        # CRITICAL FIX: Verify Captain Order print format exists
+        if not frappe.db.exists("Print Format", captain_order_format):
+            return {"success": False, "error": f"Print Format '{captain_order_format}' does not exist"}
+
+        # Generate raw commands using FORCED Captain Order format
+        try:
+            raw_commands = frappe.get_print(
+                doctype="POS Invoice",
+                name=invoice_name,
+                print_format=captain_order_format,  # FORCE Captain Order format
+                doc=temp_doc,
+                as_raw=True,
+                lang=_lang or frappe.local.lang
+            )
+        except Exception as print_error:
+            # Fallback: try without the doc parameter
+            frappe.log_error(f"First print attempt failed: {str(print_error)}")
+            try:
+                # Set the temp doc items to the actual document temporarily
+                if frappe.db.exists("POS Invoice", invoice_name):
+                    original_doc = frappe.get_doc("POS Invoice", invoice_name)
+                    # Backup original items
+                    original_items = original_doc.items
+                    # Replace with new items temporarily
+                    original_doc.items = []
+                    for item_data in new_items:
+                        item_doc = frappe.new_doc("POS Invoice Item")
+                        item_doc.update(item_data)
+                        original_doc.append("items", item_doc)
+                    
+                    raw_commands = frappe.get_print(
+                        doctype="POS Invoice",
+                        name=invoice_name,
+                        print_format=captain_order_format,  # FORCE Captain Order format
+                        as_raw=True,
+                        lang=_lang or frappe.local.lang
+                    )
+                    
+                    # Restore original items (don't save)
+                    original_doc.items = original_items
+                else:
+                    raise Exception("Could not generate print commands - invoice not found")
+                    
+            except Exception as fallback_error:
+                frappe.log_error(f"Fallback print attempt also failed: {str(fallback_error)}")
+                return {"success": False, "error": f"Failed to generate print: {str(fallback_error)}"}
+
+        if not raw_commands:
+            return {"success": False, "error": "No raw commands generated"}
 
         return {"success": True, "raw_commands": raw_commands}
 

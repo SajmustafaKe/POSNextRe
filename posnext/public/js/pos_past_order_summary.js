@@ -275,10 +275,10 @@ posnext.PointOfSale.PastOrderSummary = class {
             }
         });
 }
-	print_order() {
+print_order() {
     const doctype = this.doc.doctype;
     const docname = this.doc.name;
-    const print_format = "Captain Order";
+    const print_format = "Captain Order"; // FORCE the print format
     const letterhead = this.doc.letter_head || __("No Letterhead");
     const lang_code = this.doc.language || frappe.boot.lang;
 
@@ -326,62 +326,43 @@ posnext.PointOfSale.PastOrderSummary = class {
     };
 
     const _get_raw_commands = (doctype, docname, print_format, lang_code, callback) => {
-        // For "Captain Order" print format, use your custom method
-        if (print_format === "Captain Order") {
-            frappe.call({
-                method: "posnext.posnext.page.posnext.point_of_sale.print_captain_order",
-                args: {
-                    invoice_name: docname,
-                    current_items: this.doc.items.map(item => ({
-                        item_code: item.item_code,
-                        qty: item.qty,
-                        uom: item.uom,
-                        rate: item.rate,
-                        name: item.name
-                    })),
-                    print_format: print_format,
-                    _lang: lang_code
-                },
-                callback: (r) => {
-                    if (!r.exc && r.message && r.message.success) {
-                        callback({ raw_commands: r.message.raw_commands });
-                    } else {
-                        frappe.show_alert({
-                            message: __("Failed to generate raw commands: " + (r.message.error || "Unknown error")),
-                            indicator: 'red'
-                        });
-                        frappe.utils.play_sound("error");
-                    }
+        // ALWAYS use "Captain Order" print format regardless of input
+        const captain_order_format = "Captain Order";
+        
+        frappe.call({
+            method: "posnext.posnext.page.posnext.point_of_sale.print_captain_order",
+            args: {
+                invoice_name: docname,
+                current_items: this.doc.items.map(item => ({
+                    item_code: item.item_code,
+                    qty: item.qty,
+                    uom: item.uom,
+                    rate: item.rate,
+                    name: item.name
+                })),
+                print_format: captain_order_format, // FORCE Captain Order format
+                _lang: lang_code
+            },
+            callback: (r) => {
+                if (!r.exc && r.message && r.message.success) {
+                    callback({ raw_commands: r.message.raw_commands });
+                } else {
+                    frappe.show_alert({
+                        message: __("Failed to generate raw commands: " + (r.message.error || "Unknown error")),
+                        indicator: 'red'
+                    });
+                    frappe.utils.play_sound("error");
                 }
-            });
-        } else {
-            // For other print formats, use the standard method
-            frappe.call({
-                method: "frappe.www.printview.get_rendered_raw_commands",
-                args: {
-                    doc: frappe.get_doc(doctype, docname),
-                    print_format: print_format,
-                    _lang: lang_code
-                },
-                callback: (r) => {
-                    if (!r.exc) {
-                        callback(r.message);
-                    } else {
-                        frappe.show_alert({
-                            message: __("Failed to generate raw commands"),
-                            indicator: 'red'
-                        });
-                        frappe.utils.play_sound("error");
-                    }
-                }
-            });
-        }
+            }
+        });
     };
 
     const _is_raw_printing = (format) => {
+        // ALWAYS check for Captain Order format specifically
+        const captain_format = "Captain Order";
         let print_format = {};
-        if (locals["Print Format"] && locals["Print Format"][format]) {
-            print_format = locals["Print Format"][format];
+        if (locals["Print Format"] && locals["Print Format"][captain_format]) {
+            print_format = locals["Print Format"][captain_format];
         }
         return print_format.raw_printing === 1;
     };
@@ -395,20 +376,23 @@ posnext.PointOfSale.PastOrderSummary = class {
     };
 
     const _get_mapped_printer = (print_format_printer_map, doctype, print_format) => {
+        // FORCE search for Captain Order format
+        const captain_format = "Captain Order";
         if (print_format_printer_map[doctype]) {
             return print_format_printer_map[doctype].filter(
-                (printer_map) => printer_map.print_format === print_format
+                (printer_map) => printer_map.print_format === captain_format
             );
         }
         return [];
     };
 
     const _render_pdf_or_regular_print = (doctype, docname, print_format, letterhead, lang_code) => {
-        // CRITICAL FIX: Ensure we use the Captain Order print format
+        // FORCE Captain Order print format
+        const captain_format = "Captain Order";
         frappe.utils.print(
             doctype,
             docname,
-            print_format, // This ensures "Captain Order" is used, not the POS profile format
+            captain_format, // ALWAYS use Captain Order
             letterhead,
             lang_code
         );
@@ -478,8 +462,9 @@ posnext.PointOfSale.PastOrderSummary = class {
 
                     dialog.hide();
 
-                    // CRITICAL FIX: Use current_print_format (which is "Captain Order") not just print_format
-                    _print_via_qz(doctype, docname, current_print_format, letterhead, lang_code);
+                    // FORCE Captain Order format
+                    const captain_format = "Captain Order";
+                    _print_via_qz(doctype, docname, captain_format, letterhead, lang_code);
                 },
                 primary_action_label: __("Save")
             });
@@ -498,18 +483,21 @@ posnext.PointOfSale.PastOrderSummary = class {
         return;
     }
 
+    // FORCE Captain Order format throughout
+    const captain_format = "Captain Order";
+
     frappe.dom.freeze();
     frappe.db.get_value("Print Settings", "Print Settings", "enable_raw_printing")
         .then(({ message }) => {
             frappe.dom.unfreeze();
             if (message && message.enable_raw_printing === "1") {
-                _print_via_qz(doctype, docname, print_format, letterhead, lang_code);
+                _print_via_qz(doctype, docname, captain_format, letterhead, lang_code);
             } else {
-                // CRITICAL FIX: Fallback to regular print dialog with Captain Order format
+                // FORCE Captain Order format for regular printing
                 frappe.utils.print(
                     doctype,
                     docname,
-                    print_format, // This ensures "Captain Order" is used, not the POS profile format
+                    captain_format, // ALWAYS use Captain Order
                     letterhead,
                     lang_code
                 );
