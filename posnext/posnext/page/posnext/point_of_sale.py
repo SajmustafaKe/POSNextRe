@@ -577,19 +577,9 @@ def get_user_name_from_secret_key(secret_key):
     else:
         frappe.throw("Invalid secret key")
 
-@frappe.whitelist()
+default print format@frappe.whitelist()
 def print_captain_order(invoice_name, current_items, print_format, _lang):
     try:
-        # DEBUGGING: Log what we received
-        frappe.log_error(f"=== PRINT_CAPTAIN_ORDER DEBUG ===", "Print Debug")
-        frappe.log_error(f"Received print_format parameter: {print_format}", "Print Debug")
-        frappe.log_error(f"Invoice name: {invoice_name}", "Print Debug")
-        frappe.log_error(f"Language: {_lang}", "Print Debug")
-        
-        # FORCE Captain Order print format regardless of what's passed
-        captain_order_format = "Captain Order"
-        frappe.log_error(f"Forcing print format to: {captain_order_format}", "Print Debug")
-        
         # Fetch the existing POS Invoice
         if frappe.db.exists("POS Invoice", invoice_name):
             pos_invoice = frappe.get_doc("POS Invoice", invoice_name)
@@ -604,9 +594,6 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
             ]
         else:
             saved_items = []
-            # If invoice doesn't exist, we still need a POS Invoice doc for printing
-            pos_invoice = frappe.new_doc("POS Invoice")
-            pos_invoice.name = invoice_name
 
         # Convert items to dictionaries for comparison
         current_items_dict = {item["name"]: item for item in current_items}
@@ -636,81 +623,18 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
             "name": invoice_name,
             "items": new_items,
             "timestamp": frappe.utils.now(),
-            "pos_profile": pos_invoice.pos_profile if hasattr(pos_invoice, 'pos_profile') else ""
+            "pos_profile": pos_invoice.pos_profile if frappe.db.exists("POS Invoice", invoice_name) else ""
         })
 
-        # CRITICAL FIX: Verify Captain Order print format exists
-        if not frappe.db.exists("Print Format", captain_order_format):
-            error_msg = f"Print Format '{captain_order_format}' does not exist"
-            frappe.log_error(error_msg, "Print Debug")
-            return {"success": False, "error": error_msg}
-        
-        # Get print format details for debugging
-        print_format_doc = frappe.get_doc("Print Format", captain_order_format)
-        frappe.log_error(f"Print Format details - Raw Printing: {print_format_doc.raw_printing}, Disabled: {print_format_doc.disabled}", "Print Debug")
-
-        # Generate raw commands using FORCED Captain Order format
-        try:
-            frappe.log_error(f"Attempting to generate print with format: {captain_order_format}", "Print Debug")
-            
-            # ALTERNATIVE METHOD: Use print view directly
-            from frappe.www.printview import get_rendered_raw_commands
-            
-            # Try direct method first
-            try:
-                raw_commands = get_rendered_raw_commands(temp_doc, captain_order_format, _lang or frappe.local.lang)
-                frappe.log_error(f"Direct method succeeded. Raw commands length: {len(raw_commands) if raw_commands else 0}", "Print Debug")
-            except Exception as direct_error:
-                frappe.log_error(f"Direct method failed: {str(direct_error)}, trying frappe.get_print", "Print Debug")
-                
-                # Fallback to frappe.get_print
-                raw_commands = frappe.get_print(
-                    doctype="POS Invoice",
-                    name=invoice_name,
-                    print_format=captain_order_format,  # FORCE Captain Order format
-                    doc=temp_doc,
-                    as_raw=True,
-                    lang=_lang or frappe.local.lang
-                )
-            
-            frappe.log_error(f"Raw commands generated successfully. Length: {len(raw_commands) if raw_commands else 0}", "Print Debug")
-            
-        except Exception as print_error:
-            frappe.log_error(f"First print attempt failed: {str(print_error)}", "Print Debug")
-            # Fallback: try without the doc parameter
-            frappe.log_error(f"First print attempt failed: {str(print_error)}")
-            try:
-                # Set the temp doc items to the actual document temporarily
-                if frappe.db.exists("POS Invoice", invoice_name):
-                    original_doc = frappe.get_doc("POS Invoice", invoice_name)
-                    # Backup original items
-                    original_items = original_doc.items
-                    # Replace with new items temporarily
-                    original_doc.items = []
-                    for item_data in new_items:
-                        item_doc = frappe.new_doc("POS Invoice Item")
-                        item_doc.update(item_data)
-                        original_doc.append("items", item_doc)
-                    
-                    raw_commands = frappe.get_print(
-                        doctype="POS Invoice",
-                        name=invoice_name,
-                        print_format=captain_order_format,  # FORCE Captain Order format
-                        as_raw=True,
-                        lang=_lang or frappe.local.lang
-                    )
-                    
-                    # Restore original items (don't save)
-                    original_doc.items = original_items
-                else:
-                    raise Exception("Could not generate print commands - invoice not found")
-                    
-            except Exception as fallback_error:
-                frappe.log_error(f"Fallback print attempt also failed: {str(fallback_error)}")
-                return {"success": False, "error": f"Failed to generate print: {str(fallback_error)}"}
-
-        if not raw_commands:
-            return {"success": False, "error": "No raw commands generated"}
+        # Generate raw commands
+        raw_commands = frappe.get_print(
+            doctype="POS Invoice",
+            name=invoice_name,
+            print_format=print_format,
+            doc=temp_doc,
+            as_raw=True,
+            lang=_lang
+        )
 
         return {"success": True, "raw_commands": raw_commands}
 

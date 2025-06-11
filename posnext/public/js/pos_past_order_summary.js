@@ -74,7 +74,7 @@ posnext.PointOfSale.PastOrderSummary = class {
 		this.print_dialog = print_dialog;
 
 		const print_order_dialog = new frappe.ui.Dialog({
-			title: 'Print Order',
+			title: 'Print-Order',
 			fields: [
 				{fieldname: 'print', fieldtype: 'Data', label: 'Print Preview'}
 			],
@@ -279,31 +279,9 @@ posnext.PointOfSale.PastOrderSummary = class {
 print_order() {
     const doctype = this.doc.doctype;
     const docname = this.doc.name;
-    const print_format = "Captain Order"; // FORCE the print format
+    const print_format = "Captain Order";
     const letterhead = this.doc.letter_head || __("No Letterhead");
     const lang_code = this.doc.language || frappe.boot.lang;
-
-    // DEBUG: Log what we're trying to use
-    console.log("=== PRINT ORDER DEBUG ===");
-    console.log("Doctype:", doctype);
-    console.log("Docname:", docname);
-    console.log("Print Format:", print_format);
-    console.log("POS Profile:", this.doc.pos_profile);
-    console.log("Document:", this.doc);
-    
-    // Check if POS Profile has a print format set
-    if (this.doc.pos_profile) {
-        frappe.db.get_value("POS Profile", this.doc.pos_profile, "print_format")
-            .then(result => {
-                console.log("POS Profile Print Format:", result.message.print_format);
-                if (result.message.print_format && result.message.print_format !== "Captain Order") {
-                    frappe.show_alert({
-                        message: __("WARNING: POS Profile is set to use '" + result.message.print_format + "' instead of 'Captain Order'"),
-                        indicator: 'orange'
-                    }, 10);
-                }
-            });
-    }
 
     // Helper methods for QZ printing (include if not already defined in the class)
     const _print_via_qz = (doctype, docname, print_format, letterhead, lang_code) => {
@@ -349,9 +327,6 @@ print_order() {
     };
 
     const _get_raw_commands = (doctype, docname, print_format, lang_code, callback) => {
-        // ALWAYS use "Captain Order" print format regardless of input
-        const captain_order_format = "Captain Order";
-        
         frappe.call({
             method: "posnext.posnext.page.posnext.point_of_sale.print_captain_order",
             args: {
@@ -363,7 +338,7 @@ print_order() {
                     rate: item.rate,
                     name: item.name
                 })),
-                print_format: captain_order_format, // FORCE Captain Order format
+                print_format: print_format,
                 _lang: lang_code
             },
             callback: (r) => {
@@ -381,11 +356,9 @@ print_order() {
     };
 
     const _is_raw_printing = (format) => {
-        // ALWAYS check for Captain Order format specifically
-        const captain_format = "Captain Order";
         let print_format = {};
-        if (locals["Print Format"] && locals["Print Format"][captain_format]) {
-            print_format = locals["Print Format"][captain_format];
+        if (locals["Print Format"] && locals["Print Format"][format]) {
+            print_format = locals["Print Format"][format];
         }
         return print_format.raw_printing === 1;
     };
@@ -399,23 +372,19 @@ print_order() {
     };
 
     const _get_mapped_printer = (print_format_printer_map, doctype, print_format) => {
-        // FORCE search for Captain Order format
-        const captain_format = "Captain Order";
         if (print_format_printer_map[doctype]) {
             return print_format_printer_map[doctype].filter(
-                (printer_map) => printer_map.print_format === captain_format
+                (printer_map) => printer_map.print_format === print_format
             );
         }
         return [];
     };
 
     const _render_pdf_or_regular_print = (doctype, docname, print_format, letterhead, lang_code) => {
-        // FORCE Captain Order print format
-        const captain_format = "Captain Order";
         frappe.utils.print(
             doctype,
             docname,
-            captain_format, // ALWAYS use Captain Order
+            print_format,
             letterhead,
             lang_code
         );
@@ -485,9 +454,7 @@ print_order() {
 
                     dialog.hide();
 
-                    // FORCE Captain Order format
-                    const captain_format = "Captain Order";
-                    _print_via_qz(doctype, docname, captain_format, letterhead, lang_code);
+                    _print_via_qz(doctype, docname, current_print_format, letterhead, lang_code);
                 },
                 primary_action_label: __("Save")
             });
@@ -502,48 +469,21 @@ print_order() {
             message: __("No items in the invoice to print."),
             indicator: 'red'
         });
-        frappe.utils.play_sound("error");
-        return;
+        return frappe.utils.play_sound("error");
     }
-
-    // FORCE Captain Order format throughout
-    const captain_format = "Captain Order";
-    
-    // DEBUGGING: Verify print format exists and settings
-    frappe.call({
-        method: "frappe.client.get",
-        args: {
-            doctype: "Print Format",
-            name: captain_format
-        },
-        callback: function(r) {
-            if (r.message) {
-                console.log("Captain Order Print Format found:", r.message);
-                console.log("Raw Printing enabled:", r.message.raw_printing);
-                console.log("Disabled:", r.message.disabled);
-            } else {
-                console.error("Captain Order Print Format NOT FOUND!");
-                frappe.show_alert({
-                    message: __("Captain Order Print Format does not exist!"),
-                    indicator: 'red'
-                });
-                return;
-            }
-        }
-    });
 
     frappe.dom.freeze();
     frappe.db.get_value("Print Settings", "Print Settings", "enable_raw_printing")
         .then(({ message }) => {
             frappe.dom.unfreeze();
             if (message && message.enable_raw_printing === "1") {
-                _print_via_qz(doctype, docname, captain_format, letterhead, lang_code);
+                _print_via_qz(doctype, docname, print_format, letterhead, lang_code);
             } else {
-                // FORCE Captain Order format for regular printing
+                // Fallback to regular print dialog (will print all items)
                 frappe.utils.print(
                     doctype,
                     docname,
-                    captain_format, // ALWAYS use Captain Order
+                    print_format,
                     letterhead,
                     lang_code
                 );
@@ -752,7 +692,7 @@ attach_shortcuts() {
 			shortcut: "ctrl+o",
 			action: () => this.$summary_container.find('.print-order-btn').click(),
 			condition: () => this.$component.is(':visible') && this.$summary_container.find('.print-order-btn').is(":visible"),
-			description: __("Print Order"),
+			description: __("Print-Order"),
 			page: cur_page.page.page
 		});
 		this.$summary_container.find('.new-btn').attr("title", `${ctrl_label}+Enter`);
