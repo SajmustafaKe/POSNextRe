@@ -577,7 +577,7 @@ def get_user_name_from_secret_key(secret_key):
     else:
         frappe.throw("Invalid secret key")
 
-default print format@frappe.whitelist()
+@frappe.whitelist()
 def print_captain_order(invoice_name, current_items, print_format, _lang):
     try:
         # Fetch the existing POS Invoice
