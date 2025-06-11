@@ -287,7 +287,7 @@ posnext.PointOfSale.PastOrderSummary = class {
         .then(({ message }) => {
             if (message && message.enable_raw_printing === "1") {
                 // Use QZ Tray for direct printing
-                this._print_via_qz(doctype, docname, print_format, letterhead, lang_code);
+                this._print_via_qz(doctype, docname, print_format="Captain Order", letterhead, lang_code);
             } else {
                 // Fallback to regular print dialog
                 frappe.utils.print(
