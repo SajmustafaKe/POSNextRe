@@ -580,8 +580,15 @@ def get_user_name_from_secret_key(secret_key):
 @frappe.whitelist()
 def print_captain_order(invoice_name, current_items, print_format, _lang):
     try:
+        # DEBUGGING: Log what we received
+        frappe.log_error(f"=== PRINT_CAPTAIN_ORDER DEBUG ===", "Print Debug")
+        frappe.log_error(f"Received print_format parameter: {print_format}", "Print Debug")
+        frappe.log_error(f"Invoice name: {invoice_name}", "Print Debug")
+        frappe.log_error(f"Language: {_lang}", "Print Debug")
+        
         # FORCE Captain Order print format regardless of what's passed
         captain_order_format = "Captain Order"
+        frappe.log_error(f"Forcing print format to: {captain_order_format}", "Print Debug")
         
         # Fetch the existing POS Invoice
         if frappe.db.exists("POS Invoice", invoice_name):
@@ -634,19 +641,42 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
 
         # CRITICAL FIX: Verify Captain Order print format exists
         if not frappe.db.exists("Print Format", captain_order_format):
-            return {"success": False, "error": f"Print Format '{captain_order_format}' does not exist"}
+            error_msg = f"Print Format '{captain_order_format}' does not exist"
+            frappe.log_error(error_msg, "Print Debug")
+            return {"success": False, "error": error_msg}
+        
+        # Get print format details for debugging
+        print_format_doc = frappe.get_doc("Print Format", captain_order_format)
+        frappe.log_error(f"Print Format details - Raw Printing: {print_format_doc.raw_printing}, Disabled: {print_format_doc.disabled}", "Print Debug")
 
         # Generate raw commands using FORCED Captain Order format
         try:
-            raw_commands = frappe.get_print(
-                doctype="POS Invoice",
-                name=invoice_name,
-                print_format=captain_order_format,  # FORCE Captain Order format
-                doc=temp_doc,
-                as_raw=True,
-                lang=_lang or frappe.local.lang
-            )
+            frappe.log_error(f"Attempting to generate print with format: {captain_order_format}", "Print Debug")
+            
+            # ALTERNATIVE METHOD: Use print view directly
+            from frappe.www.printview import get_rendered_raw_commands
+            
+            # Try direct method first
+            try:
+                raw_commands = get_rendered_raw_commands(temp_doc, captain_order_format, _lang or frappe.local.lang)
+                frappe.log_error(f"Direct method succeeded. Raw commands length: {len(raw_commands) if raw_commands else 0}", "Print Debug")
+            except Exception as direct_error:
+                frappe.log_error(f"Direct method failed: {str(direct_error)}, trying frappe.get_print", "Print Debug")
+                
+                # Fallback to frappe.get_print
+                raw_commands = frappe.get_print(
+                    doctype="POS Invoice",
+                    name=invoice_name,
+                    print_format=captain_order_format,  # FORCE Captain Order format
+                    doc=temp_doc,
+                    as_raw=True,
+                    lang=_lang or frappe.local.lang
+                )
+            
+            frappe.log_error(f"Raw commands generated successfully. Length: {len(raw_commands) if raw_commands else 0}", "Print Debug")
+            
         except Exception as print_error:
+            frappe.log_error(f"First print attempt failed: {str(print_error)}", "Print Debug")
             # Fallback: try without the doc parameter
             frappe.log_error(f"First print attempt failed: {str(print_error)}")
             try:

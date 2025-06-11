@@ -282,6 +282,28 @@ print_order() {
     const letterhead = this.doc.letter_head || __("No Letterhead");
     const lang_code = this.doc.language || frappe.boot.lang;
 
+    // DEBUG: Log what we're trying to use
+    console.log("=== PRINT ORDER DEBUG ===");
+    console.log("Doctype:", doctype);
+    console.log("Docname:", docname);
+    console.log("Print Format:", print_format);
+    console.log("POS Profile:", this.doc.pos_profile);
+    console.log("Document:", this.doc);
+    
+    // Check if POS Profile has a print format set
+    if (this.doc.pos_profile) {
+        frappe.db.get_value("POS Profile", this.doc.pos_profile, "print_format")
+            .then(result => {
+                console.log("POS Profile Print Format:", result.message.print_format);
+                if (result.message.print_format && result.message.print_format !== "Captain Order") {
+                    frappe.show_alert({
+                        message: __("WARNING: POS Profile is set to use '" + result.message.print_format + "' instead of 'Captain Order'"),
+                        indicator: 'orange'
+                    }, 10);
+                }
+            });
+    }
+
     // Helper methods for QZ printing (include if not already defined in the class)
     const _print_via_qz = (doctype, docname, print_format, letterhead, lang_code) => {
         const print_format_printer_map = _get_print_format_printer_map();
@@ -485,6 +507,29 @@ print_order() {
 
     // FORCE Captain Order format throughout
     const captain_format = "Captain Order";
+    
+    // DEBUGGING: Verify print format exists and settings
+    frappe.call({
+        method: "frappe.client.get",
+        args: {
+            doctype: "Print Format",
+            name: captain_format
+        },
+        callback: function(r) {
+            if (r.message) {
+                console.log("Captain Order Print Format found:", r.message);
+                console.log("Raw Printing enabled:", r.message.raw_printing);
+                console.log("Disabled:", r.message.disabled);
+            } else {
+                console.error("Captain Order Print Format NOT FOUND!");
+                frappe.show_alert({
+                    message: __("Captain Order Print Format does not exist!"),
+                    indicator: 'red'
+                });
+                return;
+            }
+        }
+    });
 
     frappe.dom.freeze();
     frappe.db.get_value("Print Settings", "Print Settings", "enable_raw_printing")
