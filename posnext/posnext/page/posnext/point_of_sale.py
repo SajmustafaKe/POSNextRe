@@ -588,64 +588,22 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
                 frappe.log_error(f"Failed to parse current_items: {str(e)}")
                 return {"success": False, "error": "Invalid current_items format: not a valid JSON string"}
 
-        # Validate that current_items is a list
+        # Validate current_items
         if not isinstance(current_items, list):
             frappe.log_error(f"Invalid current_items type: expected list, got {type(current_items)}")
             return {"success": False, "error": "current_items must be a list"}
 
-        # Validate each item in current_items
-        required_fields = ["item_code", "qty", "uom", "rate", "name"]
-        for item in current_items:
-            if not isinstance(item, dict):
-                return {"success": False, "error": "Each item must be a dictionary"}
-            for field in required_fields:
-                if field not in item:
-                    return {"success": False, "error": f"Item missing required field: {field}"}
+        if not current_items:
+            frappe.log_error("current_items is empty", "Print Debug")
+            return {"success": False, "error": "No items to print"}
 
-        # Fetch the existing POS Invoice
-        if frappe.db.exists("POS Invoice", invoice_name):
-            pos_invoice = frappe.get_doc("POS Invoice", invoice_name)
-            saved_items = [
-                {
-                    "item_code": item.item_code,
-                    "qty": item.qty,
-                    "uom": item.uom,
-                    "rate": item.rate,
-                    "name": item.name
-                } for item in pos_invoice.items
-            ]
-        else:
-            saved_items = []
-
-        # Convert items to dictionaries for comparison
-        current_items_dict = {item["name"]: item for item in current_items}
-        saved_items_dict = {item["name"]: item for item in saved_items}
-
-        # Identify new or updated items
-        new_items = []
-        for item in current_items:
-            item_name = item["name"]
-            if item_name not in saved_items_dict:
-                # New item
-                new_items.append(item)
-            elif saved_items_dict[item_name]["qty"] != item["qty"]:
-                # Quantity changed, add the difference
-                qty_diff = item["qty"] - saved_items_dict[item_name]["qty"]
-                if qty_diff > 0:
-                    new_item = item.copy()
-                    new_item["qty"] = qty_diff
-                    new_items.append(new_item)
-
-        if not new_items:
-            return {"success": False, "error": "No new items to print"}
-
-        # Create a temporary doc with new items for raw command generation
+        # Create a temporary doc with all items
         temp_doc = frappe.get_doc({
             "doctype": "POS Invoice",
             "name": invoice_name,
-            "items": new_items,
+            "items": current_items,
             "timestamp": frappe.utils.now(),
-            "pos_profile": pos_invoice.pos_profile if frappe.db.exists("POS Invoice", invoice_name) else ""
+            "pos_profile": frappe.db.get_value("POS Invoice", invoice_name, "pos_profile") or ""
         })
 
         # Generate raw commands
