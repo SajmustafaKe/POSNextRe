@@ -578,10 +578,6 @@ def get_user_name_from_secret_key(secret_key):
         frappe.throw("Invalid secret key")
 
 
-import frappe
-import json
-from frappe.utils import now, cstr
-
 @frappe.whitelist()
 def print_captain_order(invoice_name, current_items, print_format, _lang, force_print=False):
     try:
@@ -634,9 +630,6 @@ def print_captain_order(invoice_name, current_items, print_format, _lang, force_
         # Calculate new items to print - Use item_code as the primary key
         new_items_to_print = []
         
-        # DEBUG: Log the raw previously printed items
-        frappe.log_error(f"Raw previously printed items: {previously_printed_items}", "Print Debug")
-        
         # Create a dictionary of previously printed items using item_code as key
         prev_items_dict = {}
         for prev_item in previously_printed_items:
@@ -644,9 +637,9 @@ def print_captain_order(invoice_name, current_items, print_format, _lang, force_
             if item_code:
                 prev_items_dict[item_code] = float(prev_item.get('qty', 0))
         
-        frappe.log_error(f"Previously printed items dict: {prev_items_dict}", "Print Debug")
-        frappe.log_error(f"Current items received: {current_items}", "Print Debug")
-        frappe.log_error(f"Force print setting: {force_print}", "Print Debug")
+        frappe.log_error(f"Prev items count: {len(previously_printed_items)}", "Print Debug")
+        frappe.log_error(f"Current items count: {len(current_items)}", "Print Debug")
+        frappe.log_error(f"Force print: {force_print}", "Print Debug")
         
         for current_item in current_items:
             item_code = current_item.get('item_code')
@@ -656,29 +649,22 @@ def print_captain_order(invoice_name, current_items, print_format, _lang, force_
             current_qty = float(current_item.get('qty', 0))
             previous_qty = float(prev_items_dict.get(item_code, 0))
             
-            frappe.log_error(f"=== ITEM COMPARISON ===", "Print Debug")
-            frappe.log_error(f"Item Code: {item_code}", "Print Debug")
-            frappe.log_error(f"Current Qty: {current_qty} (type: {type(current_qty)})", "Print Debug")
-            frappe.log_error(f"Previous Qty: {previous_qty} (type: {type(previous_qty)})", "Print Debug")
-            frappe.log_error(f"Force Print: {force_print}", "Print Debug")
-            frappe.log_error(f"Condition (current_qty > previous_qty): {current_qty > previous_qty}", "Print Debug")
-            frappe.log_error(f"Should print this item: {force_print or current_qty > previous_qty}", "Print Debug")
+            frappe.log_error(f"{item_code}: curr={current_qty}, prev={previous_qty}", "Print Debug")
             
             if force_print or current_qty > previous_qty:
                 qty_to_print = current_qty - previous_qty if not force_print else current_qty
-                frappe.log_error(f"Qty to print: {qty_to_print}", "Print Debug")
                 
-                if qty_to_print > 0:  # Only add items with positive quantity to print
+                if qty_to_print > 0:
                     new_item = current_item.copy()
                     new_item['qty'] = qty_to_print
                     new_item['item_name'] = current_item.get('item_name') or current_item.get('item_code')
                     new_item['amount'] = qty_to_print * float(current_item.get('rate', 0))
                     new_items_to_print.append(new_item)
-                    frappe.log_error(f"✓ Added item {item_code} to print queue with qty {qty_to_print}", "Print Debug")
+                    frappe.log_error(f"Added {item_code} qty={qty_to_print}", "Print Debug")
                 else:
-                    frappe.log_error(f"✗ Skipped item {item_code} - qty_to_print is {qty_to_print}", "Print Debug")
+                    frappe.log_error(f"Skipped {item_code} qty_to_print={qty_to_print}", "Print Debug")
             else:
-                frappe.log_error(f"✗ Skipped item {item_code} - condition not met", "Print Debug")
+                frappe.log_error(f"No change {item_code}", "Print Debug")
         
         if not new_items_to_print:
             frappe.log_error("No new items to print", "Print Debug")
