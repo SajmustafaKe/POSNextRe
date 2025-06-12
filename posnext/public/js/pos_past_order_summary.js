@@ -316,7 +316,7 @@ print_order() {
                         let config = qz.configs.create(printer_map.printer);
                         let data = [out.raw_commands];
                         console.log("Sending raw commands to QZ printer:", out.raw_commands); // Debug log
-                        return qz.print(config_data);
+                        return qz.print(config,data);
                     })
                     .then(frappe.ui.form.qz_success)
                     .catch((err) => {
