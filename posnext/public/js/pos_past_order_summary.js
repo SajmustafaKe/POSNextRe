@@ -307,7 +307,7 @@ print_order() {
                 if (out.message === "No new items to print") {
                     frappe.show_alert({
                         message: __("No new items to print for this captain order."),
-                        indicator: "info"
+                        indicator: "green"
                     }, 10);
                     return;
                 }
@@ -315,11 +315,13 @@ print_order() {
                     .then(() => {
                         let config = qz.configs.create(printer_map.printer);
                         let data = [out.raw_commands];
-                        return qz.print(config, data);
+                        console.log("Sending raw commands to QZ printer:", out.raw_commands); // Debug log
+                        return qz.print(config_data);
                     })
                     .then(frappe.ui.form.qz_success)
                     .catch((err) => {
                         frappe.ui.form.qz_fail(err);
+                        console.error("QZ printing error:", err);
                     });
             });
         } else {
@@ -335,6 +337,7 @@ print_order() {
     const _get_raw_commands = (doctype, docname, print_format, lang_code, callback) => {
         const items_to_print = this.doc.items.map(item => ({
             item_code: item.item_code,
+            item_name: item.item_name || item.item_code, // Ensure item_name
             qty: item.qty,
             uom: item.uom,
             rate: item.rate,
@@ -347,14 +350,18 @@ print_order() {
                 invoice_name: docname,
                 current_items: items_to_print,
                 print_format: print_format,
-                _lang: lang_code
+                _lang: lang_code,
+                force_print: false // Set to true for testing
             },
             callback: (r) => {
                 console.log("Print captain order response:", r.message); // Debug log
                 if (!r.exc && r.message && r.message.success) {
-                    // Fetch and render the print format
+                    if (!Object.keys(r.message.data).length) {
+                        callback({ message: r.message.message }); // Skip rendering for empty data
+                        return;
+                    }
                     _render_print_format(r.message.data, print_format, (raw_commands) => {
-                        callback({ raw_commands: raw_commands });
+                        callback({ raw_commands: raw_commands, message: r.message.message });
                     });
                 } else {
                     frappe.show_alert({
@@ -368,7 +375,12 @@ print_order() {
     };
 
     const _render_print_format = (doc_data, print_format, callback) => {
-        // Fetch the print format
+        if (!doc_data || !Object.keys(doc_data).length) {
+            console.log("Skipping render: doc_data is empty");
+            callback(""); // Return empty commands
+            return;
+        }
+
         frappe.call({
             method: "frappe.client.get",
             args: {
@@ -387,7 +399,6 @@ print_order() {
                         return;
                     }
 
-                    // Get the raw_commands template
                     const template = print_format_doc.raw_commands || '';
                     if (!template) {
                         frappe.show_alert({
@@ -398,15 +409,15 @@ print_order() {
                         return;
                     }
 
-                    // Render the template with doc_data using frappe.render
                     try {
-                        // Convert doc_data to a format compatible with frappe.render_template
                         const context = { doc: doc_data };
                         const raw_commands = frappe.render_template(template, context);
+                        console.log("Rendered raw commands:", raw_commands); // Debug log
                         callback(raw_commands);
-                    } catch (e) {
+                    } catch (error) {
+                        console.error("Template rendering error:", error);
                         frappe.show_alert({
-                            message: __("Error rendering print format: " + e.message),
+                            message: __("Error rendering print format: " + (error.message || error)),
                             indicator: 'red'
                         });
                         frappe.utils.play_sound("error");
@@ -539,6 +550,7 @@ print_order() {
         return frappe.utils.play_sound("error");
     }
 
+    console.log("Print Order button clicked"); // Debug log
     frappe.dom.freeze();
     frappe.db.get_value("Print Settings", "Print Settings", "enable_raw_printing")
         .then(({ message }) => {
