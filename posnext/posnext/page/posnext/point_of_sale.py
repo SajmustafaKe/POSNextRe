@@ -603,7 +603,7 @@ def print_captain_order(invoice_name, current_items, print_format, _lang, force_
             return {"success": False, "error": "No items to print"}
         
         # Log input for debugging
-        #frappe.log_error(f"Invoice: {invoice_name}, Received items: {json.dumps(current_items)}", "Print Debug")
+        frappe.log_error(f"Invoice: {invoice_name}, Received items:")
         
         # Get or create print tracking record
         print_log_name = f"captain_print_{invoice_name}"
@@ -650,7 +650,7 @@ def print_captain_order(invoice_name, current_items, print_format, _lang, force_
                 new_item['amount'] = qty_to_print * float(current_item.get('rate', 0))
                 new_items_to_print.append(new_item)
         
-        frappe.log_error(f"New items to print: {json.dumps(new_items_to_print)}", "Print Debug")
+        frappe.log_error(f"New items to print: ", "Print Debug")
         
         if not new_items_to_print:
             frappe.log_error("No new items to print", "Print Debug")
