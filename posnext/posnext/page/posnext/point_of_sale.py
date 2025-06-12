@@ -602,6 +602,12 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
             frappe.log_error("current_items is empty", "Print Debug")
             return {"success": False, "error": "No items to print"}
         
+<<<<<<< HEAD
+        # Log input for debugging
+        frappe.log_error(f"Invoice: {invoice_name}, Received items:", "Print Debug")
+        
+=======
+>>>>>>> a39e03189268a5980ce7c671cfe52ae51f31efcb
         # Get or create print tracking record
         print_log_name = f"captain_print_{invoice_name}"
         
@@ -609,7 +615,28 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
             # Try to get existing print log
             print_log = frappe.get_doc("Captain Print Log", print_log_name)
             previously_printed_items = json.loads(print_log.printed_items or "[]")
+<<<<<<< HEAD
+            frappe.log_error(f"Found print log: {print_log_name}, Previously printed items: {json.dumps(previously_printed_items)}", "Print Debug")
+=======
+>>>>>>> a39e03189268a5980ce7c671cfe52ae51f31efcb
         except frappe.DoesNotExistError:
+<<<<<<< HEAD
+            #frappe.log_error(f"Print log {print_log_name} not found, creating new one", "Print Debug")
+            try:
+                print_log = frappe.get_doc({
+                    "doctype": "Captain Print Log",
+                    "name": print_log_name,
+                    "invoice_name": invoice_name,
+                    "printed_items": "[]",
+                    "last_print_time": now()
+                })
+                print_log.insert(ignore_permissions=True)
+                frappe.db.commit()
+                frappe.log_error(f"Created new print log: {print_log_name}", "Print Debug")
+            except Exception as e:
+                frappe.log_error(f"Failed to create print log {print_log_name}: {str(e)}", "Print Debug")
+                return {"success": False, "error": f"Failed to create print log: {str(e)}"}
+=======
             # Create new print log if doesn't exist
             print_log = frappe.get_doc({
                 "doctype": "Captain Print Log",
@@ -620,6 +647,7 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
             })
             print_log.insert(ignore_permissions=True)
             previously_printed_items = []
+>>>>>>> a39e03189268a5980ce7c671cfe52ae51f31efcb
         
         # Calculate new items (items not previously printed or with increased quantity)
         new_items_to_print = []
