@@ -581,7 +581,6 @@ def get_user_name_from_secret_key(secret_key):
 import frappe
 import json
 from frappe.utils import now, cstr
-
 @frappe.whitelist()
 def print_captain_order(invoice_name, current_items, print_format, _lang, force_print=False):
     from frappe.utils import now
@@ -656,25 +655,27 @@ def print_captain_order(invoice_name, current_items, print_format, _lang, force_
             
             frappe.log_error(f"{item_code}: curr={current_qty}, prev={previous_qty}", "Print Debug")
             
-            # FIXED: Only process if force_print is True OR current_qty is actually greater than previous_qty
+            # FIXED LOGIC: Only calculate qty_to_print if we actually need to print
+            qty_to_print = 0
+            
             if force_print:
                 qty_to_print = current_qty
-                frappe.log_error(f"Force print - qty_to_print: {qty_to_print}", "Print Debug")
+                frappe.log_error(f"Force print: qty_to_print = {qty_to_print}", "Print Debug")
             elif current_qty > previous_qty:
                 qty_to_print = current_qty - previous_qty
-                frappe.log_error(f"Incremental print - qty_to_print: {qty_to_print}", "Print Debug")
+                frappe.log_error(f"Quantity increased: qty_to_print = {qty_to_print}", "Print Debug")
             else:
-                frappe.log_error(f"No change for {item_code} - skipping", "Print Debug")
+                frappe.log_error(f"No change or decrease for {item_code}: curr={current_qty}, prev={previous_qty}", "Print Debug")
                 continue  # Skip this item entirely
             
-            # Only add to print queue if there's actually something to print
+            # Only add to print if qty_to_print is positive
             if qty_to_print > 0:
                 new_item = current_item.copy()
                 new_item['qty'] = qty_to_print
                 new_item['item_name'] = current_item.get('item_name') or current_item.get('item_code')
                 new_item['amount'] = qty_to_print * float(current_item.get('rate', 0))
                 new_items_to_print.append(new_item)
-                frappe.log_error(f"Added {item_code} qty={qty_to_print} to print queue", "Print Debug")
+                frappe.log_error(f"Added {item_code} qty={qty_to_print} to print list", "Print Debug")
             else:
                 frappe.log_error(f"Skipped {item_code} - qty_to_print={qty_to_print}", "Print Debug")
         
