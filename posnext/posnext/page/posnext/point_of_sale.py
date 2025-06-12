@@ -726,22 +726,23 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
             frappe.log_error("current_items is empty", "Print Debug")
             return {"success": False, "error": "No items to print"}
         
-        # Get or create print tracking record using Custom DocPerm or Settings
+        # Get or create print tracking record
         print_log_name = f"captain_print_{invoice_name}"
         
         try:
-            # Try to get existing print log from System Settings or custom field
-            if frappe.db.exists("System Settings", "System Settings"):
-                settings_doc = frappe.get_doc("System Settings", "System Settings")
-                # Use a custom field or create a simple tracking mechanism
-                print_data = frappe.db.get_value("POS Invoice", invoice_name, "custom_captain_print_log")
-                if print_data:
-                    previously_printed_items = json.loads(print_data)
-                else:
-                    previously_printed_items = []
-            else:
-                previously_printed_items = []
-        except Exception:
+            # Try to get existing print log
+            print_log = frappe.get_doc("Captain Print Log", print_log_name)
+            previously_printed_items = json.loads(print_log.printed_items or "[]")
+        except frappe.DoesNotExistError:
+            # Create new print log if doesn't exist
+            print_log = frappe.get_doc({
+                "doctype": "Captain Print Log",
+                "name": print_log_name,
+                "invoice_name": invoice_name,
+                "printed_items": "[]",
+                "last_print_time": now()
+            })
+            print_log.insert(ignore_permissions=True)
             previously_printed_items = []
         
         # Calculate new items (items not previously printed or with increased quantity)
@@ -794,7 +795,7 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
             "items": new_items_to_print,
             "timestamp": now(),
             "is_captain_order_reprint": len(previously_printed_items) > 0,
-            "print_count": 1  # Simple count since we're using custom field approach
+            "print_count": (getattr(print_log, 'print_count', 0) or 0) + 1
         })
         
         # Let the Captain Order print format generate the raw commands
@@ -806,18 +807,19 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
             doc=pseudo_doc
         )
         
-        # Update print tracking - save to POS Invoice custom field
-        try:
-            frappe.db.set_value("POS Invoice", invoice_name, "custom_captain_print_log", json.dumps(current_items))
-            frappe.db.commit()
-        except Exception as e:
-            frappe.log_error(f"Could not update print log: {str(e)}")
+        # Update print log with current items (complete list)
+        print_log.printed_items = json.dumps(current_items)
+        print_log.last_print_time = now()
+        print_log.print_count = (print_log.print_count or 0) + 1
+        print_log.save(ignore_permissions=True)
+        
+        frappe.db.commit()
         
         return {
             "success": True, 
             "raw_commands": raw_commands,
             "new_items_count": len(new_items_to_print),
-            "print_count": 1  # Simple count since we're not tracking in separate doctype
+            "print_count": print_log.print_count
         }
         
     except Exception as e:
