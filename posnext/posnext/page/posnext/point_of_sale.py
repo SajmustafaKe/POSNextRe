@@ -656,8 +656,8 @@ def print_captain_order(invoice_name, current_items, print_format, _lang, force_
             
             frappe.log_error(f"{item_code}: curr={current_qty}, prev={previous_qty}", "Print Debug")
             
-            if force_print or (current_qty > previous_qty):
-                qty_to_print = (current_qty if force_print else (current_qty - previous_qty))
+            if current_qty > previous_qty:
+                qty_to_print = current_qty - previous_qty
                 frappe.log_error(f"Calculated qty_to_print: {qty_to_print}", "Print Debug")
                 
                 if qty_to_print > 0:
