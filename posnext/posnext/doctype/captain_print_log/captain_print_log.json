@@ -40,7 +40,7 @@
  "links": [],
  "modified": "2024-01-01 00:00:00.000000",
  "modified_by": "Administrator",
- "module": "POSNext",
+ "module": "Posnext",
  "name": "Captain Print Log",
  "owner": "Administrator",
  "permissions": [
@@ -62,9 +62,9 @@
    "email": 1,
    "export": 1,
    "print": 1,
-   "read": 1,
+   "read": 0,
    "report": 1,
-   "role": "POS User",
+   "role": "Sales User",
    "share": 1,
    "write": 1
   }
