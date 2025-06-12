@@ -706,8 +706,12 @@ import frappe
 import json
 from frappe.utils import now, cstr
 
+import frappe
+import json
+from frappe.utils import now, cstr
+
 @frappe.whitelist()
-def print_captain_order(invoice_name, current_items, print_format, _lang):
+def print_captain_order(invoice_name, current_items, print_format, _lang, force_print=False):
     try:
         # Parse current_items if it's a string
         if isinstance(current_items, str):
@@ -726,22 +730,34 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
             frappe.log_error("current_items is empty", "Print Debug")
             return {"success": False, "error": "No items to print"}
         
+        # Log input for debugging
+        frappe.log_error(f"Invoice: {invoice_name}, Received items: {json.dumps(current_items)}", "Print Debug")
+        
         # Get or create print tracking record
         print_log_name = f"captain_print_{invoice_name}"
         
+        previously_printed_items = []
+        print_log = None
         try:
             print_log = frappe.get_doc("Captain Print Log", print_log_name)
             previously_printed_items = json.loads(print_log.printed_items or "[]")
+            frappe.log_error(f"Found print log: {print_log_name}, Previously printed items: {json.dumps(previously_printed_items)}", "Print Debug")
         except frappe.DoesNotExistError:
-            print_log = frappe.get_doc({
-                "doctype": "Captain Print Log",
-                "name": print_log_name,
-                "invoice_name": invoice_name,
-                "printed_items": "[]",
-                "last_print_time": now()
-            })
-            print_log.insert(ignore_permissions=True)
-            previously_printed_items = []
+            frappe.log_error(f"Print log {print_log_name} not found, creating new one", "Print Debug")
+            try:
+                print_log = frappe.get_doc({
+                    "doctype": "Captain Print Log",
+                    "name": print_log_name,
+                    "invoice_name": invoice_name,
+                    "printed_items": "[]",
+                    "last_print_time": now()
+                })
+                print_log.insert(ignore_permissions=True)
+                frappe.db.commit()
+                frappe.log_error(f"Created new print log: {print_log_name}", "Print Debug")
+            except Exception as e:
+                frappe.log_error(f"Failed to create print log {print_log_name}: {str(e)}", "Print Debug")
+                return {"success": False, "error": f"Failed to create print log: {str(e)}"}
         
         # Calculate new items to print
         new_items_to_print = []
@@ -752,13 +768,20 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
             current_qty = float(current_item.get('qty', 0))
             previous_qty = float(prev_items_dict.get(item_key, 0))
             
-            if current_qty > previous_qty:
-                qty_to_print = current_qty - previous_qty
+            frappe.log_error(f"Comparing item {item_key}: current_qty={current_qty}, previous_qty={previous_qty}", "Print Debug")
+            
+            if force_print or current_qty > previous_qty:
+                qty_to_print = current_qty - previous_qty if not force_print else current_qty
                 new_item = current_item.copy()
                 new_item['qty'] = qty_to_print
+                new_item['item_name'] = current_item.get('item_name') or current_item.get('item_code')
+                new_item['amount'] = qty_to_print * float(current_item.get('rate', 0))
                 new_items_to_print.append(new_item)
         
+        frappe.log_error(f"New items to print: {json.dumps(new_items_to_print)}", "Print Debug")
+        
         if not new_items_to_print:
+            frappe.log_error("No new items to print", "Print Debug")
             return {
                 "success": True, 
                 "data": {},
@@ -767,7 +790,11 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
             }
         
         # Get original invoice for context
-        original_invoice = frappe.get_doc("POS Invoice", invoice_name)
+        try:
+            original_invoice = frappe.get_doc("POS Invoice", invoice_name)
+        except frappe.DoesNotExistError:
+            frappe.log_error(f"POS Invoice {invoice_name} not found", "Print Debug")
+            return {"success": False, "error": f"POS Invoice {invoice_name} not found"}
         
         # Create pseudo document data
         pseudo_doc_data = {
@@ -778,25 +805,32 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
             "pos_profile": original_invoice.pos_profile,
             "company": original_invoice.company,
             "territory": getattr(original_invoice, 'territory', ''),
-            "items": new_items_to_print,
+            "items": new_items_to_print,  # Only include new items
             "timestamp": now(),
             "is_captain_order_reprint": len(previously_printed_items) > 0,
-            "print_count": (getattr(print_log, 'print_count', 0) or 0) + 1
+            "print_count": (getattr(print_log, 'print_count', 0) or 0) + 1,
+            "created_by_name": getattr(original_invoice, 'owner', '')
         }
         
         # Update print log
-        print_log.printed_items = json.dumps(current_items)
-        print_log.last_print_time = now()
-        print_log.print_count = (print_log.print_count or 0) + 1
-        print_log.save(ignore_permissions=True)
+        if print_log:
+            print_log.printed_items = json.dumps(current_items)
+            print_log.last_print_time = now()
+            print_log.print_count = (print_log.print_count or 0) + 1
+            try:
+                print_log.save(ignore_permissions=True)
+                frappe.db.commit()
+                frappe.log_error(f"Updated print log: {print_log_name}", "Print Debug")
+            except Exception as e:
+                frappe.log_error(f"Failed to update print log {print_log_name}: {str(e)}", "Print Debug")
         
-        frappe.db.commit()
+        frappe.log_error(f"Pseudo doc data: {json.dumps(pseudo_doc_data)}", "Print Debug")
         
         return {
             "success": True, 
             "data": pseudo_doc_data,
             "new_items_count": len(new_items_to_print),
-            "print_count": print_log.print_count
+            "print_count": print_log.print_count or 1
         }
         
     except Exception as e:

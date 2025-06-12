@@ -307,7 +307,7 @@ print_order() {
                 if (out.message === "No new items to print") {
                     frappe.show_alert({
                         message: __("No new items to print for this captain order."),
-                        indicator: "green"
+                        indicator: "info"
                     }, 10);
                     return;
                 }
@@ -316,12 +316,17 @@ print_order() {
                         let config = qz.configs.create(printer_map.printer);
                         let data = [out.raw_commands];
                         console.log("Sending raw commands to QZ printer:", out.raw_commands); // Debug log
-                        return qz.print(config,data);
+                        return qz.print(config, data);
                     })
                     .then(frappe.ui.form.qz_success)
                     .catch((err) => {
                         frappe.ui.form.qz_fail(err);
                         console.error("QZ printing error:", err);
+                        frappe.show_alert({
+                            message: __("Failed to print: " + (err.message || err)),
+                            indicator: 'red'
+                        });
+                        frappe.utils.play_sound("error");
                     });
             });
         } else {
@@ -337,7 +342,7 @@ print_order() {
     const _get_raw_commands = (doctype, docname, print_format, lang_code, callback) => {
         const items_to_print = this.doc.items.map(item => ({
             item_code: item.item_code,
-            item_name: item.item_name || item.item_code, // Ensure item_name
+            item_name: item.item_name || item.item_code,
             qty: item.qty,
             uom: item.uom,
             rate: item.rate,
@@ -357,9 +362,10 @@ print_order() {
                 console.log("Print captain order response:", r.message); // Debug log
                 if (!r.exc && r.message && r.message.success) {
                     if (!Object.keys(r.message.data).length) {
-                        callback({ message: r.message.message }); // Skip rendering for empty data
+                        callback({ message: r.message.message });
                         return;
                     }
+                    console.log("Rendering items from doc_data:", r.message.data.items); // Debug log
                     _render_print_format(r.message.data, print_format, (raw_commands) => {
                         callback({ raw_commands: raw_commands, message: r.message.message });
                     });
@@ -377,7 +383,7 @@ print_order() {
     const _render_print_format = (doc_data, print_format, callback) => {
         if (!doc_data || !Object.keys(doc_data).length) {
             console.log("Skipping render: doc_data is empty");
-            callback(""); // Return empty commands
+            callback("");
             return;
         }
 
@@ -409,6 +415,7 @@ print_order() {
                         return;
                     }
 
+                    console.log("Print format template:", template); // Debug log
                     try {
                         const context = { doc: doc_data };
                         const raw_commands = frappe.render_template(template, context);
@@ -421,6 +428,7 @@ print_order() {
                             indicator: 'red'
                         });
                         frappe.utils.play_sound("error");
+                        callback("");
                     }
                 } else {
                     frappe.show_alert({
@@ -428,6 +436,7 @@ print_order() {
                         indicator: 'red'
                     });
                     frappe.utils.play_sound("error");
+                    callback("");
                 }
             }
         });
@@ -550,7 +559,7 @@ print_order() {
         return frappe.utils.play_sound("error");
     }
 
-    console.log("Print Order button clicked"); // Debug log
+    console.log("Print Order button clicked");
     frappe.dom.freeze();
     frappe.db.get_value("Print Settings", "Print Settings", "enable_raw_printing")
         .then(({ message }) => {
