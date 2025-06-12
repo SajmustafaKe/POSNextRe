@@ -794,7 +794,7 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
             "items": new_items_to_print,
             "timestamp": now(),
             "is_captain_order_reprint": len(previously_printed_items) > 0,
-            "print_count": (getattr(print_log, 'print_count', 0) or 0) + 1
+            "print_count": 1  # Simple count since we're using custom field approach
         })
         
         # Let the Captain Order print format generate the raw commands
