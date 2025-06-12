@@ -315,7 +315,7 @@ print_order() {
                     .then(() => {
                         let config = qz.configs.create(printer_map.printer);
                         let data = [out.raw_commands];
-                        console.log("Sending raw commands to QZ printer:", out.raw_commands); // Debug log
+                        console.log("Sending raw commands to QZ printer:", out.raw_commands);
                         return qz.print(config, data);
                     })
                     .then(frappe.ui.form.qz_success)
@@ -339,7 +339,7 @@ print_order() {
         }
     };
 
-    const _get_raw_commands = (doctype, docname, print_format, lang_code, callback) => {
+    const _get_raw_commands = (doctype, docname, print_format, _lang, callback) => {
         const items_to_print = this.doc.items.map(item => ({
             item_code: item.item_code,
             item_name: item.item_name || item.item_code,
@@ -348,7 +348,7 @@ print_order() {
             rate: item.rate,
             name: item.name
         }));
-        console.log("Items to print:", items_to_print); // Debug log
+        console.log("Items to print:", items_to_print);
         frappe.call({
             method: "posnext.posnext.page.posnext.point_of_sale.print_captain_order",
             args: {
@@ -356,20 +356,21 @@ print_order() {
                 current_items: items_to_print,
                 print_format: print_format,
                 _lang: lang_code,
-                force_print: false // Set to true for testing
+                force_print: false
             },
             callback: (r) => {
-                console.log("Print captain order response:", r.message); // Debug log
+                console.log("Print captain order response:", r.message);
                 if (!r.exc && r.message && r.message.success) {
                     if (!Object.keys(r.message.data).length) {
                         callback({ message: r.message.message });
                         return;
                     }
-                    console.log("Rendering items from doc_data:", r.message.data.items); // Debug log
+                    console.log("Rendering new items:", r.message.data.items);
                     _render_print_format(r.message.data, print_format, (raw_commands) => {
                         callback({ raw_commands: raw_commands, message: r.message.message });
                     });
                 } else {
+                    console.error("Print captain order error:", r.message?.error);
                     frappe.show_alert({
                         message: __("Failed to generate print data: " + (r.message?.error || "Unknown error")),
                         indicator: 'red'
@@ -415,11 +416,11 @@ print_order() {
                         return;
                     }
 
-                    console.log("Print format template:", template); // Debug log
+                    console.log("Print format template:", template);
                     try {
                         const context = { doc: doc_data };
                         const raw_commands = frappe.render_template(template, context);
-                        console.log("Rendered raw commands:", raw_commands); // Debug log
+                        console.log("Rendered raw commands:", raw_commands);
                         callback(raw_commands);
                     } catch (error) {
                         console.error("Template rendering error:", error);
@@ -579,7 +580,6 @@ print_order() {
             frappe.utils.play_sound("error");
         });
 }
-
 // Add these helper methods at the appropriate location in your class (not inside another method)
 _print_via_qz(doctype, docname, print_format, letterhead, lang_code) {
     // First check if we have a mapped printer for this print format
