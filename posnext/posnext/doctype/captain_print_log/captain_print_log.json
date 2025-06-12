@@ -1,0 +1,75 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2024-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "invoice_name",
+  "printed_items",
+  "last_print_time",
+  "print_count"
+ ],
+ "fields": [
+  {
+   "fieldname": "invoice_name",
+   "fieldtype": "Link",
+   "label": "Invoice Name",
+   "options": "POS Invoice",
+   "reqd": 1
+  },
+  {
+   "fieldname": "printed_items",
+   "fieldtype": "Long Text",
+   "label": "Printed Items (JSON)"
+  },
+  {
+   "fieldname": "last_print_time",
+   "fieldtype": "Datetime",
+   "label": "Last Print Time"
+  },
+  {
+   "fieldname": "print_count",
+   "fieldtype": "Int",
+   "label": "Print Count",
+   "default": 0
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2024-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "POSNext",
+ "name": "Captain Print Log",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "POS User",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}
