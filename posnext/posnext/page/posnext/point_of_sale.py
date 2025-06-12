@@ -603,7 +603,7 @@ def print_captain_order(invoice_name, current_items, print_format, _lang, force_
             return {"success": False, "error": "No items to print"}
         
         # Log input for debugging
-        frappe.log_error(f"Invoice: {invoice_name}, Received items: ", "Print Debug")
+        frappe.log_error(f"Invoice: {invoice_name}, Received {len(current_items)} items", "Print Debug")
         
         # Get or create print tracking record
         print_log_name = f"captain_print_{invoice_name}"
@@ -613,7 +613,7 @@ def print_captain_order(invoice_name, current_items, print_format, _lang, force_
         try:
             print_log = frappe.get_doc("Captain Print Log", print_log_name)
             previously_printed_items = json.loads(print_log.printed_items or "[]")
-            frappe.log_error(f"Found print log: {print_log_name}, Previously printed items: ", "Print Debug")
+            frappe.log_error(f"Found print log: {print_log_name}, Previously printed {len(previously_printed_items)} items", "Print Debug")
         except frappe.DoesNotExistError:
             frappe.log_error(f"Print log {print_log_name} not found, creating new one", "Print Debug")
             try:
@@ -631,24 +631,54 @@ def print_captain_order(invoice_name, current_items, print_format, _lang, force_
                 frappe.log_error(f"Failed to create print log {print_log_name}: {str(e)}", "Print Debug")
                 return {"success": False, "error": f"Failed to create print log: {str(e)}"}
         
-        # Calculate new items to print
+        # Calculate new items to print - Use item_code as the primary key
         new_items_to_print = []
-        prev_items_dict = {f"{prev_item.get('item_code')}_{prev_item.get('name', '')}": prev_item.get('qty', 0) for prev_item in previously_printed_items}
+        
+        # DEBUG: Log the raw previously printed items
+        frappe.log_error(f"Raw previously printed items: {previously_printed_items}", "Print Debug")
+        
+        # Create a dictionary of previously printed items using item_code as key
+        prev_items_dict = {}
+        for prev_item in previously_printed_items:
+            item_code = prev_item.get('item_code')
+            if item_code:
+                prev_items_dict[item_code] = float(prev_item.get('qty', 0))
+        
+        frappe.log_error(f"Previously printed items dict: {prev_items_dict}", "Print Debug")
+        frappe.log_error(f"Current items received: {current_items}", "Print Debug")
+        frappe.log_error(f"Force print setting: {force_print}", "Print Debug")
         
         for current_item in current_items:
-            item_key = f"{current_item.get('item_code')}_{current_item.get('name', '')}"
+            item_code = current_item.get('item_code')
+            if not item_code:
+                continue
+                
             current_qty = float(current_item.get('qty', 0))
-            previous_qty = float(prev_items_dict.get(item_key, 0))
+            previous_qty = float(prev_items_dict.get(item_code, 0))
             
-            frappe.log_error(f"Comparing item {item_key}: current_qty={current_qty}, previous_qty={previous_qty}", "Print Debug")
+            frappe.log_error(f"=== ITEM COMPARISON ===", "Print Debug")
+            frappe.log_error(f"Item Code: {item_code}", "Print Debug")
+            frappe.log_error(f"Current Qty: {current_qty} (type: {type(current_qty)})", "Print Debug")
+            frappe.log_error(f"Previous Qty: {previous_qty} (type: {type(previous_qty)})", "Print Debug")
+            frappe.log_error(f"Force Print: {force_print}", "Print Debug")
+            frappe.log_error(f"Condition (current_qty > previous_qty): {current_qty > previous_qty}", "Print Debug")
+            frappe.log_error(f"Should print this item: {force_print or current_qty > previous_qty}", "Print Debug")
             
             if force_print or current_qty > previous_qty:
                 qty_to_print = current_qty - previous_qty if not force_print else current_qty
-                new_item = current_item.copy()
-                new_item['qty'] = qty_to_print
-                new_item['item_name'] = current_item.get('item_name') or current_item.get('item_code')  # Ensure item_name
-                new_item['amount'] = qty_to_print * float(current_item.get('rate', 0))  # Add amount
-                new_items_to_print.append(new_item)
+                frappe.log_error(f"Qty to print: {qty_to_print}", "Print Debug")
+                
+                if qty_to_print > 0:  # Only add items with positive quantity to print
+                    new_item = current_item.copy()
+                    new_item['qty'] = qty_to_print
+                    new_item['item_name'] = current_item.get('item_name') or current_item.get('item_code')
+                    new_item['amount'] = qty_to_print * float(current_item.get('rate', 0))
+                    new_items_to_print.append(new_item)
+                    frappe.log_error(f"✓ Added item {item_code} to print queue with qty {qty_to_print}", "Print Debug")
+                else:
+                    frappe.log_error(f"✗ Skipped item {item_code} - qty_to_print is {qty_to_print}", "Print Debug")
+            else:
+                frappe.log_error(f"✗ Skipped item {item_code} - condition not met", "Print Debug")
         
         if not new_items_to_print:
             frappe.log_error("No new items to print", "Print Debug")
@@ -656,7 +686,8 @@ def print_captain_order(invoice_name, current_items, print_format, _lang, force_
                 "success": True, 
                 "data": {},
                 "message": "No new items to print",
-                "new_items_count": 0
+                "new_items_count": 0,
+                "print_count": (getattr(print_log, 'print_count', 0) or 0)
             }
         
         # Get original invoice for context
@@ -679,22 +710,37 @@ def print_captain_order(invoice_name, current_items, print_format, _lang, force_
             "timestamp": now(),
             "is_captain_order_reprint": len(previously_printed_items) > 0,
             "print_count": (getattr(print_log, 'print_count', 0) or 0) + 1,
-            "created_by_name": getattr(original_invoice, 'owner', '')  # Template expects created_by_name
+            "created_by_name": getattr(original_invoice, 'owner', '')
         }
         
-        # Update print log
+        # Update print log with the CURRENT state (all items with their current quantities)
         if print_log:
-            print_log.printed_items = json.dumps(current_items)
+            # Create updated printed items list with current quantities
+            updated_printed_items = []
+            current_items_dict = {item.get('item_code'): item for item in current_items if item.get('item_code')}
+            
+            # Add all current items to the printed items log
+            for item_code, item_data in current_items_dict.items():
+                updated_printed_items.append({
+                    'item_code': item_code,
+                    'item_name': item_data.get('item_name', item_code),
+                    'qty': item_data.get('qty', 0),
+                    'rate': item_data.get('rate', 0),
+                    'uom': item_data.get('uom', ''),
+                    'name': item_data.get('name', '')
+                })
+            
+            print_log.printed_items = json.dumps(updated_printed_items)
             print_log.last_print_time = now()
             print_log.print_count = (print_log.print_count or 0) + 1
             try:
                 print_log.save(ignore_permissions=True)
                 frappe.db.commit()
-                frappe.log_error(f"Updated print log: {print_log_name}", "Print Debug")
+                frappe.log_error(f"Updated print log: {print_log_name} with {len(updated_printed_items)} items", "Print Debug")
             except Exception as e:
                 frappe.log_error(f"Failed to update print log {print_log_name}: {str(e)}", "Print Debug")
         
-        frappe.log_error(f"Pseudo doc data: ", "Print Debug")
+        frappe.log_error(f"Returning {len(new_items_to_print)} new items to print", "Print Debug")
         
         return {
             "success": True, 
@@ -705,4 +751,6 @@ def print_captain_order(invoice_name, current_items, print_format, _lang, force_
         
     except Exception as e:
         frappe.log_error(f"Error in print_captain_order: {str(e)}", "Captain Order Print Error")
+        import traceback
+        frappe.log_error(f"Traceback: {traceback.format_exc()}", "Captain Order Print Error")
         return {"success": False, "error": str(e)}
