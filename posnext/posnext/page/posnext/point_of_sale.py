@@ -613,7 +613,7 @@ def print_captain_order(invoice_name, current_items, print_format, _lang, force_
         try:
             print_log = frappe.get_doc("Captain Print Log", print_log_name)
             previously_printed_items = json.loads(print_log.printed_items or "[]")
-            frappe.log_error(f"Found print log: {print_log_name}, Previously printed items: {json.dumps(previously_printed_items)}", "Print Debug")
+            frappe.log_error(f"Found print log: {print_log_name}", "Print Debug")
         except frappe.DoesNotExistError:
             frappe.log_error(f"Print log {print_log_name} not found, creating new one", "Print Debug")
             try:
