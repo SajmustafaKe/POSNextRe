@@ -340,45 +340,57 @@ print_order() {
     };
 
     const _get_raw_commands = (doctype, docname, print_format, lang_code, callback) => {
-        const items_to_print = this.doc.items.map(item => ({
-            item_code: item.item_code,
-            item_name: item.item_name || item.item_code, // Ensure item_name
-            qty: item.qty,
-            uom: item.uom,
-            rate: item.rate,
-            name: item.name
-        }));
-        console.log("Items to print:", items_to_print); // Debug log
-        frappe.call({
-            method: "posnext.posnext.page.posnext.point_of_sale.print_captain_order",
-            args: {
-                invoice_name: docname,
-                current_items: items_to_print,
-                print_format: print_format,
-                _lang: lang_code,
-                force_print: false // Set to true for testing
-            },
-            callback: (r) => {
-                console.log("Print captain order response:", r.message); // Debug log
-                if (!r.exc && r.message && r.message.success) {
-                    if (!Object.keys(r.message.data).length) {
-                        callback({ message: r.message.message }); // Skip rendering for empty data
-                        return;
-                    }
-                    _render_print_format(r.message.data, print_format, (raw_commands) => {
-                        callback({ raw_commands: raw_commands, message: r.message.message });
-                    });
-                } else {
+    // Send all current items - let Python calculate what's new
+    const items_to_print = this.doc.items.map(item => ({
+        item_code: item.item_code,
+        item_name: item.item_name || item.item_code,
+        qty: item.qty,
+        uom: item.uom,
+        rate: item.rate,
+        name: item.name
+    }));
+    
+    console.log("Items to print:", items_to_print);
+    
+    frappe.call({
+        method: "posnext.posnext.page.posnext.point_of_sale.print_captain_order",
+        args: {
+            invoice_name: docname,
+            current_items: items_to_print,
+            print_format: print_format,
+            _lang: lang_code,
+            force_print: false // Make sure this is false for incremental printing
+        },
+        callback: (r) => {
+            console.log("Print captain order response:", r.message);
+            if (!r.exc && r.message && r.message.success) {
+                // Check if there are actually new items to print
+                if (r.message.new_items_count === 0) {
                     frappe.show_alert({
-                        message: __("Failed to generate print data: " + (r.message?.error || "Unknown error")),
-                        indicator: 'red'
-                    });
-                    frappe.utils.play_sound("error");
+                        message: __("No new items to print for this captain order."),
+                        indicator: "info"
+                    }, 10);
+                    return;
                 }
+                
+                if (!Object.keys(r.message.data).length) {
+                    callback({ message: r.message.message });
+                    return;
+                }
+                
+                _render_print_format(r.message.data, print_format, (raw_commands) => {
+                    callback({ raw_commands: raw_commands, message: r.message.message });
+                });
+            } else {
+                frappe.show_alert({
+                    message: __("Failed to generate print data: " + (r.message?.error || "Unknown error")),
+                    indicator: 'red'
+                });
+                frappe.utils.play_sound("error");
             }
-        });
-    };
-
+        }
+    });
+};
     const _render_print_format = (doc_data, print_format, callback) => {
         if (!doc_data || !Object.keys(doc_data).length) {
             console.log("Skipping render: doc_data is empty");
