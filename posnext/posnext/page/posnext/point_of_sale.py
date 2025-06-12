@@ -702,103 +702,297 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
         frappe.log_error(f"Error in print_captain_order: {str(e)}", "Captain Order Print Error")
         return {"success": False, "error": str(e)}
 
-import frappe
-import json
-from frappe.utils import now, cstr
+print_order() {
+    const doctype = this.doc.doctype;
+    const docname = this.doc.name;
+    const print_format = "Captain Order";
+    const letterhead = this.doc.letter_head || __("No Letterhead");
+    const lang_code = this.doc.language || frappe.boot.lang;
 
-@frappe.whitelist()
-def print_captain_order(invoice_name, current_items, print_format, _lang):
-    try:
-        # Parse current_items if it's a string
-        if isinstance(current_items, str):
-            try:
-                current_items = json.loads(current_items)
-            except json.JSONDecodeError as e:
-                frappe.log_error(f"Failed to parse current_items: {str(e)}")
-                return {"success": False, "error": "Invalid current_items format: not a valid JSON string"}
-        
-        # Validate current_items
-        if not isinstance(current_items, list):
-            frappe.log_error(f"Invalid current_items type: expected list, got {type(current_items)}")
-            return {"success": False, "error": "current_items must be a list"}
-        
-        if not current_items:
-            frappe.log_error("current_items is empty", "Print Debug")
-            return {"success": False, "error": "No items to print"}
-        
-        # Get or create print tracking record
-        print_log_name = f"captain_print_{invoice_name}"
-        
-        try:
-            print_log = frappe.get_doc("Captain Print Log", print_log_name)
-            previously_printed_items = json.loads(print_log.printed_items or "[]")
-        except frappe.DoesNotExistError:
-            print_log = frappe.get_doc({
-                "doctype": "Captain Print Log",
-                "name": print_log_name,
-                "invoice_name": invoice_name,
-                "printed_items": "[]",
-                "last_print_time": now()
-            })
-            print_log.insert(ignore_permissions=True)
-            previously_printed_items = []
-        
-        # Calculate new items to print
-        new_items_to_print = []
-        prev_items_dict = {f"{prev_item.get('item_code')}_{prev_item.get('name', '')}": prev_item.get('qty', 0) for prev_item in previously_printed_items}
-        
-        for current_item in current_items:
-            item_key = f"{current_item.get('item_code')}_{current_item.get('name', '')}"
-            current_qty = float(current_item.get('qty', 0))
-            previous_qty = float(prev_items_dict.get(item_key, 0))
-            
-            if current_qty > previous_qty:
-                qty_to_print = current_qty - previous_qty
-                new_item = current_item.copy()
-                new_item['qty'] = qty_to_print
-                new_items_to_print.append(new_item)
-        
-        if not new_items_to_print:
-            return {
-                "success": True, 
-                "data": {},
-                "message": "No new items to print",
-                "new_items_count": 0
+    const _print_via_qz = (doctype, docname, print_format, letterhead, lang_code) => {
+        const print_format_printer_map = _get_print_format_printer_map();
+        const mapped_printer = _get_mapped_printer(print_format_printer_map, doctype, print_format);
+
+        if (mapped_printer.length === 1) {
+            _print_with_mapped_printer(doctype, docname, print_format, letterhead, lang_code, mapped_printer[0]);
+        } else if (_is_raw_printing(print_format)) {
+            frappe.show_alert({
+                message: __("Printer mapping not set."),
+                subtitle: __("Please set a printer mapping for this print format in the Printer Settings"),
+                indicator: "warning"
+            }, 14);
+            _printer_setting_dialog(doctype, print_format);
+        } else {
+            _render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code);
+        }
+    };
+
+    const _print_with_mapped_printer = (doctype, docname, print_format, letterhead, lang_code, printer_map) => {
+        if (_is_raw_printing(print_format)) {
+            _get_raw_commands(doctype, docname, print_format, lang_code, (out) => {
+                if (out.message === "No new items to print") {
+                    frappe.show_alert({
+                        message: __("No new items to print for this captain order."),
+                        indicator: "green"
+                    }, 10);
+                    return;
+                }
+                frappe.ui.form.qz_connect()
+                    .then(() => {
+                        let config = qz.configs.create(printer_map.printer);
+                        let data = [out.raw_commands];
+                        console.log("Sending raw commands to QZ printer:", out.raw_commands); // Debug log
+                        return qz.print(config_data);
+                    })
+                    .then(frappe.ui.form.qz_success)
+                    .catch((err) => {
+                        frappe.ui.form.qz_fail(err);
+                        console.error("QZ printing error:", err);
+                    });
+            });
+        } else {
+            frappe.show_alert({
+                message: __('PDF printing via "Raw Print" is not supported.'),
+                subtitle: __("Please remove the printer mapping in Printer Settings and try again."),
+                indicator: "info"
+            }, 14);
+            _render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code);
+        }
+    };
+
+    const _get_raw_commands = (doctype, docname, print_format, lang_code, callback) => {
+        const items_to_print = this.doc.items.map(item => ({
+            item_code: item.item_code,
+            item_name: item.item_name || item.item_code, // Ensure item_name
+            qty: item.qty,
+            uom: item.uom,
+            rate: item.rate,
+            name: item.name
+        }));
+        console.log("Items to print:", items_to_print); // Debug log
+        frappe.call({
+            method: "posnext.posnext.page.posnext.point_of_sale.print_captain_order",
+            args: {
+                invoice_name: docname,
+                current_items: items_to_print,
+                print_format: print_format,
+                _lang: lang_code,
+                force_print: false // Set to true for testing
+            },
+            callback: (r) => {
+                console.log("Print captain order response:", r.message); // Debug log
+                if (!r.exc && r.message && r.message.success) {
+                    if (!Object.keys(r.message.data).length) {
+                        callback({ message: r.message.message }); // Skip rendering for empty data
+                        return;
+                    }
+                    _render_print_format(r.message.data, print_format, (raw_commands) => {
+                        callback({ raw_commands: raw_commands, message: r.message.message });
+                    });
+                } else {
+                    frappe.show_alert({
+                        message: __("Failed to generate print data: " + (r.message?.error || "Unknown error")),
+                        indicator: 'red'
+                    });
+                    frappe.utils.play_sound("error");
+                }
             }
-        
-        # Get original invoice for context
-        original_invoice = frappe.get_doc("POS Invoice", invoice_name)
-        
-        # Create pseudo document data
-        pseudo_doc_data = {
-            "name": invoice_name,
-            "customer": original_invoice.customer,
-            "posting_date": original_invoice.posting_date,
-            "posting_time": original_invoice.posting_time,
-            "pos_profile": original_invoice.pos_profile,
-            "company": original_invoice.company,
-            "territory": getattr(original_invoice, 'territory', ''),
-            "items": new_items_to_print,
-            "timestamp": now(),
-            "is_captain_order_reprint": len(previously_printed_items) > 0,
-            "print_count": (getattr(print_log, 'print_count', 0) or 0) + 1
+        });
+    };
+
+    const _render_print_format = (doc_data, print_format, callback) => {
+        if (!doc_data || !Object.keys(doc_data).length) {
+            console.log("Skipping render: doc_data is empty");
+            callback(""); // Return empty commands
+            return;
         }
-        
-        # Update print log
-        print_log.printed_items = json.dumps(current_items)
-        print_log.last_print_time = now()
-        print_log.print_count = (print_log.print_count or 0) + 1
-        print_log.save(ignore_permissions=True)
-        
-        frappe.db.commit()
-        
-        return {
-            "success": True, 
-            "data": pseudo_doc_data,
-            "new_items_count": len(new_items_to_print),
-            "print_count": print_log.print_count
+
+        frappe.call({
+            method: "frappe.client.get",
+            args: {
+                doctype: "Print Format",
+                name: print_format
+            },
+            callback: (r) => {
+                if (!r.exc && r.message) {
+                    const print_format_doc = r.message;
+                    if (print_format_doc.raw_printing !== 1) {
+                        frappe.show_alert({
+                            message: __("Print format is not set for raw printing."),
+                            indicator: 'red'
+                        });
+                        frappe.utils.play_sound("error");
+                        return;
+                    }
+
+                    const template = print_format_doc.raw_commands || '';
+                    if (!template) {
+                        frappe.show_alert({
+                            message: __("No raw commands defined in the print format."),
+                            indicator: 'red'
+                        });
+                        frappe.utils.play_sound("error");
+                        return;
+                    }
+
+                    try {
+                        const context = { doc: doc_data };
+                        const raw_commands = frappe.render_template(template, context);
+                        console.log("Rendered raw commands:", raw_commands); // Debug log
+                        callback(raw_commands);
+                    } catch (error) {
+                        console.error("Template rendering error:", error);
+                        frappe.show_alert({
+                            message: __("Error rendering print format: " + (error.message || error)),
+                            indicator: 'red'
+                        });
+                        frappe.utils.play_sound("error");
+                    }
+                } else {
+                    frappe.show_alert({
+                        message: __("Failed to fetch print format."),
+                        indicator: 'red'
+                    });
+                    frappe.utils.play_sound("error");
+                }
+            }
+        });
+    };
+
+    const _is_raw_printing = (format) => {
+        let print_format = {};
+        if (locals["Print Format"] && locals["Print Format"][format]) {
+            print_format = locals["Print Format"][format];
         }
-        
-    except Exception as e:
-        frappe.log_error(f"Error in print_captain_order: {str(e)}", "Captain Order Print Error")
-        return {"success": False, "error": str(e)}
+        return print_format.raw_printing === 1;
+    };
+
+    const _get_print_format_printer_map = () => {
+        try {
+            return JSON.parse(localStorage.print_format_printer_map || "{}");
+        } catch (e) {
+            return {};
+        }
+    };
+
+    const _get_mapped_printer = (print_format_printer_map, doctype, print_format) => {
+        if (print_format_printer_map[doctype]) {
+            return print_format_printer_map[doctype].filter(
+                (printer_map) => printer_map.print_format === print_format
+            );
+        }
+        return [];
+    };
+
+    const _render_pdf_or_regular_print = (doctype, docname, print_format, letterhead, lang_code) => {
+        frappe.utils.print(
+            doctype,
+            docname,
+            print_format,
+            letterhead,
+            lang_code
+        );
+    };
+
+    const _printer_setting_dialog = (doctype, current_print_format) => {
+        let print_format_printer_map = _get_print_format_printer_map();
+        let data = print_format_printer_map[doctype] || [];
+
+        frappe.ui.form.qz_get_printer_list().then((printer_list) => {
+            if (!(printer_list && printer_list.length)) {
+                frappe.throw(__("No Printer is Available."));
+                return;
+            }
+
+            const dialog = new frappe.ui.Dialog({
+                title: __("Printer Settings"),
+                fields: [
+                    { fieldtype: "Section Break" },
+                    {
+                        fieldname: "printer_mapping",
+                        fieldtype: "Table",
+                        label: __("Printer Mapping"),
+                        in_place_edit: true,
+                        data: data,
+                        get_data: () => data,
+                        fields: [
+                            {
+                                fieldtype: "Select",
+                                fieldname: "print_format",
+                                default: 0,
+                                options: frappe.meta.get_print_formats(doctype),
+                                read_only: 0,
+                                in_list_view: 1,
+                                label: __("Print Format")
+                            },
+                            {
+                                fieldtype: "Select",
+                                fieldname: "printer",
+                                default: 0,
+                                options: printer_list,
+                                read_only: 0,
+                                in_list_view: 1,
+                                label: __("Printer")
+                            }
+                        ]
+                    }
+                ],
+                primary_action: () => {
+                    let printer_mapping = dialog.get_values()["printer_mapping"];
+                    if (printer_mapping && printer_mapping.length) {
+                        let print_format_list = printer_mapping.map((a) => a.print_format);
+                        let has_duplicate = print_format_list.some(
+                            (item, idx) => print_format_list.indexOf(item) != idx
+                        );
+                        if (has_duplicate) {
+                            frappe.throw(__("Cannot have multiple printers mapped to a single print format."));
+                            return;
+                        }
+                    } else {
+                        printer_mapping = [];
+                    }
+
+                    let saved_print_format_printer_map = _get_print_format_printer_map();
+                    saved_print_format_printer_map[doctype] = printer_mapping;
+                    localStorage.print_format_printer_map = JSON.stringify(saved_print_format_printer_map);
+
+                    dialog.hide();
+
+                    _print_via_qz(doctype, docname, current_print_format, letterhead, lang_code);
+                },
+                primary_action_label: __("Save")
+            });
+
+            dialog.show();
+        });
+    };
+
+    // Main logic
+    if (!this.doc.items.length) {
+        frappe.show_alert({
+            message: __("No items in the invoice to print."),
+            indicator: 'red'
+        });
+        return frappe.utils.play_sound("error");
+    }
+
+    console.log("Print Order button clicked"); // Debug log
+    frappe.dom.freeze();
+    frappe.db.get_value("Print Settings", "Print Settings", "enable_raw_printing")
+        .then(({ message }) => {
+            frappe.dom.unfreeze();
+            if (message && message.enable_raw_printing === "1") {
+                _print_via_qz(doctype, docname, print_format, letterhead, lang_code);
+            } else {
+                _render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code);
+            }
+        })
+        .catch(() => {
+            frappe.dom.unfreeze();
+            frappe.show_alert({
+                message: __("Failed to check Print Settings."),
+                indicator: 'red'
+            });
+            frappe.utils.play_sound("error");
+        });
+}
