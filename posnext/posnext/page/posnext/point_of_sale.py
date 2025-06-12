@@ -584,6 +584,7 @@ from frappe.utils import now, cstr
 
 @frappe.whitelist()
 def print_captain_order(invoice_name, current_items, print_format, _lang, force_print=False):
+    from frappe.utils import now
     try:
         # Parse current_items if it's a string
         if isinstance(current_items, str):
@@ -657,6 +658,7 @@ def print_captain_order(invoice_name, current_items, print_format, _lang, force_
             
             if force_print or current_qty > previous_qty:
                 qty_to_print = current_qty - previous_qty if not force_print else current_qty
+                frappe.log_error(f"Calculated qty_to_print: {qty_to_print}", "Print Debug")
                 
                 if qty_to_print > 0:
                     new_item = current_item.copy()
@@ -664,7 +666,7 @@ def print_captain_order(invoice_name, current_items, print_format, _lang, force_
                     new_item['item_name'] = current_item.get('item_name') or current_item.get('item_code')
                     new_item['amount'] = qty_to_print * float(current_item.get('rate', 0))
                     new_items_to_print.append(new_item)
-                    frappe.log_error(f"Added {item_code} qty={qty_to_print}", "Print Debug")
+                    frappe.log_error(f"Added {item_code} qty={qty_to_print} (was {new_item['qty']})", "Print Debug")
                 else:
                     frappe.log_error(f"Skipped {item_code} qty_to_print={qty_to_print}", "Print Debug")
             else:
