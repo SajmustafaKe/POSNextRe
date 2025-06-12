@@ -283,7 +283,6 @@ print_order() {
     const letterhead = this.doc.letter_head || __("No Letterhead");
     const lang_code = this.doc.language || frappe.boot.lang;
 
-    // Helper methods for QZ printing (include if not already defined in the class)
     const _print_via_qz = (doctype, docname, print_format, letterhead, lang_code) => {
         const print_format_printer_map = _get_print_format_printer_map();
         const mapped_printer = _get_mapped_printer(print_format_printer_map, doctype, print_format);
@@ -305,6 +304,13 @@ print_order() {
     const _print_with_mapped_printer = (doctype, docname, print_format, letterhead, lang_code, printer_map) => {
         if (_is_raw_printing(print_format)) {
             _get_raw_commands(doctype, docname, print_format, lang_code, (out) => {
+                if (out.message === "No new items to print") {
+                    frappe.show_alert({
+                        message: __("No new items to print for this captain order."),
+                        indicator: "info"
+                    }, 10);
+                    return;
+                }
                 frappe.ui.form.qz_connect()
                     .then(() => {
                         let config = qz.configs.create(printer_map.printer);
@@ -327,26 +333,87 @@ print_order() {
     };
 
     const _get_raw_commands = (doctype, docname, print_format, lang_code, callback) => {
+        const items_to_print = this.doc.items.map(item => ({
+            item_code: item.item_code,
+            qty: item.qty,
+            uom: item.uom,
+            rate: item.rate,
+            name: item.name
+        }));
+        console.log("Items to print:", items_to_print); // Debug log
         frappe.call({
             method: "posnext.posnext.page.posnext.point_of_sale.print_captain_order",
             args: {
                 invoice_name: docname,
-                current_items: this.doc.items.map(item => ({
-                    item_code: item.item_code,
-                    qty: item.qty,
-                    uom: item.uom,
-                    rate: item.rate,
-                    name: item.name
-                })),
+                current_items: items_to_print,
                 print_format: print_format,
                 _lang: lang_code
             },
             callback: (r) => {
+                console.log("Print captain order response:", r.message); // Debug log
                 if (!r.exc && r.message && r.message.success) {
-                    callback({ raw_commands: r.message.raw_commands });
+                    // Fetch and render the print format
+                    _render_print_format(r.message.data, print_format, (raw_commands) => {
+                        callback({ raw_commands: raw_commands });
+                    });
                 } else {
                     frappe.show_alert({
-                        message: __("Failed to generate raw commands: " + (r.message.error || "Unknown error")),
+                        message: __("Failed to generate print data: " + (r.message?.error || "Unknown error")),
+                        indicator: 'red'
+                    });
+                    frappe.utils.play_sound("error");
+                }
+            }
+        });
+    };
+
+    const _render_print_format = (doc_data, print_format, callback) => {
+        // Fetch the print format
+        frappe.call({
+            method: "frappe.client.get",
+            args: {
+                doctype: "Print Format",
+                name: print_format
+            },
+            callback: (r) => {
+                if (!r.exc && r.message) {
+                    const print_format_doc = r.message;
+                    if (print_format_doc.raw_printing !== 1) {
+                        frappe.show_alert({
+                            message: __("Print format is not set for raw printing."),
+                            indicator: 'red'
+                        });
+                        frappe.utils.play_sound("error");
+                        return;
+                    }
+
+                    // Get the raw_commands template
+                    const template = print_format_doc.raw_commands || '';
+                    if (!template) {
+                        frappe.show_alert({
+                            message: __("No raw commands defined in the print format."),
+                            indicator: 'red'
+                        });
+                        frappe.utils.play_sound("error");
+                        return;
+                    }
+
+                    // Render the template with doc_data using frappe.render
+                    try {
+                        // Convert doc_data to a format compatible with frappe.render_template
+                        const context = { doc: doc_data };
+                        const raw_commands = frappe.render_template(template, context);
+                        callback(raw_commands);
+                    } catch (e) {
+                        frappe.show_alert({
+                            message: __("Error rendering print format: " + e.message),
+                            indicator: 'red'
+                        });
+                        frappe.utils.play_sound("error");
+                    }
+                } else {
+                    frappe.show_alert({
+                        message: __("Failed to fetch print format."),
                         indicator: 'red'
                     });
                     frappe.utils.play_sound("error");
@@ -479,14 +546,7 @@ print_order() {
             if (message && message.enable_raw_printing === "1") {
                 _print_via_qz(doctype, docname, print_format, letterhead, lang_code);
             } else {
-                // Fallback to regular print dialog (will print all items)
-                frappe.utils.print(
-                    doctype,
-                    docname,
-                    print_format,
-                    letterhead,
-                    lang_code
-                );
+                _render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code);
             }
         })
         .catch(() => {
