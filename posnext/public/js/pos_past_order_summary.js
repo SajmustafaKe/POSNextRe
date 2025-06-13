@@ -315,8 +315,8 @@ print_order() {
                     .then(() => {
                         let config = qz.configs.create(printer_map.printer);
                         let data = [out.raw_commands];
-                        console.log("Sending raw commands to QZ printer:", out.raw_commands); // Debug log
-                        return qz.print(config, data); // Fixed typo: config_data -> config, data
+                        console.log("Sending raw commands to QZ printer:", out.raw_commands);
+                        return qz.print(config, data);
                     })
                     .then(frappe.ui.form.qz_success)
                     .catch((err) => {
@@ -340,60 +340,59 @@ print_order() {
     };
 
     const _get_raw_commands = (doctype, docname, print_format, lang_code, callback) => {
-    // Send all current items - let Python calculate what's new
-    const items_to_print = this.doc.items.map(item => ({
-        item_code: item.item_code,
-        item_name: item.item_name || item.item_code,
-        qty: item.qty,
-        uom: item.uom,
-        rate: item.rate,
-        name: item.name
-    }));
-    
-    console.log("Items to print:", items_to_print);
-    
-    frappe.call({
-        method: "posnext.posnext.page.posnext.point_of_sale.print_captain_order",
-        args: {
-            invoice_name: docname,
-            current_items: items_to_print,
-            print_format: print_format,
-            _lang: lang_code,
-            force_print: false // Make sure this is false for incremental printing
-        },
-        callback: (r) => {
-            console.log("Print captain order response:", r.message);
-            if (!r.exc && r.message && r.message.success) {
-                // Check if there are actually new items to print
-                if (r.message.new_items_count === 0) {
+        // Send all current items - let Python calculate what's new
+        const items_to_print = this.doc.items.map(item => ({
+            item_code: item.item_code,
+            item_name: item.item_name || item.item_code,
+            qty: item.qty,
+            uom: item.uom,
+            rate: item.rate,
+            name: item.name
+        }));
+        
+        console.log("Items to print:", items_to_print);
+        
+        frappe.call({
+            method: "posnext.posnext.page.posnext.point_of_sale.print_captain_order",
+            args: {
+                invoice_name: docname,
+                current_items: items_to_print,
+                print_format: print_format,
+                _lang: lang_code
+                // Removed force_print parameter completely
+            },
+            callback: (r) => {
+                console.log("Print captain order response:", r.message);
+                if (!r.exc && r.message && r.message.success) {
+                    // Check if there are actually new items to print
+                    if (r.message.new_items_count === 0) {
+                        callback({ message: "No new items to print" });
+                        return;
+                    }
+                    
+                    // Check if data is empty or has no items
+                    if (!r.message.data || !r.message.data.items || r.message.data.items.length === 0) {
+                        callback({ message: "No new items to print" });
+                        return;
+                    }
+                    
+                    _render_print_format(r.message.data, print_format, (raw_commands) => {
+                        callback({ raw_commands: raw_commands, message: r.message.message });
+                    });
+                } else {
                     frappe.show_alert({
-                        message: __("No new items to print for this captain order."),
-                        indicator: "info"
-                    }, 10);
-                    return;
+                        message: __("Failed to generate print data: " + (r.message?.error || "Unknown error")),
+                        indicator: 'red'
+                    });
+                    frappe.utils.play_sound("error");
                 }
-                
-                if (!Object.keys(r.message.data).length) {
-                    callback({ message: r.message.message });
-                    return;
-                }
-                
-                _render_print_format(r.message.data, print_format, (raw_commands) => {
-                    callback({ raw_commands: raw_commands, message: r.message.message });
-                });
-            } else {
-                frappe.show_alert({
-                    message: __("Failed to generate print data: " + (r.message?.error || "Unknown error")),
-                    indicator: 'red'
-                });
-                frappe.utils.play_sound("error");
             }
-        }
-    });
-};
+        });
+    };
+
     const _render_print_format = (doc_data, print_format, callback) => {
-        if (!doc_data || !Object.keys(doc_data).length) {
-            console.log("Skipping render: doc_data is empty");
+        if (!doc_data || !doc_data.items || !doc_data.items.length) {
+            console.log("Skipping render: doc_data has no items");
             callback(""); // Return empty commands
             return;
         }
@@ -426,11 +425,12 @@ print_order() {
                         return;
                     }
 
-                    console.log("Print format template:", template); // Debug log
+                    console.log("Print format template:", template);
+                    console.log("Items to render:", doc_data.items); // Debug log for items
                     try {
                         const context = { doc: doc_data };
                         const raw_commands = frappe.render_template(template, context);
-                        console.log("Rendered raw commands:", raw_commands); // Debug log
+                        console.log("Rendered raw commands:", raw_commands);
                         callback(raw_commands);
                     } catch (error) {
                         console.error("Template rendering error:", error);
@@ -570,7 +570,7 @@ print_order() {
         return frappe.utils.play_sound("error");
     }
 
-    console.log("Print Order button clicked"); // Debug log
+    console.log("Print Order button clicked");
     frappe.dom.freeze();
     frappe.db.get_value("Print Settings", "Print Settings", "enable_raw_printing")
         .then(({ message }) => {
