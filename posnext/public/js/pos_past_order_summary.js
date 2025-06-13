@@ -281,8 +281,404 @@ posnext.PointOfSale.PastOrderSummary = class {
         });
 }
 
-split_order(){
+// Add this method to replace the empty split_order() method in your class
 
+split_order() {
+    if (!this.doc || !this.doc.items || this.doc.items.length === 0) {
+        frappe.show_alert({
+            message: __("No items available to split."),
+            indicator: 'red'
+        });
+        return;
+    }
+
+    if (this.doc.docstatus !== 0) {
+        frappe.show_alert({
+            message: __("Cannot split submitted invoices."),
+            indicator: 'red'
+        });
+        return;
+    }
+
+    this.show_split_dialog();
+}
+
+show_split_dialog() {
+    // Prepare items data for the dialog
+    const items_data = this.doc.items.map((item, index) => ({
+        idx: index + 1,
+        item_code: item.item_code,
+        item_name: item.item_name || item.item_code,
+        qty: item.qty,
+        rate: item.rate,
+        amount: item.amount,
+        uom: item.uom,
+        original_qty: item.qty,
+        remaining_qty: item.qty,
+        split_qty: 0,
+        item_row_name: item.name,
+        selected: false
+    }));
+
+    // Create the split dialog
+    const split_dialog = new frappe.ui.Dialog({
+        title: __('Split Order - Select Items'),
+        size: 'large',
+        fields: [
+            {
+                fieldtype: 'HTML',
+                fieldname: 'instructions',
+                options: `
+                    <div class="alert alert-info">
+                        <strong>Instructions:</strong>
+                        <ul>
+                            <li>Select items you want to move to new invoices</li>
+                            <li>Enter the quantity to split for each item</li>
+                            <li>You can create multiple new invoices by grouping items</li>
+                            <li>Remaining quantities will stay in the original invoice</li>
+                        </ul>
+                    </div>
+                `
+            },
+            {
+                fieldtype: 'Section Break'
+            },
+            {
+                fieldtype: 'HTML',
+                fieldname: 'split_items_html',
+                options: this.get_split_items_html(items_data)
+            },
+            {
+                fieldtype: 'Section Break'
+            },
+            {
+                fieldtype: 'Data',
+                fieldname: 'new_invoice_count',
+                label: __('Number of New Invoices'),
+                default: '1',
+                description: __('How many new invoices to create from selected items')
+            }
+        ],
+        primary_action: () => {
+            this.process_split_order(split_dialog, items_data);
+        },
+        primary_action_label: __('Split Order'),
+        secondary_action: () => {
+            split_dialog.hide();
+        },
+        secondary_action_label: __('Cancel')
+    });
+
+    this.split_dialog = split_dialog;
+    this.split_items_data = items_data;
+    split_dialog.show();
+
+    // Bind events after dialog is shown
+    setTimeout(() => {
+        this.bind_split_dialog_events();
+    }, 100);
+}
+
+get_split_items_html(items_data) {
+    let html = `
+        <div class="split-items-container">
+            <table class="table table-bordered">
+                <thead>
+                    <tr>
+                        <th width="5%">
+                            <input type="checkbox" id="select-all-items" title="Select All">
+                        </th>
+                        <th width="25%">${__('Item')}</th>
+                        <th width="15%">${__('Original Qty')}</th>
+                        <th width="15%">${__('Split Qty')}</th>
+                        <th width="15%">${__('Remaining Qty')}</th>
+                        <th width="10%">${__('Rate')}</th>
+                        <th width="15%">${__('Split Amount')}</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+
+    items_data.forEach((item, index) => {
+        html += `
+            <tr data-item-index="${index}">
+                <td>
+                    <input type="checkbox" class="item-checkbox" data-item-index="${index}">
+                </td>
+                <td>
+                    <div><strong>${item.item_code}</strong></div>
+                    <div class="text-muted small">${item.item_name}</div>
+                </td>
+                <td>
+                    <span class="original-qty">${item.original_qty} ${item.uom}</span>
+                </td>
+                <td>
+                    <input type="number" 
+                           class="form-control split-qty-input" 
+                           data-item-index="${index}"
+                           min="0" 
+                           max="${item.original_qty}" 
+                           step="0.01"
+                           value="0">
+                </td>
+                <td>
+                    <span class="remaining-qty">${item.remaining_qty} ${item.uom}</span>
+                </td>
+                <td>
+                    <span class="item-rate">${format_currency(item.rate, this.doc.currency)}</span>
+                </td>
+                <td>
+                    <span class="split-amount">${format_currency(0, this.doc.currency)}</span>
+                </td>
+            </tr>
+        `;
+    });
+
+    html += `
+                </tbody>
+            </table>
+            <div class="split-summary mt-3">
+                <div class="row">
+                    <div class="col-md-6">
+                        <strong>Selected Items: <span id="selected-count">0</span></strong>
+                    </div>
+                    <div class="col-md-6 text-right">
+                        <strong>Total Split Amount: <span id="total-split-amount">${format_currency(0, this.doc.currency)}</span></strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    return html;
+}
+
+bind_split_dialog_events() {
+    const dialog_wrapper = this.split_dialog.$wrapper;
+
+    // Select all checkbox
+    dialog_wrapper.find('#select-all-items').on('change', (e) => {
+        const is_checked = $(e.target).is(':checked');
+        dialog_wrapper.find('.item-checkbox').prop('checked', is_checked);
+        
+        // Update split quantities
+        dialog_wrapper.find('.split-qty-input').each((i, input) => {
+            const item_index = $(input).data('item-index');
+            const max_qty = parseFloat($(input).attr('max'));
+            $(input).val(is_checked ? max_qty : 0);
+            this.update_item_split_data(item_index, is_checked ? max_qty : 0);
+        });
+        
+        this.update_split_summary();
+    });
+
+    // Individual item checkboxes
+    dialog_wrapper.find('.item-checkbox').on('change', (e) => {
+        const checkbox = $(e.target);
+        const item_index = checkbox.data('item-index');
+        const is_checked = checkbox.is(':checked');
+        const qty_input = dialog_wrapper.find(`.split-qty-input[data-item-index="${item_index}"]`);
+        
+        if (is_checked) {
+            const max_qty = parseFloat(qty_input.attr('max'));
+            qty_input.val(max_qty);
+            this.update_item_split_data(item_index, max_qty);
+        } else {
+            qty_input.val(0);
+            this.update_item_split_data(item_index, 0);
+        }
+        
+        this.update_split_summary();
+    });
+
+    // Quantity input changes
+    dialog_wrapper.find('.split-qty-input').on('input change', (e) => {
+        const input = $(e.target);
+        const item_index = input.data('item-index');
+        let split_qty = parseFloat(input.val()) || 0;
+        const max_qty = parseFloat(input.attr('max'));
+        
+        // Validate quantity
+        if (split_qty > max_qty) {
+            split_qty = max_qty;
+            input.val(split_qty);
+        }
+        if (split_qty < 0) {
+            split_qty = 0;
+            input.val(split_qty);
+        }
+        
+        // Update checkbox state
+        const checkbox = dialog_wrapper.find(`.item-checkbox[data-item-index="${item_index}"]`);
+        checkbox.prop('checked', split_qty > 0);
+        
+        this.update_item_split_data(item_index, split_qty);
+        this.update_split_summary();
+    });
+}
+
+update_item_split_data(item_index, split_qty) {
+    const item = this.split_items_data[item_index];
+    item.split_qty = split_qty;
+    item.remaining_qty = item.original_qty - split_qty;
+    item.selected = split_qty > 0;
+    
+    const dialog_wrapper = this.split_dialog.$wrapper;
+    const row = dialog_wrapper.find(`tr[data-item-index="${item_index}"]`);
+    
+    // Update remaining quantity display
+    row.find('.remaining-qty').text(`${item.remaining_qty} ${item.uom}`);
+    
+    // Update split amount
+    const split_amount = split_qty * item.rate;
+    row.find('.split-amount').text(format_currency(split_amount, this.doc.currency));
+}
+
+update_split_summary() {
+    const dialog_wrapper = this.split_dialog.$wrapper;
+    const selected_items = this.split_items_data.filter(item => item.selected);
+    const total_split_amount = selected_items.reduce((total, item) => 
+        total + (item.split_qty * item.rate), 0);
+    
+    dialog_wrapper.find('#selected-count').text(selected_items.length);
+    dialog_wrapper.find('#total-split-amount').text(format_currency(total_split_amount, this.doc.currency));
+}
+
+process_split_order(dialog, items_data) {
+    const selected_items = items_data.filter(item => item.selected && item.split_qty > 0);
+    
+    if (selected_items.length === 0) {
+        frappe.show_alert({
+            message: __("Please select at least one item to split."),
+            indicator: 'orange'
+        });
+        return;
+    }
+    
+    const new_invoice_count = parseInt(dialog.get_value('new_invoice_count')) || 1;
+    
+    if (new_invoice_count < 1) {
+        frappe.show_alert({
+            message: __("Number of new invoices must be at least 1."),
+            indicator: 'orange'
+        });
+        return;
+    }
+    
+    // Show confirmation
+    frappe.confirm(
+        __(`This will create ${new_invoice_count} new invoice(s) with the selected items and update the original invoice. Continue?`),
+        () => {
+            this.execute_split_order(selected_items, new_invoice_count);
+            dialog.hide();
+        }
+    );
+}
+
+execute_split_order(selected_items, new_invoice_count) {
+    frappe.dom.freeze(__('Splitting order...'));
+    
+    // Prepare data for the split operation
+    const split_data = {
+        original_invoice: this.doc.name,
+        selected_items: selected_items.map(item => ({
+            item_code: item.item_code,
+            split_qty: item.split_qty,
+            rate: item.rate,
+            item_row_name: item.item_row_name
+        })),
+        new_invoice_count: new_invoice_count,
+        distribute_evenly: new_invoice_count > 1
+    };
+    
+    frappe.call({
+        method: "posnext.posnext.page.posnext.point_of_sale.split_pos_invoice",
+        args: split_data,
+        callback: (r) => {
+            frappe.dom.unfreeze();
+            
+            if (!r.exc && r.message) {
+                const result = r.message;
+                
+                frappe.show_alert({
+                    message: __(`Successfully created ${result.new_invoices.length} new invoice(s). Original invoice updated.`),
+                    indicator: 'green'
+                });
+                
+                // Show summary of created invoices
+                this.show_split_result_dialog(result);
+                
+                // Refresh the current view
+                this.events.refresh_fields();
+                
+                // Hide the summary and show placeholder
+                this.show_summary_placeholder();
+                
+            } else {
+                frappe.show_alert({
+                    message: __("Failed to split order: ") + (r.message || r.exc),
+                    indicator: 'red'
+                });
+            }
+        },
+        error: (r) => {
+            frappe.dom.unfreeze();
+            frappe.show_alert({
+                message: __("Error occurred while splitting order."),
+                indicator: 'red'
+            });
+        }
+    });
+}
+
+show_split_result_dialog(result) {
+    let html = `
+        <div class="split-result-summary">
+            <h5>Split Order Results</h5>
+            <div class="alert alert-success">
+                <strong>Successfully split the order!</strong>
+            </div>
+            
+            <h6>Original Invoice: ${result.original_invoice}</h6>
+            <p>Updated with remaining items</p>
+            
+            <h6>New Invoices Created:</h6>
+            <ul>
+    `;
+    
+    result.new_invoices.forEach((invoice, index) => {
+        html += `<li><strong>${invoice.name}</strong> - ${invoice.items.length} items - ${format_currency(invoice.grand_total, this.doc.currency)}</li>`;
+    });
+    
+    html += `
+            </ul>
+            <div class="mt-3">
+                <small class="text-muted">All invoices are in draft status and can be modified before submission.</small>
+            </div>
+        </div>
+    `;
+    
+    const result_dialog = new frappe.ui.Dialog({
+        title: __('Split Order Complete'),
+        fields: [
+            {
+                fieldtype: 'HTML',
+                fieldname: 'result_html',
+                options: html
+            }
+        ],
+        primary_action: () => {
+            result_dialog.hide();
+        },
+        primary_action_label: __('Close')
+    });
+    
+    result_dialog.show();
+}
+
+show_summary_placeholder() {
+    this.$summary_wrapper.css('display', 'none');
+    this.$component.find('.no-summary-placeholder').css('display', 'flex');
 }
 print_order() {
     const doctype = this.doc.doctype;
