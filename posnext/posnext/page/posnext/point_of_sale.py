@@ -758,6 +758,11 @@ def merge_invoices(invoice_names, customer):
     Merge multiple POS invoices into a single invoice
     """
     try:
+        # Check if user has Waiter role - if they do, deny access
+        user_roles = frappe.get_roles(frappe.session.user)
+        if 'Waiter' in user_roles:
+            return {"success": False, "error": "You do not have permission to merge invoices"}
+        
         # Parse invoice_names if it's a string
         if isinstance(invoice_names, str):
             invoice_names = json.loads(invoice_names)

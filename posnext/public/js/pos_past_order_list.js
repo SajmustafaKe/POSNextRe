@@ -5,6 +5,7 @@ posnext.PointOfSale.PastOrderList = class {
 		this.wrapper = wrapper;
 		this.events = events;
 		this.selected_invoices = new Set(); // Track selected invoices
+		this.can_merge_invoices = this.check_merge_permission(); // Check if user can merge
 
 		this.init_component();
 	}
@@ -13,6 +14,12 @@ posnext.PointOfSale.PastOrderList = class {
 		this.prepare_dom();
 		this.make_filter_section();
 		this.bind_events();
+	}
+
+	check_merge_permission() {
+		// Check if user has Waiter role - if they do, disable merge functionality
+		const user_roles = frappe.user_roles || [];
+		return !user_roles.includes('Waiter');
 	}
 
 	prepare_dom() {
@@ -153,11 +160,16 @@ posnext.PointOfSale.PastOrderList = class {
 
 	get_invoice_html(invoice) {
 		const posting_datetime = moment(invoice.posting_date+" "+invoice.posting_time).format("Do MMMM, h:mma");
+		
+		// Show checkbox only if user can merge invoices
+		const checkbox_html = this.can_merge_invoices ? 
+			`<div class="invoice-checkbox-container" style="margin-right: 10px; display: flex; align-items: center;">
+				<input type="checkbox" class="invoice-checkbox" style="margin: 0;">
+			</div>` : '';
+		
 		return (
 			`<div class="invoice-wrapper" data-invoice-name="${escape(invoice.name)}" style="display: flex; align-items: center; padding: 10px; border-bottom: 1px solid #d1d8dd; cursor: pointer;">
-				<div class="invoice-checkbox-container" style="margin-right: 10px; display: flex; align-items: center;">
-					<input type="checkbox" class="invoice-checkbox" style="margin: 0;">
-				</div>
+				${checkbox_html}
 				<div style="flex: 1; display: flex; justify-content: space-between; align-items: center;">
 					<div class="invoice-name-date">
 						<div class="invoice-name" style="font-weight: 600; margin-bottom: 4px;">${invoice.name}</div>
@@ -178,6 +190,12 @@ posnext.PointOfSale.PastOrderList = class {
 	}
 
 	update_merge_section() {
+		// Don't show merge section if user doesn't have permission
+		if (!this.can_merge_invoices) {
+			this.$merge_section.hide();
+			return;
+		}
+
 		const count = this.selected_invoices.size;
 		this.$selected_count.text(count);
 		
@@ -193,6 +211,12 @@ posnext.PointOfSale.PastOrderList = class {
 	}
 
 	merge_selected_invoices() {
+		// Additional check for permission
+		if (!this.can_merge_invoices) {
+			frappe.msgprint(__('You do not have permission to merge invoices.'));
+			return;
+		}
+
 		if (this.selected_invoices.size < 2) {
 			frappe.msgprint(__('Please select at least 2 invoices to merge.'));
 			return;
@@ -221,7 +245,7 @@ posnext.PointOfSale.PastOrderList = class {
 		frappe.dom.freeze(__('Merging invoices...'));
 
 		frappe.call({
-			method: "posnext.posnext.page.posnext.point_of_sale.merge_invoices",
+			method: "erpnext.selling.page.point_of_sale.point_of_sale.merge_invoices",
 			args: {
 				invoice_names: invoice_names,
 				customer: customer
