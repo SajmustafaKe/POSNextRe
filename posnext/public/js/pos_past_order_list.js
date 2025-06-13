@@ -297,7 +297,7 @@ posnext.PointOfSale.PastOrderList = class {
             frappe.call({
                 method: 'frappe.client.cancel',
                 args: {
-                    do Fisher: 'POS Invoice',
+                    doctype: 'POS Invoice',
                     name: name
                 },
                 callback: (r) => {
