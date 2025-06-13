@@ -873,12 +873,12 @@ attach_shortcuts() {
 
 	get_condition_btn_map(after_submission) {
 		if (after_submission)
-			return [{ condition: true, visible_btns: ['Print Receipt', 'Email Receipt','Send Whatsapp', 'New Order'] }];
+			return [{ condition: true, visible_btns: ['Print Receipt', 'New Order'] }];
 
 		return [
-			{ condition: this.doc.docstatus === 0, visible_btns: ['Print Receipt','Edit Order', 'Delete Order','Send Whatsapp','Print-Order'] },
-			{ condition: !this.doc.is_return && this.doc.docstatus === 1, visible_btns: ['Print Receipt', 'Email Receipt', 'Return','Send Whatsapp']},
-			{ condition: this.doc.is_return && this.doc.docstatus === 1, visible_btns: ['Print Receipt', 'Email Receipt','Send Whatsapp']}
+			{ condition: this.doc.docstatus === 0, visible_btns: ['Print Receipt','Edit Order','Print-Order'] },
+			{ condition: !this.doc.is_return && this.doc.docstatus === 1, visible_btns: ['Print Receipt', 'Return']},
+			{ condition: this.doc.is_return && this.doc.docstatus === 1, visible_btns: ['Print Receipt']}
 		];
 	}
 
