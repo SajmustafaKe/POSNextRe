@@ -799,6 +799,10 @@ def merge_invoices(invoice_names, customer):
         merged_invoice.is_pos = 1
         merged_invoice.is_return = 0
         
+        # Copy created_by_name from first invoice
+        if hasattr(first_invoice, 'created_by_name') and first_invoice.created_by_name:
+            merged_invoice.created_by_name = first_invoice.created_by_name
+        
         # Copy customer details
         merged_invoice.customer_name = first_invoice.customer_name
         merged_invoice.customer_group = first_invoice.customer_group
@@ -890,6 +894,21 @@ def merge_invoices(invoice_names, customer):
         # Calculate totals
         merged_invoice.run_method("calculate_taxes_and_totals")
         merged_invoice.save()
+        
+        # Add comment showing all creators and original invoices
+        creators = list(set([inv.created_by_name for inv in invoices_to_merge if hasattr(inv, 'created_by_name') and inv.created_by_name]))
+        original_invoices = [inv.name for inv in invoices_to_merge]
+        
+        comment_parts = []
+        comment_parts.append(f"Merged from invoices: {', '.join(original_invoices)}")
+        
+        if creators:
+            if len(creators) > 1:
+                comment_parts.append(f"Originally created by: {', '.join(creators)}")
+            else:
+                comment_parts.append(f"Originally created by: {creators[0]}")
+        
+        merged_invoice.add_comment('Comment', ' | '.join(comment_parts))
         
         # Cancel the original invoices
         for invoice in invoices_to_merge:
