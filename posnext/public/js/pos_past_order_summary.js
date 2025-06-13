@@ -5,7 +5,6 @@ posnext.PointOfSale.PastOrderSummary = class {
         this.wrapper = wrapper;
         this.pos_profile = pos_profile;
         this.events = events;
-        //this.print_receipt_on_order_complete = settings.print_receipt_on_order_complete;
         
         this.init_component();
     }
@@ -19,7 +18,52 @@ posnext.PointOfSale.PastOrderSummary = class {
 
     prepare_dom() {
         this.wrapper.append(
-            `<section class="past-order-summary">
+            `<style>
+                .past-order-summary {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 10px;
+                }
+                .no-summary-placeholder {
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100%;
+                    color: #8D99A6;
+                }
+                .invoice-summary-wrapper {
+                    display: flex;
+                    flex-direction: column;
+                }
+                .abs-container {
+                    padding: 10px;
+                }
+                .summary-btn {
+                    margin-right: 4px;
+                    padding: 6px 12px;
+                    font-size: 12px;
+                }
+                .split-dialog .frappe-control[data-fieldname="items_table"] {
+                    margin-bottom: 10px;
+                }
+                .split-dialog .grid-row {
+                    display: flex;
+                    align-items: center;
+                }
+                .split-dialog .btn-duplicate {
+                    padding: 2px 6px;
+                    font-size: 11px;
+                    margin-left: 5px;
+                }
+                .split-dialog .data-field select[data-fieldname="group"] {
+                    border: 1px solid #d1d8dd;
+                    padding: 2px 5px;
+                    width: 80px;
+                    background-color: #fff;
+                    pointer-events: auto;
+                }
+            </style>
+            <section class="past-order-summary">
                 <div class="no-summary-placeholder">
                     ${__('Select an invoice to load summary data')}
                 </div>
@@ -146,7 +190,6 @@ posnext.PointOfSale.PastOrderSummary = class {
         if (!doc.taxes.length) return '';
 
         let taxes_html = doc.taxes.map(t => {
-            // if tax rate is 0, don't print it.
             const description = /[0-9]+/.test(t.description) ? t.description : ((t.rate != 0) ? `${t.description} @ ${t.rate}%`: t.description);
             return `
                 <div class="tax-row">
@@ -248,7 +291,6 @@ posnext.PointOfSale.PastOrderSummary = class {
         });
     }
 
-    // Split Order Implementation
     split_order() {
         if (this.doc.status !== 'Draft') {
             frappe.msgprint(__('Only Draft POS Invoices can be split.'));
@@ -260,11 +302,23 @@ posnext.PointOfSale.PastOrderSummary = class {
             return;
         }
 
+        // Initialize max group
+        let max_group = 1;
+        const group_options = ['1'];
+
         // Initialize dialog
         const split_dialog = new frappe.ui.Dialog({
             title: __('Split Order'),
             size: 'large',
             fields: [
+                {
+                    fieldname: 'max_group',
+                    fieldtype: 'Int',
+                    label: __('Current Max Group'),
+                    default: max_group,
+                    read_only: 1,
+                    description: __('Highest group number available for assignment')
+                },
                 {
                     fieldname: 'items_section',
                     fieldtype: 'Section Break',
@@ -274,30 +328,50 @@ posnext.PointOfSale.PastOrderSummary = class {
                     fieldname: 'items_table',
                     fieldtype: 'Table',
                     label: __('Items'),
-                    cannot_add_rows: true,
-                    cannot_delete_rows: true,
                     in_place_edit: true,
                     data: this.doc.items.map((item, idx) => ({
-                        idx: idx + 1,
+                        original_idx: idx,
                         item_name: item.item_name,
+                        original_qty: item.qty,
                         qty: item.qty,
                         uom: item.uom,
                         rate: format_currency(item.rate, this.doc.currency),
-                        group: 1 // Default to Group 1
+                        group: '1'
                     })),
                     fields: [
-                        { fieldname: 'idx', fieldtype: 'Int', label: __('No.'), in_list_view: 1, read_only: 1 },
+                        { fieldname: 'original_idx', fieldtype: 'Int', label: __('No.'), in_list_view: 1, read_only: 1, hidden: 1 },
                         { fieldname: 'item_name', fieldtype: 'Data', label: __('Item Name'), in_list_view: 1, read_only: 1 },
-                        { fieldname: 'qty', fieldtype: 'Float', label: __('Qty'), in_list_view: 1, read_only: 1 },
+                        { fieldname: 'original_qty', fieldtype: 'Float', label: __('Original Qty'), in_list_view: 1, read_only: 1 },
+                        { fieldname: 'qty', fieldtype: 'Float', label: __('Split Qty'), in_list_view: 1, reqd: 1 },
                         { fieldname: 'uom', fieldtype: 'Data', label: __('UOM'), in_list_view: 1, read_only: 1 },
                         { fieldname: 'rate', fieldtype: 'Data', label: __('Rate'), in_list_view: 1, read_only: 1 },
                         {
                             fieldname: 'group',
-                            fieldtype: 'Int',
+                            fieldtype: 'Select',
                             label: __('Invoice Group'),
                             in_list_view: 1,
                             reqd: 1,
-                            description: __('Assign to Invoice Group (1, 2, 3, etc.)')
+                            options: group_options.join('\n'),
+                            default: '1',
+                            read_only: 0,
+                            onchange: function() {
+                                console.log('Group changed:', this.value);
+                                split_dialog.get_field('items_table').grid.refresh();
+                            },
+                            description: __('Select the Invoice Group (1, 2, 3, etc.)')
+                        },
+                        {
+                            fieldname: 'duplicate',
+                            fieldtype: 'Button',
+                            label: __('Duplicate'),
+                            in_list_view: 1,
+                            click: function() {
+                                const grid = split_dialog.get_field('items_table').grid;
+                                const row = this.doc;
+                                const new_row = { ...row, idx: grid.grid_rows.length + 1 };
+                                grid.add_new_row(new_row);
+                                split_dialog.refresh();
+                            }
                         }
                     ]
                 },
@@ -306,21 +380,32 @@ posnext.PointOfSale.PastOrderSummary = class {
                     fieldtype: 'Button',
                     label: __('Add New Group'),
                     click: () => {
-                        const max_group = Math.max(...split_dialog.get_value('items_table').map(row => row.group), 1);
-                        split_dialog.get_field('items_table').grid.grid_rows.forEach(row => {
-                            if (!row.doc.group) {
-                                row.doc.group = max_group + 1;
-                                row.refresh();
-                            }
-                        });
+                        max_group += 1;
+                        split_dialog.set_value('max_group', max_group);
+                        group_options.push(max_group.toString());
+                        const grid = split_dialog.get_field('items_table').grid;
+                        grid.df.fields.find(f => f.fieldname === 'group').options = group_options.join('\n');
+                        grid.refresh();
                         split_dialog.refresh();
+                        console.log('New group added:', max_group);
                     }
                 }
             ],
             primary_action_label: __('Split Invoices'),
             primary_action: () => {
                 this.process_split_invoices(split_dialog);
+            },
+            secondary_action_label: __('Cancel'),
+            secondary_action: () => {
+                split_dialog.hide();
             }
+        });
+
+        split_dialog.$wrapper.addClass('split-dialog');
+
+        // Bind grid events for debugging
+        split_dialog.get_field('items_table').grid.wrapper.on('change', 'select[data-fieldname="group"]', (e) => {
+            console.log('Group select changed:', e.target.value);
         });
 
         split_dialog.show();
@@ -333,32 +418,64 @@ posnext.PointOfSale.PastOrderSummary = class {
             return;
         }
 
+        // Log table data for debugging
+        console.log('Items table:', items_table);
+
+        // Validate quantities
+        const item_quantities = {};
+        this.doc.items.forEach((item, idx) => {
+            item_quantities[idx] = { original_qty: item.qty, assigned_qty: 0 };
+        });
+
+        items_table.forEach(row => {
+            const idx = row.original_idx;
+            item_quantities[idx].assigned_qty += flt(row.qty);
+        });
+
+        for (const idx in item_quantities) {
+            const { original_qty, assigned_qty } = item_quantities[idx];
+            if (flt(assigned_qty) > flt(original_qty)) {
+                frappe.msgprint(
+                    __('Total split quantity for item "{0}" ({1}) exceeds original quantity ({2}).', 
+                    [this.doc.items[idx].item_name, assigned_qty, original_qty])
+                );
+                return;
+            }
+            if (flt(assigned_qty) < flt(original_qty)) {
+                frappe.msgprint(
+                    __('Total split quantity for item "{0}" ({1}) is less than original quantity ({2}). All quantities must be assigned.', 
+                    [this.doc.items[idx].item_name, assigned_qty, original_qty])
+                );
+                return;
+            }
+        }
+
         // Group items by assigned group
         const groups = {};
         items_table.forEach(row => {
-            const group = row.group || 1;
+            const group = row.group || '1';
             if (!groups[group]) groups[group] = [];
-            groups[group].push(this.doc.items[row.idx - 1]); // Map back to original items
+            const original_item = { ...this.doc.items[row.original_idx] };
+            original_item.qty = flt(row.qty);
+            groups[group].push(original_item);
         });
 
-        // Validate: At least two groups with items, and not all items in one group
-        const group_keys = Object.keys(groups);
-        if (group_keys.length < 2) {
+        // Validate: At least two non-empty groups
+        const valid_groups = Object.keys(groups).filter(g => groups[g].length > 0);
+        if (valid_groups.length < 2) {
             frappe.msgprint(__('Please assign items to at least two different groups to split the invoice.'));
             return;
         }
-        if (group_keys.length === 1 && groups[group_keys[0]].length === this.doc.items.length) {
-            frappe.msgprint(__('All items are assigned to one group. Please split items into multiple groups.'));
-            return;
-        }
+
+        // Debug group assignments
+        console.log('Group assignments:', groups);
 
         // Prepare new invoices and update original
         frappe.dom.freeze(__('Splitting invoices...'));
 
-        // Create new invoices for each group (except one, which updates the original)
         const promises = [];
         const remaining_items = [];
-        group_keys.forEach((group, idx) => {
+        valid_groups.forEach((group, idx) => {
             const group_items = groups[group];
             if (idx === 0) {
                 // Keep first group in original invoice
@@ -399,7 +516,7 @@ posnext.PointOfSale.PastOrderSummary = class {
                 })
             );
         } else {
-            // If no items remain, cancel the original invoice
+            // Cancel original invoice if no items remain
             promises.push(
                 frappe.call({
                     method: 'frappe.client.cancel',
@@ -421,7 +538,7 @@ posnext.PointOfSale.PastOrderSummary = class {
                     indicator: 'green'
                 });
 
-                // Refresh the summary with the updated original invoice or clear if cancelled
+                // Refresh the summary
                 if (remaining_items.length > 0) {
                     frappe.call({
                         method: 'frappe.client.get',
@@ -442,11 +559,10 @@ posnext.PointOfSale.PastOrderSummary = class {
             })
             .catch(err => {
                 frappe.dom.unfreeze();
-                frappe.msgprint(__('Failed to split invoices: ') + err.message);
+                frappe.msgprint(__('Failed to split invoices: ') + (err.message || err));
             });
     }
 
-    // Existing methods (unchanged)
     print_receipt() {
         const frm = this.events.get_frm();
         const print_format = frm.pos_print_format;
@@ -584,7 +700,7 @@ posnext.PointOfSale.PastOrderSummary = class {
         const _render_print_format = (doc_data, print_format, callback) => {
             if (!doc_data || !doc_data.items || !doc_data.items.length) {
                 console.log("Skipping render: doc_data has no items");
-                callback(""); // Return empty commands
+                callback("");
                 return;
             }
 
@@ -978,10 +1094,6 @@ posnext.PointOfSale.PastOrderSummary = class {
 
         this.add_summary_btns(condition_btns_map);
         this.$summary_wrapper.css("width", after_submission ? "35%" : "60%");
-
-        if (after_submission && this.print_receipt_on_order_complete) {
-            this.print_receipt();
-        }
     }
 
     attach_document_info(doc) {
