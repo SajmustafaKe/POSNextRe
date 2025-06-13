@@ -221,7 +221,7 @@ posnext.PointOfSale.PastOrderList = class {
 		frappe.dom.freeze(__('Merging invoices...'));
 
 		frappe.call({
-			method: "erpnext.selling.page.point_of_sale.point_of_sale.merge_invoices",
+			method: "posnext.posnext.page.posnext.point_of_sale.merge_invoices",
 			args: {
 				invoice_names: invoice_names,
 				customer: customer
