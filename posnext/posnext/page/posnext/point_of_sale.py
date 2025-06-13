@@ -746,3 +746,162 @@ def print_captain_order(invoice_name, current_items, print_format, _lang, force_
         import traceback
         frappe.log_error(f"Traceback: {traceback.format_exc()}", "Captain Order Print Error")
         return {"success": False, "error": str(e)}
+
+import frappe
+from frappe import _
+from frappe.utils import now, flt
+import json
+
+@frappe.whitelist()
+def merge_invoices(invoice_names, customer):
+    """
+    Merge multiple POS invoices into a single invoice
+    """
+    try:
+        # Parse invoice_names if it's a string
+        if isinstance(invoice_names, str):
+            invoice_names = json.loads(invoice_names)
+        
+        # Validate inputs
+        if not invoice_names or len(invoice_names) < 2:
+            return {"success": False, "error": "At least 2 invoices are required for merging"}
+        
+        # Get all invoices to merge
+        invoices_to_merge = []
+        for name in invoice_names:
+            invoice = frappe.get_doc("POS Invoice", name)
+            if invoice.customer != customer:
+                return {"success": False, "error": f"Invoice {name} belongs to a different customer"}
+            if invoice.docstatus != 0:  # Only draft invoices can be merged
+                return {"success": False, "error": f"Invoice {name} is not in draft status"}
+            invoices_to_merge.append(invoice)
+        
+        # Create new merged invoice
+        first_invoice = invoices_to_merge[0]
+        merged_invoice = frappe.new_doc("POS Invoice")
+        
+        # Copy header information from first invoice
+        merged_invoice.customer = first_invoice.customer
+        merged_invoice.posting_date = first_invoice.posting_date
+        merged_invoice.posting_time = now()
+        merged_invoice.company = first_invoice.company
+        merged_invoice.pos_profile = first_invoice.pos_profile
+        merged_invoice.currency = first_invoice.currency
+        merged_invoice.selling_price_list = first_invoice.selling_price_list
+        merged_invoice.price_list_currency = first_invoice.price_list_currency
+        merged_invoice.plc_conversion_rate = first_invoice.plc_conversion_rate
+        merged_invoice.conversion_rate = first_invoice.conversion_rate
+        merged_invoice.is_pos = 1
+        merged_invoice.is_return = 0
+        
+        # Copy customer details
+        merged_invoice.customer_name = first_invoice.customer_name
+        merged_invoice.customer_group = first_invoice.customer_group
+        merged_invoice.territory = first_invoice.territory
+        
+        # Copy address and contact details if available
+        if hasattr(first_invoice, 'customer_address'):
+            merged_invoice.customer_address = first_invoice.customer_address
+        if hasattr(first_invoice, 'address_display'):
+            merged_invoice.address_display = first_invoice.address_display
+        if hasattr(first_invoice, 'contact_person'):
+            merged_invoice.contact_person = first_invoice.contact_person
+        if hasattr(first_invoice, 'contact_display'):
+            merged_invoice.contact_display = first_invoice.contact_display
+        if hasattr(first_invoice, 'contact_mobile'):
+            merged_invoice.contact_mobile = first_invoice.contact_mobile
+        if hasattr(first_invoice, 'contact_email'):
+            merged_invoice.contact_email = first_invoice.contact_email
+        
+        # Merge all items from all invoices
+        item_dict = {}  # To consolidate same items
+        
+        for invoice in invoices_to_merge:
+            for item in invoice.items:
+                key = (item.item_code, item.rate, item.uom)  # Group by item_code, rate, and uom
+                
+                if key in item_dict:
+                    # Add to existing item
+                    item_dict[key]['qty'] += item.qty
+                    item_dict[key]['amount'] += item.amount
+                else:
+                    # Create new item entry
+                    item_dict[key] = {
+                        'item_code': item.item_code,
+                        'item_name': item.item_name,
+                        'description': item.description,
+                        'qty': item.qty,
+                        'uom': item.uom,
+                        'rate': item.rate,
+                        'amount': item.amount,
+                        'item_group': item.item_group,
+                        'warehouse': item.warehouse,
+                        'income_account': item.income_account,
+                        'expense_account': item.expense_account,
+                        'cost_center': item.cost_center
+                    }
+        
+        # Add consolidated items to merged invoice
+        for item_data in item_dict.values():
+            merged_invoice.append("items", item_data)
+        
+        # Handle taxes - use taxes from first invoice
+        for tax in first_invoice.taxes:
+            merged_invoice.append("taxes", {
+                'charge_type': tax.charge_type,
+                'account_head': tax.account_head,
+                'description': tax.description,
+                'rate': tax.rate,
+                'tax_amount': tax.tax_amount,
+                'total': tax.total,
+                'cost_center': tax.cost_center
+            })
+        
+        # Handle payments - combine all payments
+        total_paid = 0
+        payment_dict = {}  # To consolidate same payment methods
+        
+        for invoice in invoices_to_merge:
+            for payment in invoice.payments:
+                mode_of_payment = payment.mode_of_payment
+                if mode_of_payment in payment_dict:
+                    payment_dict[mode_of_payment]['amount'] += payment.amount
+                else:
+                    payment_dict[mode_of_payment] = {
+                        'mode_of_payment': payment.mode_of_payment,
+                        'account': payment.account,
+                        'amount': payment.amount,
+                        'default': payment.default
+                    }
+                total_paid += payment.amount
+        
+        # Add consolidated payments to merged invoice
+        for payment_data in payment_dict.values():
+            merged_invoice.append("payments", payment_data)
+        
+        # Save the merged invoice
+        merged_invoice.insert()
+        
+        # Calculate totals
+        merged_invoice.run_method("calculate_taxes_and_totals")
+        merged_invoice.save()
+        
+        # Cancel the original invoices
+        for invoice in invoices_to_merge:
+            # Add a comment about the merge
+            invoice.add_comment('Comment', f'Invoice merged into {merged_invoice.name}')
+            # Delete the draft invoice
+            frappe.delete_doc("POS Invoice", invoice.name)
+        
+        frappe.db.commit()
+        
+        return {
+            "success": True, 
+            "new_invoice": merged_invoice.name,
+            "message": f"Successfully merged {len(invoice_names)} invoices into {merged_invoice.name}"
+        }
+        
+    except Exception as e:
+        frappe.db.rollback()
+        frappe.log_error(f"Error merging invoices: {str(e)}")
+        return {"success": False, "error": str(e)}
