@@ -981,7 +981,6 @@ def merge_invoices(invoice_names, customer):
         frappe.log_error(f"Error merging invoices: {str(e)}")
         return {"success": False, "error": str(e)}
 
-# Add this method to your point_of_sale.py file in the page folder
 # Simplified version of the split_pos_invoice function
 
 import frappe
@@ -990,7 +989,7 @@ from frappe.utils import flt, nowdate
 from copy import deepcopy
 
 @frappe.whitelist()
-def split_pos_invoice(original_invoice, invoice_groups):
+def split_pos_invoice(original_invoice, invoice_groups, distribute_evenly=False):
     """
     Split a POS Invoice into multiple invoices - Simplified version
     
@@ -1024,7 +1023,7 @@ def split_pos_invoice(original_invoice, invoice_groups):
                 new_invoice = create_new_invoice(original_doc, items, invoice_num)
                 new_invoices.append(new_invoice)
         
-        # Update original invoice (remove split items)
+        # Update original invoice
         update_original_invoice(original_doc, invoice_groups)
         
         return {
@@ -1046,7 +1045,7 @@ def split_pos_invoice(original_invoice, invoice_groups):
         frappe.throw(f"Failed to split invoice: {str(e)}")
 
 def validate_split_items(original_doc, invoice_groups):
-    """Validate that split items exist and quantities are valid"""
+    """Basic validation of split items"""
     # Create a map of original items
     original_items = {item.item_code: item.qty for item in original_doc.items}
     
@@ -1058,7 +1057,7 @@ def validate_split_items(original_doc, invoice_groups):
             item_code = split_item['item_code']
             split_qty = flt(split_item['split_qty'])
             
-            # Check if item exists in original invoice
+            # Check if item exists
             if item_code not in original_items:
                 frappe.throw(f"Item {item_code} not found in original invoice")
             
@@ -1066,43 +1065,40 @@ def validate_split_items(original_doc, invoice_groups):
             if split_qty <= 0:
                 frappe.throw(f"Split quantity for {item_code} must be greater than 0")
             
-            # Track total split quantity for this item
+            # Track total split quantity
             if item_code in split_totals:
                 split_totals[item_code] += split_qty
             else:
                 split_totals[item_code] = split_qty
     
-    # Validate that split quantities don't exceed available quantities
+    # Check if split quantities don't exceed available quantities
     for item_code, total_split in split_totals.items():
         if total_split > original_items[item_code]:
-            frappe.throw(f"Split quantity for {item_code} ({total_split}) exceeds available quantity ({original_items[item_code]})")
+            frappe.throw(f"Total split quantity for {item_code} ({total_split}) exceeds available quantity ({original_items[item_code]})")
 
 def create_new_invoice(original_doc, split_items, invoice_number):
-    """Create a new invoice with the specified split items"""
+    """Create a new invoice with split items"""
     
     # Create new document
     new_doc = frappe.new_doc("POS Invoice")
     
-    # Copy basic information from original invoice
-    fields_to_copy = [
+    # Copy essential fields from original
+    copy_fields = [
         'company', 'customer', 'posting_date', 'posting_time', 'set_posting_time',
         'is_pos', 'pos_profile', 'currency', 'conversion_rate', 'selling_price_list',
         'customer_address', 'address_display', 'contact_person', 'contact_display',
-        'contact_mobile', 'contact_email', 'territory', 'customer_group', 'cost_center',
-        'naming_series'
+        'contact_mobile', 'contact_email', 'territory', 'customer_group', 'cost_center'
     ]
     
-    for field in fields_to_copy:
+    for field in copy_fields:
         if hasattr(original_doc, field) and original_doc.get(field):
             new_doc.set(field, original_doc.get(field))
     
-    # Set title
-    new_doc.title = f"{original_doc.customer} - Split {invoice_number}"
-    
-    # Copy owner information
+    # Set created_by_name from original invoice or owner
     if original_doc.get('created_by_name'):
         new_doc.created_by_name = original_doc.created_by_name
     else:
+        # Try to get from original owner
         try:
             user_full_name = frappe.get_value("User", original_doc.owner, "full_name")
             if user_full_name:
@@ -1110,10 +1106,13 @@ def create_new_invoice(original_doc, split_items, invoice_number):
         except:
             pass
     
-    # Create a map for easy lookup of split items
+    # Set basic properties
+    new_doc.naming_series = original_doc.naming_series
+    new_doc.title = f"{original_doc.customer} - Split {invoice_number}"
+    
+    # Add split items
     split_items_map = {item['item_code']: item for item in split_items}
     
-    # Add items to new invoice
     for original_item in original_doc.items:
         if original_item.item_code in split_items_map:
             split_data = split_items_map[original_item.item_code]
@@ -1121,49 +1120,47 @@ def create_new_invoice(original_doc, split_items, invoice_number):
             # Create new item row
             new_item = new_doc.append('items')
             
-            # Copy all item fields
-            item_fields_to_copy = [
+            # Copy item properties
+            copy_item_fields = [
                 'item_code', 'item_name', 'description', 'item_group', 'brand',
                 'uom', 'conversion_factor', 'stock_uom', 'rate', 'price_list_rate',
                 'warehouse', 'serial_no', 'batch_no'
             ]
             
-            for field in item_fields_to_copy:
+            for field in copy_item_fields:
                 if hasattr(original_item, field):
                     new_item.set(field, original_item.get(field))
             
-            # Set the split quantity
+            # Set split quantity and calculate amounts
             new_item.qty = flt(split_data['split_qty'])
-            
-            # Calculate amounts
             new_item.amount = flt(new_item.qty * new_item.rate)
             new_item.base_amount = flt(new_item.amount * new_doc.conversion_rate)
     
-    # Copy taxes if they exist in original invoice
+    # Copy taxes proportionally
     if original_doc.taxes:
         for original_tax in original_doc.taxes:
             new_tax = new_doc.append('taxes')
             
-            tax_fields_to_copy = [
+            tax_copy_fields = [
                 'charge_type', 'account_head', 'description', 'rate',
                 'cost_center', 'included_in_print_rate'
             ]
             
-            for field in tax_fields_to_copy:
+            for field in tax_copy_fields:
                 if hasattr(original_tax, field):
                     new_tax.set(field, original_tax.get(field))
     
-    # Add payment method (copy from original)
+    # Add default payment mode
     if original_doc.payments:
         new_payment = new_doc.append('payments')
         new_payment.mode_of_payment = original_doc.payments[0].mode_of_payment
-        # Amount will be set after calculating totals
+        new_payment.amount = 0  # Will be calculated
     
-    # Calculate totals for the new invoice
+    # Calculate totals
     new_doc.run_method("calculate_taxes_and_totals")
     
-    # Set payment amount to match grand total
-    if new_doc.payments and new_doc.grand_total > 0:
+    # Update payment amount to match grand total
+    if new_doc.payments:
         new_doc.payments[0].amount = new_doc.grand_total
     
     # Save the new invoice
@@ -1172,9 +1169,9 @@ def create_new_invoice(original_doc, split_items, invoice_number):
     return new_doc
 
 def update_original_invoice(original_doc, invoice_groups):
-    """Remove split items from the original invoice"""
+    """Update original invoice by removing/reducing split items"""
     
-    # Calculate total quantities being split for each item
+    # Calculate total quantities being split per item
     split_totals = {}
     for invoice_num, items in invoice_groups.items():
         for item in items:
@@ -1186,37 +1183,38 @@ def update_original_invoice(original_doc, invoice_groups):
             else:
                 split_totals[item_code] = split_qty
     
-    # Update original invoice items
+    # Update or remove items
     items_to_remove = []
     
     for i, item in enumerate(original_doc.items):
         if item.item_code in split_totals:
-            total_split_qty = split_totals[item.item_code]
+            total_split = split_totals[item.item_code]
             
-            if flt(item.qty) <= total_split_qty:
-                # Remove entire item if all quantity is split
+            if flt(item.qty) <= total_split:
+                # Remove entire item
                 items_to_remove.append(i)
             else:
-                # Reduce quantity if only partial quantity is split
-                item.qty = flt(item.qty) - total_split_qty
+                # Reduce quantity
+                item.qty = flt(item.qty) - total_split
                 item.amount = flt(item.qty * item.rate)
                 item.base_amount = flt(item.amount * original_doc.conversion_rate)
     
-    # Remove items that were completely split (reverse order to maintain indices)
+    # Remove items (in reverse order to maintain indices)
     for i in reversed(items_to_remove):
         original_doc.items.pop(i)
     
-    # Recalculate totals for the original invoice
+    # Recalculate totals
     original_doc.run_method("calculate_taxes_and_totals")
     
-    # Update payment amount to match new grand total
+    # Adjust payment if needed
     if original_doc.payments and original_doc.grand_total > 0:
+        # Set payment amount to match new grand total
         original_doc.payments[0].amount = original_doc.grand_total
     elif original_doc.grand_total == 0:
         # Remove payments if no amount left
         original_doc.payments = []
     
-    # Save the updated original invoice
+    # Save updated original
     original_doc.save()
     
     return original_doc

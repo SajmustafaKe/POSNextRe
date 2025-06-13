@@ -284,7 +284,6 @@ posnext.PointOfSale.PastOrderSummary = class {
 // Add this method to replace the empty split_order() method in your class
 
 // Enhanced frontend methods with invoice assignment capability
-
 // Simplified split order functionality
 
 split_order() {
@@ -305,10 +304,10 @@ split_order() {
         return;
     }
 
-    this.show_split_dialog();
+    this.show_simple_split_dialog();
 }
 
-show_split_dialog() {
+show_simple_split_dialog() {
     // Prepare items data
     const items_data = this.doc.items.map((item, index) => ({
         idx: index + 1,
@@ -318,14 +317,12 @@ show_split_dialog() {
         split_qty: 0,
         rate: item.rate,
         uom: item.uom,
+        invoice_number: 1,
         selected: false
     }));
 
-    // Store selected items for each invoice
-    this.split_invoices = [{ items: [], total: 0 }]; // Start with one new invoice
-
     const dialog = new frappe.ui.Dialog({
-        title: __('Split Order - Select Items'),
+        title: __('Split Order'),
         size: 'large',
         fields: [
             {
@@ -333,25 +330,40 @@ show_split_dialog() {
                 fieldname: 'instructions',
                 options: `
                     <div class="alert alert-info mb-3">
-                        <strong>Simple Split Process:</strong>
+                        <strong>How to split:</strong>
                         <ol class="mb-0">
-                            <li>Select items and enter quantities to split</li>
-                            <li>Click "Next" to assign items to invoices</li>
+                            <li>Check items you want to move to new invoices</li>
+                            <li>Enter quantities to split</li>
+                            <li>Choose which invoice each item goes to</li>
                             <li>Click "Split Order" to complete</li>
                         </ol>
                     </div>
                 `
             },
             {
+                fieldtype: 'Int',
+                fieldname: 'number_of_invoices',
+                label: __('Number of New Invoices'),
+                default: 1,
+                reqd: 1,
+                description: __('How many new invoices to create (1-5)'),
+                change: () => {
+                    const count = dialog.get_value('number_of_invoices');
+                    if (count >= 1 && count <= 5) {
+                        this.update_split_table(dialog, items_data, count);
+                    }
+                }
+            },
+            {
                 fieldtype: 'HTML',
-                fieldname: 'items_table',
-                options: this.get_items_selection_html(items_data)
+                fieldname: 'split_table',
+                options: this.get_split_table_html(items_data, 1)
             }
         ],
         primary_action: () => {
-            this.proceed_to_invoice_assignment(dialog, items_data);
+            this.execute_simple_split(dialog, items_data);
         },
-        primary_action_label: __('Next: Assign to Invoices'),
+        primary_action_label: __('Split Order'),
         secondary_action_label: __('Cancel')
     });
 
@@ -363,24 +375,31 @@ show_split_dialog() {
 
     // Bind events after dialog shows
     setTimeout(() => {
-        this.bind_item_selection_events(dialog);
+        this.bind_split_events(dialog);
     }, 100);
 }
 
-get_items_selection_html(items_data) {
+get_split_table_html(items_data, invoice_count) {
+    // Generate invoice options
+    let invoice_options = '';
+    for (let i = 1; i <= invoice_count; i++) {
+        invoice_options += `<option value="${i}">Invoice ${i}</option>`;
+    }
+
     let html = `
-        <div class="split-items-container">
+        <div class="split-table-container">
             <table class="table table-bordered">
                 <thead class="thead-light">
                     <tr>
                         <th width="5%">
                             <input type="checkbox" id="select-all" title="Select All">
                         </th>
-                        <th width="30%">${__('Item')}</th>
-                        <th width="20%">${__('Available Qty')}</th>
-                        <th width="20%">${__('Split Qty')}</th>
+                        <th width="25%">${__('Item')}</th>
+                        <th width="15%">${__('Available Qty')}</th>
+                        <th width="15%">${__('Split Qty')}</th>
                         <th width="15%">${__('Rate')}</th>
-                        <th width="10%">${__('Amount')}</th>
+                        <th width="15%">${__('Amount')}</th>
+                        <th width="10%">${__('Invoice')}</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -406,8 +425,7 @@ get_items_selection_html(items_data) {
                            min="0" 
                            max="${item.available_qty}" 
                            step="0.01"
-                           value="0"
-                           disabled>
+                           value="0">
                 </td>
                 <td>
                     ${format_currency(item.rate, this.doc.currency)}
@@ -416,6 +434,11 @@ get_items_selection_html(items_data) {
                     <span class="split-amount" data-index="${index}">
                         ${format_currency(0, this.doc.currency)}
                     </span>
+                </td>
+                <td>
+                    <select class="form-control invoice-select" data-index="${index}">
+                        ${invoice_options}
+                    </select>
                 </td>
             </tr>
         `;
@@ -432,7 +455,7 @@ get_items_selection_html(items_data) {
                 </div>
                 <div class="col-md-6">
                     <div class="alert alert-light">
-                        <strong>Total Amount:</strong> <span id="total-amount">${format_currency(0, this.doc.currency)}</span>
+                        <strong>Total Split Amount:</strong> <span id="total-amount">${format_currency(0, this.doc.currency)}</span>
                     </div>
                 </div>
             </div>
@@ -442,15 +465,71 @@ get_items_selection_html(items_data) {
     return html;
 }
 
-bind_item_selection_events(dialog) {
+update_split_table(dialog, items_data, invoice_count) {
+    if (invoice_count < 1 || invoice_count > 5) {
+        frappe.show_alert({
+            message: __("Number of invoices must be between 1 and 5"),
+            indicator: 'orange'
+        });
+        return;
+    }
+
+    // Update the table HTML
+    const new_html = this.get_split_table_html(items_data, invoice_count);
+    dialog.fields_dict.split_table.$wrapper.html(new_html);
+
+    // Restore previous selections
+    this.restore_selections(dialog, items_data);
+
+    // Re-bind events
+    setTimeout(() => {
+        this.bind_split_events(dialog);
+    }, 100);
+}
+
+restore_selections(dialog, items_data) {
+    const wrapper = dialog.$wrapper;
+    
+    items_data.forEach((item, index) => {
+        const row = wrapper.find(`tr[data-index="${index}"]`);
+        
+        // Restore checkbox
+        row.find('.item-select').prop('checked', item.selected);
+        
+        // Restore quantity
+        row.find('.split-qty').val(item.split_qty);
+        
+        // Restore invoice selection
+        row.find('.invoice-select').val(item.invoice_number);
+        
+        // Update amount display
+        this.update_split_amount(index, item.split_qty, item.rate);
+    });
+
+    this.update_summary();
+}
+
+bind_split_events(dialog) {
     const wrapper = dialog.$wrapper;
 
     // Select all functionality
     wrapper.find('#select-all').on('change', (e) => {
         const checked = $(e.target).is(':checked');
-        wrapper.find('.item-select').each((i, checkbox) => {
-            $(checkbox).prop('checked', checked).trigger('change');
+        wrapper.find('.item-select').prop('checked', checked);
+        
+        // Update quantities
+        wrapper.find('.split-qty').each((i, input) => {
+            const index = $(input).data('index');
+            const max_qty = parseFloat($(input).attr('max'));
+            const qty = checked ? max_qty : 0;
+            
+            $(input).val(qty);
+            this.split_items_data[index].selected = checked;
+            this.split_items_data[index].split_qty = qty;
+            this.update_split_amount(index, qty, this.split_items_data[index].rate);
         });
+        
+        this.update_summary();
     });
 
     // Individual item selection
@@ -463,20 +542,19 @@ bind_item_selection_events(dialog) {
         this.split_items_data[index].selected = checked;
         
         if (checked) {
-            // Enable quantity input and set to max
-            qty_input.prop('disabled', false);
+            // Set to max quantity when selected
             const max_qty = parseFloat(qty_input.attr('max'));
             qty_input.val(max_qty);
             this.split_items_data[index].split_qty = max_qty;
             this.update_split_amount(index, max_qty, this.split_items_data[index].rate);
         } else {
-            // Disable quantity input and clear
-            qty_input.prop('disabled', true).val(0);
+            // Clear quantity when deselected
+            qty_input.val(0);
             this.split_items_data[index].split_qty = 0;
             this.update_split_amount(index, 0, this.split_items_data[index].rate);
         }
         
-        this.update_selection_summary();
+        this.update_summary();
     });
 
     // Quantity input changes
@@ -496,17 +574,25 @@ bind_item_selection_events(dialog) {
             input.val(qty);
         }
         
+        // Update checkbox
+        const checkbox = wrapper.find(`.item-select[data-index="${index}"]`);
+        checkbox.prop('checked', qty > 0);
+        
         // Update data
         this.split_items_data[index].split_qty = qty;
-        
-        // Update checkbox if quantity becomes 0
-        if (qty === 0) {
-            wrapper.find(`.item-select[data-index="${index}"]`).prop('checked', false);
-            this.split_items_data[index].selected = false;
-        }
+        this.split_items_data[index].selected = qty > 0;
         
         this.update_split_amount(index, qty, this.split_items_data[index].rate);
-        this.update_selection_summary();
+        this.update_summary();
+    });
+
+    // Invoice selection changes
+    wrapper.find('.invoice-select').on('change', (e) => {
+        const select = $(e.target);
+        const index = select.data('index');
+        const invoice_num = parseInt(select.val());
+        
+        this.split_items_data[index].invoice_number = invoice_num;
     });
 }
 
@@ -516,7 +602,7 @@ update_split_amount(index, qty, rate) {
         .text(format_currency(amount, this.doc.currency));
 }
 
-update_selection_summary() {
+update_summary() {
     const selected_items = this.split_items_data.filter(item => item.selected && item.split_qty > 0);
     const total_amount = selected_items.reduce((sum, item) => sum + (item.split_qty * item.rate), 0);
     
@@ -524,7 +610,7 @@ update_selection_summary() {
     this.split_dialog.$wrapper.find('#total-amount').text(format_currency(total_amount, this.doc.currency));
 }
 
-proceed_to_invoice_assignment(dialog, items_data) {
+execute_simple_split(dialog, items_data) {
     // Get selected items
     const selected_items = items_data.filter(item => item.selected && item.split_qty > 0);
     
@@ -536,236 +622,26 @@ proceed_to_invoice_assignment(dialog, items_data) {
         return;
     }
 
-    dialog.hide();
-    this.show_invoice_assignment_dialog(selected_items);
-}
-
-show_invoice_assignment_dialog(selected_items) {
-    const dialog = new frappe.ui.Dialog({
-        title: __('Assign Items to Invoices'),
-        size: 'large',
-        fields: [
-            {
-                fieldtype: 'HTML',
-                fieldname: 'assignment_area',
-                options: this.get_invoice_assignment_html(selected_items)
-            }
-        ],
-        primary_action: () => {
-            this.execute_split_order(dialog, selected_items);
-        },
-        primary_action_label: __('Split Order'),
-        secondary_action: () => {
-            dialog.hide();
-            this.show_split_dialog(); // Go back to item selection
-        },
-        secondary_action_label: __('Back')
-    });
-
-    this.assignment_dialog = dialog;
-    dialog.show();
-
-    // Bind events
-    setTimeout(() => {
-        this.bind_assignment_events(dialog, selected_items);
-    }, 100);
-}
-
-get_invoice_assignment_html(selected_items) {
-    let html = `
-        <div class="invoice-assignment-container">
-            <div class="row">
-                <div class="col-md-6">
-                    <div class="card">
-                        <div class="card-header">
-                            <h5>Selected Items</h5>
-                            <small class="text-muted">Click an item to assign it to an invoice</small>
-                        </div>
-                        <div class="card-body">
-                            <div id="available-items">
-    `;
-
-    selected_items.forEach((item, index) => {
-        const amount = item.split_qty * item.rate;
-        html += `
-            <div class="item-card p-3 mb-2 border rounded cursor-pointer" data-index="${index}" style="cursor: pointer;">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <strong>${item.item_code}</strong><br>
-                        <small class="text-muted">${item.item_name}</small><br>
-                        <span class="badge badge-info">${item.split_qty} ${item.uom}</span>
-                    </div>
-                    <div class="text-right">
-                        <strong>${format_currency(amount, this.doc.currency)}</strong>
-                    </div>
-                </div>
-            </div>
-        `;
-    });
-
-    html += `
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <div class="mb-3">
-                        <button type="button" class="btn btn-primary btn-sm" id="add-invoice">
-                            <i class="fa fa-plus"></i> Add New Invoice
-                        </button>
-                    </div>
-                    <div id="invoices-container">
-                        <!-- Invoices will be added here -->
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-
-    return html;
-}
-
-bind_assignment_events(dialog, selected_items) {
-    const wrapper = dialog.$wrapper;
-    
-    // Add first invoice automatically
-    this.add_new_invoice_container(wrapper, 1);
-
-    // Add new invoice button
-    wrapper.find('#add-invoice').on('click', () => {
-        const invoice_count = wrapper.find('.invoice-container').length + 1;
-        this.add_new_invoice_container(wrapper, invoice_count);
-    });
-
-    // Item selection for assignment
-    wrapper.find('.item-card').on('click', (e) => {
-        const item_card = $(e.currentTarget);
-        const selected_invoice = wrapper.find('.invoice-container.selected');
-        
-        if (selected_invoice.length === 0) {
-            frappe.show_alert({
-                message: __("Please select an invoice first"),
-                indicator: 'orange'
-            });
-            return;
-        }
-
-        // Move item to selected invoice
-        const invoice_items = selected_invoice.find('.invoice-items');
-        item_card.removeClass('border').addClass('border-success bg-light');
-        item_card.appendTo(invoice_items);
-        
-        // Update invoice total
-        this.update_invoice_total(selected_invoice, selected_items);
-    });
-}
-
-add_new_invoice_container(wrapper, invoice_number) {
-    const invoice_html = `
-        <div class="invoice-container card mb-3" data-invoice="${invoice_number}">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h6>Invoice ${invoice_number}</h6>
-                <div>
-                    <span class="invoice-total badge badge-secondary">$0.00</span>
-                    <button type="button" class="btn btn-outline-danger btn-sm ml-2 remove-invoice">
-                        <i class="fa fa-trash"></i>
-                    </button>
-                </div>
-            </div>
-            <div class="card-body">
-                <div class="invoice-items min-height-100" style="min-height: 100px; border: 2px dashed #ddd; border-radius: 4px; padding: 10px;">
-                    <small class="text-muted">Click items on the left to add them here</small>
-                </div>
-            </div>
-        </div>
-    `;
-
-    const invoices_container = wrapper.find('#invoices-container');
-    invoices_container.append(invoice_html);
-
-    // Bind events for new invoice
-    const new_invoice = invoices_container.find('.invoice-container').last();
-    
-    // Select invoice on click
-    new_invoice.on('click', () => {
-        wrapper.find('.invoice-container').removeClass('selected border-primary');
-        new_invoice.addClass('selected border-primary');
-    });
-
-    // Remove invoice
-    new_invoice.find('.remove-invoice').on('click', (e) => {
-        e.stopPropagation();
-        if (invoices_container.find('.invoice-container').length > 1) {
-            // Move items back to available items
-            new_invoice.find('.item-card').each((i, item) => {
-                $(item).removeClass('border-success bg-light').addClass('border');
-                $(item).appendTo(wrapper.find('#available-items'));
-            });
-            new_invoice.remove();
-        } else {
-            frappe.show_alert({
-                message: __("At least one invoice is required"),
-                indicator: 'orange'
-            });
-        }
-    });
-
-    // Auto-select the first invoice
-    if (invoice_number === 1) {
-        new_invoice.addClass('selected border-primary');
-    }
-}
-
-update_invoice_total(invoice_container, selected_items) {
-    let total = 0;
-    invoice_container.find('.item-card').each((i, item_element) => {
-        const index = $(item_element).data('index');
-        const item = selected_items[index];
-        total += item.split_qty * item.rate;
-    });
-    
-    invoice_container.find('.invoice-total').text(format_currency(total, this.doc.currency));
-}
-
-execute_split_order(dialog, selected_items) {
-    const wrapper = dialog.$wrapper;
+    // Group items by invoice number
     const invoice_groups = {};
-
-    // Collect items for each invoice
-    wrapper.find('.invoice-container').each((i, invoice_element) => {
-        const invoice_num = $(invoice_element).data('invoice');
-        const items = [];
-        
-        $(invoice_element).find('.item-card').each((j, item_element) => {
-            const index = $(item_element).data('index');
-            const item = selected_items[index];
-            items.push({
-                item_code: item.item_code,
-                split_qty: item.split_qty
-            });
-        });
-        
-        if (items.length > 0) {
-            invoice_groups[invoice_num.toString()] = items;
+    selected_items.forEach(item => {
+        const invoice_key = item.invoice_number.toString();
+        if (!invoice_groups[invoice_key]) {
+            invoice_groups[invoice_key] = [];
         }
-    });
-
-    // Validate that all items are assigned
-    const total_assigned = Object.values(invoice_groups).reduce((sum, items) => sum + items.length, 0);
-    if (total_assigned !== selected_items.length) {
-        frappe.show_alert({
-            message: __("Please assign all selected items to invoices"),
-            indicator: 'orange'
+        invoice_groups[invoice_key].push({
+            item_code: item.item_code,
+            split_qty: item.split_qty
         });
-        return;
-    }
+    });
 
     // Show confirmation
     const invoice_count = Object.keys(invoice_groups).length;
+    const total_items = selected_items.length;
     const total_amount = selected_items.reduce((sum, item) => sum + (item.split_qty * item.rate), 0);
 
     frappe.confirm(
-        __(`This will create ${invoice_count} new invoice(s) with ${selected_items.length} items (${format_currency(total_amount, this.doc.currency)}). Continue?`),
+        __(`This will create ${invoice_count} new invoice(s) with ${total_items} items (${format_currency(total_amount, this.doc.currency)}). Continue?`),
         () => {
             this.process_split_order(invoice_groups);
             dialog.hide();
@@ -780,7 +656,8 @@ process_split_order(invoice_groups) {
         method: "posnext.posnext.page.posnext.point_of_sale.split_pos_invoice",
         args: {
             original_invoice: this.doc.name,
-            invoice_groups: invoice_groups
+            invoice_groups: invoice_groups,
+            distribute_evenly: false
         },
         callback: (r) => {
             frappe.dom.unfreeze();
@@ -794,10 +671,13 @@ process_split_order(invoice_groups) {
                     indicator: 'green'
                 });
 
-                // Refresh the page to show new invoices
+                // Show simple result summary
+                this.show_split_success(result);
+
+                // Refresh the page after a short delay
                 setTimeout(() => {
                     window.location.reload();
-                }, 1500);
+                }, 2000);
                 
             } else {
                 frappe.show_alert({
@@ -814,6 +694,45 @@ process_split_order(invoice_groups) {
             });
         }
     });
+}
+
+show_split_success(result) {
+    let message = `<div class="text-center">
+        <div class="mb-3">
+            <i class="fa fa-check-circle text-success" style="font-size: 48px;"></i>
+        </div>
+        <h4>Order Split Successfully!</h4>
+        <p class="mb-3">Created ${result.new_invoices.length} new invoice(s):</p>
+        <ul class="list-unstyled">`;
+
+    result.new_invoices.forEach(invoice => {
+        message += `<li><strong>${invoice.name}</strong> - ${format_currency(invoice.grand_total, this.doc.currency)}</li>`;
+    });
+
+    message += `</ul>
+        <div class="alert alert-info mt-3">
+            <i class="fa fa-info-circle"></i> Page will refresh automatically to show new invoices
+        </div>
+    </div>`;
+
+    const success_dialog = new frappe.ui.Dialog({
+        title: __('Split Complete'),
+        fields: [
+            {
+                fieldtype: 'HTML',
+                fieldname: 'success_message',
+                options: message
+            }
+        ],
+        primary_action: () => {
+            success_dialog.hide();
+            window.location.reload();
+        },
+        primary_action_label: __('Refresh Page'),
+        secondary_action_label: __('Close')
+    });
+
+    success_dialog.show();
 }
 print_order() {
     const doctype = this.doc.doctype;
