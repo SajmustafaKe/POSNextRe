@@ -5,7 +5,6 @@ posnext.PointOfSale.PastOrderList = class {
         this.wrapper = wrapper;
         this.events = events;
         this.selected_invoices = []; // Track selected invoices
-        this.invoices = []; // Store invoices for reference
 
         this.init_component();
     }
@@ -37,6 +36,7 @@ posnext.PointOfSale.PastOrderList = class {
                 .merge-btn-container {
                     margin-top: 10px;
                     text-align: right;
+                    padding: 10px;
                 }
                 .merge-btn:disabled {
                     opacity: 0.5;
@@ -60,15 +60,11 @@ posnext.PointOfSale.PastOrderList = class {
                     <div class="status-field"></div>
                 </div>
                 <div class="invoices-container"></div>
-                <div class="merge-btn-container">
-                    <button class="btn btn-primary merge-btn" disabled>${__('Merge Invoices')}</button>
-                </div>
             </section>`
         );
 
         this.$component = this.wrapper.find('.past-order-list');
         this.$invoices_container = this.$component.find('.invoices-container');
-        this.$merge_btn = this.$component.find('.merge-btn');
     }
 
     bind_events() {
@@ -108,7 +104,7 @@ posnext.PointOfSale.PastOrderList = class {
         });
 
         // Handle merge button click
-        this.$merge_btn.on('click', () => {
+        this.$invoices_container.on('click', '.merge-btn', () => {
             if (this.selected_invoices.length >= 2) {
                 this.merge_invoices();
             }
@@ -148,19 +144,24 @@ posnext.PointOfSale.PastOrderList = class {
         this.events.reset_summary();
         this.$invoices_container.html('');
         this.selected_invoices = []; // Reset selection on refresh
-        this.update_merge_button();
 
         return frappe.call({
             method: "erpnext.selling.page.point_of_sale.point_of_sale.get_past_order_list",
             freeze: true,
-            args: { search_term, status, doctype: 'POS Invoice' },
+            args: { search_term, status },
             callback: (response) => {
                 frappe.dom.unfreeze();
-                this.invoices = response.message || [];
-                this.invoices.forEach(invoice => {
+                response.message.forEach(invoice => {
                     const invoice_html = this.get_invoice_html(invoice);
                     this.$invoices_container.append(invoice_html);
                 });
+                // Append merge button at the bottom of the invoice list
+                this.$invoices_container.append(
+                    `<div class="merge-btn-container">
+                        <button class="btn btn-primary merge-btn" disabled>${__('Merge Invoices')}</button>
+                    </div>`
+                );
+                this.update_merge_button();
             }
         });
     }
@@ -196,10 +197,10 @@ posnext.PointOfSale.PastOrderList = class {
     update_merge_button() {
         // Enable merge button only if 2 or more Draft invoices are selected
         const selected_draft_invoices = this.selected_invoices.filter(name => {
-            const invoice = this.invoices.find(inv => inv.name === name);
-            return invoice && invoice.status === 'Draft';
+            const invoice = this.$invoices_container.find(`.invoice-wrapper[data-invoice-name="${escape(name)}"]`);
+            return invoice.length && invoice.find('.invoice-checkbox').prop('disabled') === false;
         });
-        this.$merge_btn.prop('disabled', selected_draft_invoices.length < 2);
+        this.$invoices_container.find('.merge-btn').prop('disabled', selected_draft_invoices.length < 2);
     }
 
     merge_invoices() {
@@ -214,7 +215,7 @@ posnext.PointOfSale.PastOrderList = class {
             callback: (r) => {
                 if (r.message) {
                     const invoices = r.message;
-                    // Double-check all invoices are Draft (redundant due to filter, but for safety)
+                    // Double-check all invoices are Draft
                     const all_draft = invoices.every(inv => inv.status === 'Draft');
                     if (!all_draft) {
                         frappe.msgprint(__('Only Draft POS Invoices can be merged.'));
@@ -257,7 +258,7 @@ posnext.PointOfSale.PastOrderList = class {
                                 pos_profile: invoices[0].pos_profile,
                                 posting_date: frappe.datetime.now_date(),
                                 posting_time: frappe.datetime.now_time(),
-                                status: 'Draft' // Ensure new invoice is Draft
+                                status: 'Draft'
                             }
                         },
                         freeze: true,
@@ -271,8 +272,6 @@ posnext.PointOfSale.PastOrderList = class {
 
                                 // Cancel original invoices
                                 this.cancel_invoices(this.selected_invoices);
-                                // Uncomment the line below to use delete instead of cancel
-                                // this.delete_invoices(this.selected_invoices);
 
                                 // Clear selection and refresh list
                                 this.selected_invoices = [];
@@ -315,42 +314,10 @@ posnext.PointOfSale.PastOrderList = class {
         });
     }
 
-    delete_invoices(invoice_names) {
-        invoice_names.forEach(name => {
-            frappe.call({
-                method: 'frappe.client.delete',
-                args: {
-                    doctype: 'POS Invoice',
-                    name: name
-                },
-                callback: (r) => {
-                    if (!r.exc) {
-                        frappe.show_alert({
-                            message: __('POS Invoice ') + name + __(' deleted.'),
-                            indicator: 'green'
-                        });
-                    }
-                },
-                error: (err) => {
-                    frappe.msgprint(__('Failed to delete POS Invoice ') + name + ': ' + err.message);
-                }
-            });
-        });
-    }
-
     toggle_component(show) {
         frappe.run_serially([
-            () => {
-                if (show) {
-                    this.$component.css('display', 'flex');
-                    this.refresh_list();
-                    if (this.invoices.length) {
-                        this.events.open_invoice_data(this.invoices[0].name);
-                    }
-                } else {
-                    this.$component.css('display', 'none');
-                }
-            }
+            () => show ? this.$component.css('display', 'flex') && this.refresh_list() : this.$component.css('display', 'none'),
+            () => this.invoices[0] && this.events.open_invoice_data(this.invoices[0].name)
         ]);
     }
 };
