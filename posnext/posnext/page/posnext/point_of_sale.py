@@ -968,16 +968,15 @@ def merge_invoices(invoice_names, customer):
         for invoice in invoices_to_merge:
             try:
                 # Find all Captain Print Log records linked to this invoice
-                # Note: Adjust the field name 'pos_invoice' to match your actual field name
                 print_logs = frappe.get_all("Captain Print Log", 
-                                           filters={"pos_invoice": invoice.name},
+                                           filters={"invoice_name": invoice.name},
                                            pluck="name")
                 
                 # Transfer each Captain Print Log record to the merged invoice
                 for log_name in print_logs:
                     try:
                         log_doc = frappe.get_doc("Captain Print Log", log_name)
-                        log_doc.pos_invoice = merged_invoice.name  # Update reference to merged invoice
+                        log_doc.invoice_name = merged_invoice.name  # Update reference to merged invoice
                         log_doc.add_comment('Comment', f'Transferred from {invoice.name} due to invoice merge')
                         log_doc.save()
                         print_logs_transferred += 1
