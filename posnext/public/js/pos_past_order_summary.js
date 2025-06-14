@@ -1329,16 +1329,24 @@ attach_shortcuts() {
 		}
 	}
 
-	get_condition_btn_map(after_submission) {
-		if (after_submission)
-			return [{ condition: true, visible_btns: ['Print Receipt', 'New Order'] }];
+get_condition_btn_map(after_submission) {
+	if (after_submission)
+		return [{ condition: true, visible_btns: ['Print Receipt', 'New Order'] }];
 
-		return [
-			{ condition: this.doc.docstatus === 0, visible_btns: ['Print Receipt','Edit Order','Print-Order','Split-Order'] },
-			{ condition: !this.doc.is_return && this.doc.docstatus === 1, visible_btns: ['Print Receipt', 'Return']},
-			{ condition: this.doc.is_return && this.doc.docstatus === 1, visible_btns: ['Print Receipt']}
-		];
-	}
+	// Check if current user has 'Waiter' role
+	const hasWaiterRole = frappe.user_roles.includes('Waiter');
+	
+	// Define button arrays based on user role
+	const draftButtons = hasWaiterRole 
+		? ['Print Receipt','Edit Order','Print-Order'] 
+		: ['Print Receipt','Edit Order','Print-Order','Split-Order'];
+
+	return [
+		{ condition: this.doc.docstatus === 0, visible_btns: draftButtons },
+		{ condition: !this.doc.is_return && this.doc.docstatus === 1, visible_btns: ['Print Receipt', 'Return']},
+		{ condition: this.doc.is_return && this.doc.docstatus === 1, visible_btns: ['Print Receipt']}
+	];
+}
 
 	load_summary_of(doc, after_submission=false) {
 		after_submission ?
