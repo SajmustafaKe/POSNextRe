@@ -582,10 +582,6 @@ import frappe
 import json
 from frappe.utils import now, cstr
 
-import frappe
-import json
-from frappe.utils import now, cstr
-
 @frappe.whitelist()
 def print_captain_order(invoice_name, current_items, print_format, _lang):
     """
@@ -617,11 +613,13 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
         
         previously_printed_items = []
         print_log = None
-        try:
+        
+        # Check if print log exists before trying to get it
+        if frappe.db.exists("Captain Print Log", print_log_name):
             print_log = frappe.get_doc("Captain Print Log", print_log_name)
             previously_printed_items = json.loads(print_log.printed_items or "[]")
             frappe.log_error(f"Found print log: {print_log_name}, Previously printed {len(previously_printed_items)} items", "Print Debug")
-        except frappe.DoesNotExistError:
+        else:
             frappe.log_error(f"Print log {print_log_name} not found, creating new one", "Print Debug")
             try:
                 print_log = frappe.get_doc({
@@ -798,6 +796,7 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
         frappe.log_error(f"Traceback: {traceback.format_exc()}", "Captain Order Print Error")
         return {"success": False, "error": str(e)}
 
+        
 import frappe
 from frappe import _
 from frappe.utils import now, flt
