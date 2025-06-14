@@ -746,7 +746,7 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
             "timestamp": now(),
             "is_captain_order_reprint": len(previously_printed_items) > 0,
             "print_count": (getattr(print_log, 'print_count', 0) or 0) + 1,
-            "created_by_name": getattr(original_invoice, 'owner', ''),
+            "created_by_name": original_invoice.created_by_name,
             "total_qty": total_qty,
             "total_amount": total_amount,
             "new_items_only": True  # Flag to indicate this contains only new items
