@@ -961,6 +961,36 @@ def merge_invoices(invoice_names, customer):
         
         merged_invoice.add_comment('Comment', ' | '.join(comment_parts))
         
+        # Handle Captain Print Log records before deleting invoices
+        print_logs_transferred = 0
+        print_logs_errors = []
+        
+        for invoice in invoices_to_merge:
+            try:
+                # Find all Captain Print Log records linked to this invoice
+                # Note: Adjust the field name 'pos_invoice' to match your actual field name
+                print_logs = frappe.get_all("Captain Print Log", 
+                                           filters={"pos_invoice": invoice.name},
+                                           pluck="name")
+                
+                # Transfer each Captain Print Log record to the merged invoice
+                for log_name in print_logs:
+                    try:
+                        log_doc = frappe.get_doc("Captain Print Log", log_name)
+                        log_doc.pos_invoice = merged_invoice.name  # Update reference to merged invoice
+                        log_doc.add_comment('Comment', f'Transferred from {invoice.name} due to invoice merge')
+                        log_doc.save()
+                        print_logs_transferred += 1
+                    except Exception as e:
+                        error_msg = f"Error transferring Captain Print Log {log_name}: {str(e)}"
+                        print_logs_errors.append(error_msg)
+                        frappe.log_error(error_msg)
+                        
+            except Exception as e:
+                error_msg = f"Error finding Captain Print Log records for invoice {invoice.name}: {str(e)}"
+                print_logs_errors.append(error_msg)
+                frappe.log_error(error_msg)
+        
         # Cancel the original invoices
         for invoice in invoices_to_merge:
             # Add a comment about the merge
@@ -970,17 +1000,25 @@ def merge_invoices(invoice_names, customer):
         
         frappe.db.commit()
         
+        # Prepare success message
+        success_message = f"Successfully merged {len(invoice_names)} invoices into {merged_invoice.name}"
+        if print_logs_transferred > 0:
+            success_message += f". Transferred {print_logs_transferred} Captain Print Log records"
+        if print_logs_errors:
+            success_message += f". Warning: {len(print_logs_errors)} print log transfer errors (check error log)"
+        
         return {
             "success": True, 
             "new_invoice": merged_invoice.name,
-            "message": f"Successfully merged {len(invoice_names)} invoices into {merged_invoice.name}"
+            "message": success_message,
+            "print_logs_transferred": print_logs_transferred,
+            "print_logs_errors": len(print_logs_errors)
         }
         
     except Exception as e:
         frappe.db.rollback()
         frappe.log_error(f"Error merging invoices: {str(e)}")
         return {"success": False, "error": str(e)}
-
 # Simplified version of the split_pos_invoice function
 
 import frappe
