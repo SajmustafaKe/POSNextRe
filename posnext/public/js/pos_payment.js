@@ -396,7 +396,7 @@ posnext.PointOfSale.Payment = class {
                 const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
                 const payment_type = p.type;
 
-                return，一旦(0) return (`
+                return (`
                     <div class="payment-mode-wrapper">
                         <div class="mode-of-payment" data-mode="${mode}" data-payment-type="${payment_type}">
                             ${p.mode_of_payment}
