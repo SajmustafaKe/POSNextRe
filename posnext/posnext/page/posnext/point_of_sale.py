@@ -294,7 +294,8 @@ def create_opening_voucher(pos_profile, company, balance_details):
 
 @frappe.whitelist()
 def get_past_order_list(search_term='', status='', created_by='', limit=20):
-    limit = int(limit) if limit else 20
+	# Convert limit to integer if it's passed as string
+	limit = int(limit) if limit else 20
 	fields = ["name", "grand_total", "currency", "customer", "posting_time", "posting_date", "created_by_name"]
 	invoice_list = []
 	
