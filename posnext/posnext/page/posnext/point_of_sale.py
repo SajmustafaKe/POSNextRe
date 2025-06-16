@@ -293,30 +293,73 @@ def create_opening_voucher(pos_profile, company, balance_details):
 
 
 @frappe.whitelist()
-def get_past_order_list(search_term, status, limit=20):
-	fields = ["name", "grand_total", "currency", "customer", "posting_time", "posting_date"]
+def get_past_order_list(search_term='', status='', created_by='', limit=20):
+	fields = ["name", "grand_total", "currency", "customer", "posting_time", "posting_date", "created_by_name"]
 	invoice_list = []
-
-	if search_term and status:
+	
+	# Build base filters
+	base_filters = {}
+	if status:
+		base_filters["status"] = status
+	if created_by:
+		# Filter by created_by_name field in POS Invoice
+		# This should match the user_name from User Secret Key
+		base_filters["created_by_name"] = created_by
+	
+	if search_term and (status or created_by):
+		# Search by customer name
+		customer_filters = base_filters.copy()
+		customer_filters["customer"] = ["like", "%{}%".format(search_term)]
+		
 		invoices_by_customer = frappe.db.get_all(
 			"POS Invoice",
-			filters={"customer": ["like", "%{}%".format(search_term)], "status": status},
+			filters=customer_filters,
 			fields=fields,
 			page_length=limit,
+			order_by="creation desc"
 		)
+		
+		# Search by invoice name
+		name_filters = base_filters.copy()
+		name_filters["name"] = ["like", "%{}%".format(search_term)]
+		
 		invoices_by_name = frappe.db.get_all(
 			"POS Invoice",
-			filters={"name": ["like", "%{}%".format(search_term)], "status": status},
+			filters=name_filters,
 			fields=fields,
 			page_length=limit,
+			order_by="creation desc"
 		)
-
+		
+		# Combine results and remove duplicates
 		invoice_list = invoices_by_customer + invoices_by_name
-	elif status:
+		# Remove duplicates by converting to dict with name as key, then back to list
+		unique_invoices = {}
+		for invoice in invoice_list:
+			unique_invoices[invoice.name] = invoice
+		invoice_list = list(unique_invoices.values())
+		
+	elif status or created_by:
+		# Filter by status and/or created_by only
 		invoice_list = frappe.db.get_all(
-			"POS Invoice", filters={"status": status}, fields=fields, page_length=limit
+			"POS Invoice", 
+			filters=base_filters, 
+			fields=fields, 
+			page_length=limit,
+			order_by="creation desc"
 		)
-
+	else:
+		# No filters - get all invoices
+		invoice_list = frappe.db.get_all(
+			"POS Invoice", 
+			fields=fields, 
+			page_length=limit,
+			order_by="creation desc"
+		)
+	
+	# Sort by creation date (most recent first) and limit results
+	invoice_list = sorted(invoice_list, key=lambda x: x.get('creation', ''), reverse=True)[:limit]
+	
 	return invoice_list
 
 

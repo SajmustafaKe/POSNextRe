@@ -6,6 +6,7 @@ posnext.PointOfSale.PastOrderList = class {
 		this.events = events;
 		this.selected_invoices = new Set(); // Track selected invoices
 		this.can_merge_invoices = this.check_merge_permission(); // Check if user can merge
+		this.user_list = []; // Store list of users from User Secret Key
 
 		this.init_component();
 	}
@@ -14,6 +15,7 @@ posnext.PointOfSale.PastOrderList = class {
 		this.prepare_dom();
 		this.make_filter_section();
 		this.bind_events();
+		this.load_user_list(); // Load users for dropdown
 	}
 
 	check_merge_permission() {
@@ -36,6 +38,7 @@ posnext.PointOfSale.PastOrderList = class {
 					<div class="label">${__('Recent Orders')}</div>
 					<div class="search-field"></div>
 					<div class="status-field"></div>
+					<div class="created-by-field"></div>
 				</div>
 				<div class="invoices-container"></div>
 				<div class="merge-section" style="display: none; padding: 15px; border-top: 1px solid #d1d8dd; background-color: #f8f9fa;">
@@ -64,7 +67,7 @@ posnext.PointOfSale.PastOrderList = class {
 			clearTimeout(this.last_search);
 			this.last_search = setTimeout(() => {
 				const search_term = e.target.value;
-				this.refresh_list(search_term, this.status_field.get_value());
+				this.refresh_list(search_term, this.status_field.get_value(), this.created_by_field.get_value());
 			}, 300);
 		});
 
@@ -102,6 +105,57 @@ posnext.PointOfSale.PastOrderList = class {
 		});
 	}
 
+	load_user_list() {
+		// Load users from User Secret Key doctype
+		frappe.call({
+			method: "frappe.client.get_list",
+			args: {
+				doctype: "User Secret Key",
+				fields: ["name", "user_name"],
+				filters: [["user_name", "!=", ""]],  // Only get records with user_name
+				order_by: "creation desc"
+			},
+			callback: (response) => {
+				if (response.message) {
+					this.user_list = response.message;
+					this.setup_created_by_field();
+				}
+			}
+		});
+	}
+
+	setup_created_by_field() {
+		// Create options string for the dropdown using user_name field
+		let options = "All\n" + this.user_list.map(user => user.user_name).join('\n');
+		
+		// Update the created_by_field with the loaded options
+		this.created_by_field.df.options = options;
+		this.created_by_field.refresh();
+		
+		// Get the most recent created_by_name from invoices to set as default
+		this.get_most_recent_creator();
+	}
+
+	get_most_recent_creator() {
+		// Make a quick call to get the most recent invoice's creator
+		frappe.call({
+			method: "erpnext.selling.page.point_of_sale.point_of_sale.get_past_order_list",
+			args: { 
+				search_term: '', 
+				status: 'Draft',
+				limit: 1 // Just get the most recent one
+			},
+			callback: (response) => {
+				if (response.message && response.message.length > 0) {
+					const most_recent_creator = response.message[0].created_by_name;
+					if (most_recent_creator) {
+						this.created_by_field.set_value(most_recent_creator);
+					}
+				}
+			}
+		});
+	}
+
 	make_filter_section() {
 		const me = this;
 		this.search_field = frappe.ui.form.make_control({
@@ -113,6 +167,7 @@ posnext.PointOfSale.PastOrderList = class {
 			parent: this.$component.find('.search-field'),
 			render_input: true,
 		});
+		
 		this.status_field = frappe.ui.form.make_control({
 			df: {
 				label: __('Invoice Status'),
@@ -126,8 +181,24 @@ posnext.PointOfSale.PastOrderList = class {
 			parent: this.$component.find('.status-field'),
 			render_input: true,
 		});
+
+		this.created_by_field = frappe.ui.form.make_control({
+			df: {
+				label: __('Created By'),
+				fieldtype: 'Select',
+				options: 'All', // Will be updated when user list is loaded
+				placeholder: __('Filter by creator'),
+				onchange: function() {
+					if (me.$component.is(':visible')) me.refresh_list();
+				}
+			},
+			parent: this.$component.find('.created-by-field'),
+			render_input: true,
+		});
+
 		this.search_field.toggle_label(false);
 		this.status_field.toggle_label(false);
+		this.created_by_field.toggle_label(false);
 		this.status_field.set_value('Draft');
 	}
 
@@ -136,6 +207,7 @@ posnext.PointOfSale.PastOrderList = class {
 		this.events.reset_summary();
 		const search_term = this.search_field.get_value();
 		const status = this.status_field.get_value();
+		const created_by = this.created_by_field.get_value();
 
 		// Clear selected invoices when refreshing
 		this.selected_invoices.clear();
@@ -146,7 +218,11 @@ posnext.PointOfSale.PastOrderList = class {
 		return frappe.call({
 			method: "erpnext.selling.page.point_of_sale.point_of_sale.get_past_order_list",
 			freeze: true,
-			args: { search_term, status },
+			args: { 
+				search_term, 
+				status,
+				created_by: created_by === 'All' ? '' : created_by // Send empty string for 'All'
+			},
 			callback: (response) => {
 				frappe.dom.unfreeze();
 				invoicess = response.message
@@ -167,6 +243,15 @@ posnext.PointOfSale.PastOrderList = class {
 				<input type="checkbox" class="invoice-checkbox" style="margin: 0;">
 			</div>` : '';
 		
+		// Show created by info if available
+		const created_by_html = invoice.created_by_name ? 
+			`<div class="invoice-creator" style="font-size: 11px; color: #8d99a6; margin-top: 2px;">
+				<svg style="width: 10px; height: 10px; margin-right: 3px;" viewBox="0 0 24 24" fill="currentColor">
+					<path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+				</svg>
+				${frappe.ellipsis(invoice.created_by_name, 15)}
+			</div>` : '';
+		
 		return (
 			`<div class="invoice-wrapper" data-invoice-name="${escape(invoice.name)}" style="display: flex; align-items: center; padding: 10px; border-bottom: 1px solid #d1d8dd; cursor: pointer;">
 				${checkbox_html}
@@ -179,6 +264,7 @@ posnext.PointOfSale.PastOrderList = class {
 							</svg>
 							${frappe.ellipsis(invoice.customer, 20)}
 						</div>
+						${created_by_html}
 					</div>
 					<div class="invoice-total-status" style="text-align: right;">
 						<div class="invoice-total" style="font-weight: 600; margin-bottom: 4px;">${format_currency(invoice.grand_total, invoice.currency, 0) || 0}</div>
