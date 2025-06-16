@@ -112,12 +112,46 @@ posnext.PointOfSale.PastOrderList = class {
 			args: {
 				doctype: "User Secret Key",
 				fields: ["name", "user_name"],
-				filters: [["user_name", "!=", ""]],  // Only get records with user_name
 				order_by: "creation desc"
 			},
 			callback: (response) => {
+				console.log("User Secret Key response:", response.message); // Debug log
+				if (response.message && response.message.length > 0) {
+					// Filter out records without user_name
+					this.user_list = response.message.filter(user => user.user_name && user.user_name.trim() !== '');
+					console.log("Filtered user list:", this.user_list); // Debug log
+					this.setup_created_by_field();
+				} else {
+					console.log("No User Secret Key records found or user_name field is empty");
+					// Fallback: get unique created_by_name values from existing invoices
+					this.load_creators_from_invoices();
+				}
+			},
+			error: (error) => {
+				console.error("Error loading User Secret Key:", error);
+				// Fallback: get unique created_by_name values from existing invoices
+				this.load_creators_from_invoices();
+			}
+		});
+	}
+
+	load_creators_from_invoices() {
+		// Fallback method: get unique created_by_name values from POS Invoices
+		frappe.call({
+			method: "frappe.client.get_list",
+			args: {
+				doctype: "POS Invoice",
+				fields: ["created_by_name"],
+				filters: [["created_by_name", "!=", ""]],
+				order_by: "creation desc",
+				limit_page_length: 100
+			},
+			callback: (response) => {
 				if (response.message) {
-					this.user_list = response.message;
+					// Get unique creator names
+					const unique_creators = [...new Set(response.message.map(inv => inv.created_by_name).filter(name => name))];
+					this.user_list = unique_creators.map(name => ({name: name, user_name: name}));
+					console.log("Creators from invoices:", this.user_list);
 					this.setup_created_by_field();
 				}
 			}
@@ -125,8 +159,17 @@ posnext.PointOfSale.PastOrderList = class {
 	}
 
 	setup_created_by_field() {
+		if (this.user_list.length === 0) {
+			console.log("No users found for dropdown");
+			// Set up dropdown with just "All" option
+			this.created_by_field.df.options = "All";
+			this.created_by_field.refresh();
+			return;
+		}
+
 		// Create options string for the dropdown using user_name field
 		let options = "All\n" + this.user_list.map(user => user.user_name).join('\n');
+		console.log("Dropdown options:", options); // Debug log
 		
 		// Update the created_by_field with the loaded options
 		this.created_by_field.df.options = options;
@@ -139,7 +182,7 @@ posnext.PointOfSale.PastOrderList = class {
 	get_most_recent_creator() {
 		// Make a quick call to get the most recent invoice's creator
 		frappe.call({
-			method: "posnext.posnext.page.posnext.point_of_sale.get_past_order_list",
+			method: "erpnext.selling.page.point_of_sale.point_of_sale.get_past_order_list",
 			args: { 
 				search_term: '', 
 				status: 'Draft',
@@ -216,7 +259,7 @@ posnext.PointOfSale.PastOrderList = class {
 		this.$invoices_container.html('');
 
 		return frappe.call({
-			method: "posnext.posnext.page.posnext.point_of_sale.get_past_order_list",
+			method: "erpnext.selling.page.point_of_sale.point_of_sale.get_past_order_list",
 			freeze: true,
 			args: { 
 				search_term, 
