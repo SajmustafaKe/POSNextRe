@@ -1914,3 +1914,904 @@ SPLIT PAYMENT SUMMARY:
     except Exception as e:
         # Log error but don't fail the main transaction
         frappe.log_error(f"Failed to create split payment log: {str(e)}", "Split Payment Log Error")
+
+# Add these functions to your posnext/posnext/page/posnext/point-of-sale.py file
+
+# Partial Payment Backend Functions
+
+@frappe.whitelist()
+def save_partial_payment_invoice(invoice_name, partial_payments):
+    """Save invoice with partial payment information"""
+    try:
+        partial_payments = json.loads(partial_payments) if isinstance(partial_payments, str) else partial_payments
+        
+        # Get the invoice
+        doc = frappe.get_doc('POS Invoice', invoice_name)
+        
+        if doc.docstatus != 0:
+            frappe.throw("Cannot modify submitted invoice")
+        
+        # Calculate totals
+        grand_total = flt(doc.rounded_total) if not cint(frappe.sys_defaults.disable_rounded_total) else flt(doc.grand_total)
+        total_partial_paid = sum(flt(p.get('amount', 0)) for p in partial_payments)
+        outstanding_amount = grand_total - total_partial_paid
+        
+        # Update payment records with partial payment data
+        update_payments_with_partial_data(doc, partial_payments)
+        
+        # Set partial payment status
+        doc.status = "Partial Payment" if outstanding_amount > 0.01 else "Paid"
+        
+        # Add partial payment summary to remarks
+        add_partial_payment_remarks(doc, partial_payments, total_partial_paid, outstanding_amount)
+        
+        # Save the document
+        doc.save()
+        
+        # Create partial payment log
+        create_partial_payment_log(doc, partial_payments, total_partial_paid, outstanding_amount)
+        
+        # Send notification if needed
+        if outstanding_amount > 0.01:
+            send_partial_payment_notification(doc, total_partial_paid, outstanding_amount)
+        
+        return {
+            'success': True,
+            'invoice_name': doc.name,
+            'grand_total': grand_total,
+            'paid_amount': total_partial_paid,
+            'outstanding_amount': outstanding_amount,
+            'status': doc.status,
+            'message': f'Invoice saved with partial payment. Outstanding: {frappe.format_value(outstanding_amount, {"fieldtype": "Currency"})}'
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Error saving partial payment invoice: {str(e)}", "Partial Payment Error")
+        frappe.throw(f"Failed to save partial payment: {str(e)}")
+
+def update_payments_with_partial_data(doc, partial_payments):
+    """Update payment records with partial payment details"""
+    
+    # Clear existing payment amounts
+    for payment in doc.payments:
+        payment.amount = 0
+    
+    # Group partial payments by mode of payment
+    payment_groups = {}
+    for partial_payment in partial_payments:
+        mode = partial_payment.get('mode_of_payment')
+        if mode not in payment_groups:
+            payment_groups[mode] = {
+                'total_amount': 0,
+                'details': []
+            }
+        
+        payment_groups[mode]['total_amount'] += flt(partial_payment.get('amount', 0))
+        payment_groups[mode]['details'].append({
+            'amount': flt(partial_payment.get('amount', 0)),
+            'reference_number': partial_payment.get('reference_number', ''),
+            'notes': partial_payment.get('notes', ''),
+            'payment_date': partial_payment.get('payment_date'),
+            'recorded_by': partial_payment.get('recorded_by', frappe.session.user)
+        })
+    
+    # Update payment records
+    for mode, group_data in payment_groups.items():
+        payment_record = next((p for p in doc.payments if p.mode_of_payment == mode), None)
+        if payment_record:
+            payment_record.amount = group_data['total_amount']
+            payment_record.remarks = json.dumps(group_data['details'])
+
+def add_partial_payment_remarks(doc, partial_payments, total_paid, outstanding):
+    """Add partial payment information to invoice remarks"""
+    
+    payment_summary = []
+    for payment in partial_payments:
+        payment_date = frappe.utils.format_datetime(payment.get('payment_date'), 'dd/MM/yyyy HH:mm')
+        payment_info = f"{payment.get('mode_of_payment')}: {frappe.format_value(payment.get('amount'), {'fieldtype': 'Currency'})}"
+        
+        if payment.get('reference_number'):
+            payment_info += f" (Ref: {payment.get('reference_number')})"
+        
+        payment_info += f" on {payment_date}"
+        
+        if payment.get('notes'):
+            payment_info += f" - {payment.get('notes')}"
+            
+        payment_summary.append(payment_info)
+    
+    partial_remarks = f"""
+PARTIAL PAYMENT RECORD:
+Total Invoice Amount: {frappe.format_value(total_paid + outstanding, {'fieldtype': 'Currency'})}
+Amount Paid: {frappe.format_value(total_paid, {'fieldtype': 'Currency'})}
+Outstanding: {frappe.format_value(outstanding, {'fieldtype': 'Currency'})}
+
+Payment Details:
+{chr(10).join(f'- {payment}' for payment in payment_summary)}
+
+Status: {'Partially Paid' if outstanding > 0.01 else 'Fully Paid'}
+Last Updated: {frappe.utils.now()}
+    """.strip()
+    
+    existing_remarks = doc.remarks or ''
+    doc.remarks = f"{existing_remarks}\n\n{partial_remarks}" if existing_remarks else partial_remarks
+
+def create_partial_payment_log(doc, partial_payments, total_paid, outstanding):
+    """Create a log entry for partial payment tracking"""
+    try:
+        # Create comment for audit trail
+        comment_content = f"""
+PARTIAL PAYMENT LOG:
+- Invoice: {doc.name}
+- Customer: {doc.customer}
+- Total Amount: {frappe.format_value(doc.grand_total, {'fieldtype': 'Currency'})}
+- Paid Amount: {frappe.format_value(total_paid, {'fieldtype': 'Currency'})}
+- Outstanding: {frappe.format_value(outstanding, {'fieldtype': 'Currency'})}
+- Number of Payments: {len(partial_payments)}
+- Recorded by: {frappe.session.user_fullname or frappe.session.user}
+        """.strip()
+        
+        doc.add_comment('Info', comment_content)
+        
+        # If you have a custom Partial Payment Log doctype, create an entry
+        # create_partial_payment_log_entry(doc, partial_payments, total_paid, outstanding)
+        
+    except Exception as e:
+        frappe.log_error(f"Error creating partial payment log: {str(e)}", "Partial Payment Log")
+
+def send_partial_payment_notification(doc, paid_amount, outstanding):
+    """Send notification about partial payment"""
+    try:
+        # Send email notification if customer has email
+        if doc.contact_email:
+            send_partial_payment_email(doc, paid_amount, outstanding)
+        
+        # Create notification for internal users
+        create_partial_payment_notification(doc, paid_amount, outstanding)
+        
+    except Exception as e:
+        frappe.log_error(f"Error sending partial payment notification: {str(e)}", "Partial Payment Notification")
+
+def send_partial_payment_email(doc, paid_amount, outstanding):
+    """Send email notification to customer about partial payment"""
+    
+    subject = f"Partial Payment Received - Invoice {doc.name}"
+    
+    message = f"""
+    Dear {doc.customer_name or doc.customer},
+    
+    We have received a partial payment for your invoice.
+    
+    Invoice Details:
+    - Invoice Number: {doc.name}
+    - Invoice Date: {frappe.utils.format_date(doc.posting_date)}
+    - Total Amount: {frappe.format_value(doc.grand_total, {'fieldtype': 'Currency'})}
+    - Amount Paid: {frappe.format_value(paid_amount, {'fieldtype': 'Currency'})}
+    - Outstanding Balance: {frappe.format_value(outstanding, {'fieldtype': 'Currency'})}
+    
+    Please complete the remaining payment at your earliest convenience.
+    
+    Thank you for your business!
+    
+    Best regards,
+    {doc.company}
+    """
+    
+    frappe.sendmail(
+        recipients=[doc.contact_email],
+        subject=subject,
+        message=message,
+        delayed=False
+    )
+
+def create_partial_payment_notification(doc, paid_amount, outstanding):
+    """Create internal notification for partial payment"""
+    
+    # Get users who should be notified (Sales team, managers, etc.)
+    notification_users = get_partial_payment_notification_users(doc.company)
+    
+    for user in notification_users:
+        frappe.get_doc({
+            'doctype': 'Notification Log',
+            'subject': f'Partial Payment Received - {doc.name}',
+            'for_user': user,
+            'type': 'Alert',
+            'document_type': 'POS Invoice',
+            'document_name': doc.name,
+            'email_content': f"""
+            Partial payment received for invoice {doc.name}:
+            - Customer: {doc.customer}
+            - Paid: {frappe.format_value(paid_amount, {'fieldtype': 'Currency'})}
+            - Outstanding: {frappe.format_value(outstanding, {'fieldtype': 'Currency'})}
+            """
+        }).insert(ignore_permissions=True)
+
+def get_partial_payment_notification_users(company):
+    """Get list of users to notify about partial payments"""
+    
+    # Get users with specific roles
+    notification_roles = ['Sales Manager', 'Accounts Manager', 'POS Manager']
+    
+    users = frappe.get_all('Has Role',
+        filters={
+            'role': ['in', notification_roles],
+            'parenttype': 'User'
+        },
+        fields=['parent as user'],
+        distinct=True
+    )
+    
+    return [user.user for user in users]
+
+@frappe.whitelist()
+def get_partial_payment_details(invoice_name):
+    """Get partial payment details for an invoice"""
+    try:
+        doc = frappe.get_doc('POS Invoice', invoice_name)
+        
+        partial_payments = []
+        
+        # Extract partial payment details from payment records
+        for payment in doc.payments:
+            if payment.amount > 0 and payment.remarks:
+                try:
+                    payment_details = json.loads(payment.remarks)
+                    for detail in payment_details:
+                        partial_payments.append({
+                            'id': f"{payment.mode_of_payment}_{len(partial_payments)}",
+                            'mode_of_payment': payment.mode_of_payment,
+                            'amount': detail.get('amount', 0),
+                            'reference_number': detail.get('reference_number', ''),
+                            'notes': detail.get('notes', ''),
+                            'payment_date': detail.get('payment_date'),
+                            'recorded_by': detail.get('recorded_by', '')
+                        })
+                except (json.JSONDecodeError, TypeError):
+                    # Handle case where remarks is not JSON
+                    if payment.amount > 0:
+                        partial_payments.append({
+                            'id': f"{payment.mode_of_payment}_{len(partial_payments)}",
+                            'mode_of_payment': payment.mode_of_payment,
+                            'amount': payment.amount,
+                            'reference_number': '',
+                            'notes': '',
+                            'payment_date': doc.posting_date,
+                            'recorded_by': doc.owner
+                        })
+        
+        return {
+            'partial_payments': partial_payments,
+            'total_paid': sum(p['amount'] for p in partial_payments),
+            'outstanding': doc.outstanding_amount or 0
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Error getting partial payment details: {str(e)}", "Partial Payment Details")
+        return {'partial_payments': [], 'total_paid': 0, 'outstanding': 0}
+
+@frappe.whitelist()
+def complete_partial_payment(invoice_name, final_payments):
+    """Complete a partial payment by adding final payments"""
+    try:
+        final_payments = json.loads(final_payments) if isinstance(final_payments, str) else final_payments
+        
+        doc = frappe.get_doc('POS Invoice', invoice_name)
+        
+        if doc.docstatus != 0:
+            frappe.throw("Cannot modify submitted invoice")
+        
+        # Get existing partial payments
+        existing_partial_details = get_partial_payment_details(invoice_name)
+        existing_payments = existing_partial_details.get('partial_payments', [])
+        
+        # Combine existing and final payments
+        all_payments = existing_payments + final_payments
+        
+        # Update the invoice
+        result = save_partial_payment_invoice(invoice_name, json.dumps(all_payments))
+        
+        # If payment is now complete, submit the invoice
+        if result.get('outstanding_amount', 0) <= 0.01:
+            doc.reload()
+            doc.submit()
+            result['submitted'] = True
+            result['message'] = 'Payment completed and invoice submitted successfully'
+        
+        return result
+        
+    except Exception as e:
+        frappe.log_error(f"Error completing partial payment: {str(e)}", "Complete Partial Payment")
+        frappe.throw(f"Failed to complete partial payment: {str(e)}")
+
+@frappe.whitelist()
+def get_outstanding_invoices(customer=None, from_date=None, to_date=None):
+    """Get list of invoices with outstanding partial payments"""
+    try:
+        conditions = ["docstatus = 0", "outstanding_amount > 0"]
+        
+        if customer:
+            conditions.append(f"customer = '{customer}'")
+        if from_date:
+            conditions.append(f"posting_date >= '{from_date}'")
+        if to_date:
+            conditions.append(f"posting_date <= '{to_date}'")
+        
+        where_clause = " AND ".join(conditions)
+        
+        query = f"""
+            SELECT 
+                name,
+                customer,
+                customer_name,
+                posting_date,
+                grand_total,
+                paid_amount,
+                outstanding_amount,
+                status,
+                created_by_name
+            FROM 
+                `tabPOS Invoice`
+            WHERE 
+                {where_clause}
+            ORDER BY 
+                posting_date DESC, name DESC
+            LIMIT 100
+        """
+        
+        return frappe.db.sql(query, as_dict=True)
+        
+    except Exception as e:
+        frappe.log_error(f"Error getting outstanding invoices: {str(e)}", "Outstanding Invoices")
+        return []
+
+@frappe.whitelist()
+def get_partial_payment_report(from_date=None, to_date=None, customer=None, company=None):
+    """Get comprehensive report of partial payments"""
+    try:
+        conditions = ["1=1"]
+        
+        if from_date:
+            conditions.append(f"posting_date >= '{from_date}'")
+        if to_date:
+            conditions.append(f"posting_date <= '{to_date}'")
+        if customer:
+            conditions.append(f"customer = '{customer}'")
+        if company:
+            conditions.append(f"company = '{company}'")
+        
+        where_clause = " AND ".join(conditions)
+        
+        # Get invoices with partial payments
+        query = f"""
+            SELECT 
+                name,
+                customer,
+                customer_name,
+                posting_date,
+                grand_total,
+                paid_amount,
+                outstanding_amount,
+                status,
+                created_by_name,
+                remarks
+            FROM 
+                `tabPOS Invoice`
+            WHERE 
+                {where_clause}
+                AND (
+                    outstanding_amount > 0 
+                    OR remarks LIKE '%PARTIAL PAYMENT%'
+                    OR status = 'Partial Payment'
+                )
+            ORDER BY 
+                posting_date DESC
+        """
+        
+        invoices = frappe.db.sql(query, as_dict=True)
+        
+        # Add partial payment details for each invoice
+        for invoice in invoices:
+            partial_details = get_partial_payment_details(invoice.name)
+            invoice.partial_payments = partial_details.get('partial_payments', [])
+            invoice.payment_count = len(invoice.partial_payments)
+        
+        return invoices
+        
+    except Exception as e:
+        frappe.log_error(f"Error generating partial payment report: {str(e)}", "Partial Payment Report")
+        return []
+
+@frappe.whitelist()
+def send_payment_reminder(invoice_name, reminder_type="email"):
+    """Send payment reminder to customer for outstanding amount"""
+    try:
+        doc = frappe.get_doc('POS Invoice', invoice_name)
+        
+        if doc.outstanding_amount <= 0:
+            return {'success': False, 'message': 'No outstanding amount for this invoice'}
+        
+        if reminder_type == "email":
+            return send_payment_reminder_email(doc)
+        elif reminder_type == "sms":
+            return send_payment_reminder_sms(doc)
+        else:
+            return {'success': False, 'message': 'Invalid reminder type'}
+            
+    except Exception as e:
+        frappe.log_error(f"Error sending payment reminder: {str(e)}", "Payment Reminder")
+        return {'success': False, 'message': str(e)}
+
+def send_payment_reminder_email(doc):
+    """Send email payment reminder"""
+    if not doc.contact_email:
+        return {'success': False, 'message': 'No email address found for customer'}
+    
+    subject = f"Payment Reminder - Invoice {doc.name}"
+    
+    # Calculate days overdue
+    days_since_invoice = (frappe.utils.getdate() - frappe.utils.getdate(doc.posting_date)).days
+    
+    message = f"""
+    Dear {doc.customer_name or doc.customer},
+    
+    This is a friendly reminder about your outstanding payment.
+    
+    Invoice Details:
+    - Invoice Number: {doc.name}
+    - Invoice Date: {frappe.utils.format_date(doc.posting_date)}
+    - Days Since Invoice: {days_since_invoice} days
+    - Total Amount: {frappe.format_value(doc.grand_total, {'fieldtype': 'Currency'})}
+    - Amount Paid: {frappe.format_value(doc.paid_amount, {'fieldtype': 'Currency'})}
+    - Outstanding Balance: {frappe.format_value(doc.outstanding_amount, {'fieldtype': 'Currency'})}
+    
+    Please arrange payment at your earliest convenience. You can:
+    - Visit our store with invoice number {doc.name}
+    - Call us to arrange payment
+    - Pay online using our payment portal
+    
+    If you have already made the payment, please ignore this reminder.
+    
+    Thank you for your business!
+    
+    Best regards,
+    {doc.company}
+    """
+    
+    try:
+        frappe.sendmail(
+            recipients=[doc.contact_email],
+            subject=subject,
+            message=message,
+            delayed=False
+        )
+        
+        # Log the reminder
+        doc.add_comment('Info', f'Payment reminder email sent to {doc.contact_email}')
+        
+        return {'success': True, 'message': f'Payment reminder sent to {doc.contact_email}'}
+        
+    except Exception as e:
+        return {'success': False, 'message': f'Failed to send email: {str(e)}'}
+
+def send_payment_reminder_sms(doc):
+    """Send SMS payment reminder"""
+    if not doc.contact_mobile:
+        return {'success': False, 'message': 'No mobile number found for customer'}
+    
+    message = f"""
+    Payment Reminder from {doc.company}:
+    Invoice: {doc.name}
+    Outstanding: {frappe.format_value(doc.outstanding_amount, {'fieldtype': 'Currency'})}
+    Please visit our store or call to complete payment.
+    Thank you!
+    """
+    
+    try:
+        # You'll need to implement SMS sending based on your SMS provider
+        # This is a placeholder for SMS functionality
+        send_sms(doc.contact_mobile, message)
+        
+        # Log the reminder
+        doc.add_comment('Info', f'Payment reminder SMS sent to {doc.contact_mobile}')
+        
+        return {'success': True, 'message': f'Payment reminder SMS sent to {doc.contact_mobile}'}
+        
+    except Exception as e:
+        return {'success': False, 'message': f'Failed to send SMS: {str(e)}'}
+
+def send_sms(mobile_number, message):
+    """Send SMS using your SMS provider"""
+    # Implement based on your SMS provider (Twilio, AWS SNS, etc.)
+    # This is a placeholder
+    frappe.log_error(f"SMS to {mobile_number}: {message}", "SMS Placeholder")
+
+@frappe.whitelist()
+def get_partial_payment_analytics(from_date=None, to_date=None, company=None):
+    """Get analytics for partial payments"""
+    try:
+        conditions = ["1=1"]
+        
+        if from_date:
+            conditions.append(f"posting_date >= '{from_date}'")
+        if to_date:
+            conditions.append(f"posting_date <= '{to_date}'")
+        if company:
+            conditions.append(f"company = '{company}'")
+        
+        where_clause = " AND ".join(conditions)
+        
+        # Summary statistics
+        summary_query = f"""
+            SELECT 
+                COUNT(*) as total_invoices,
+                COUNT(CASE WHEN outstanding_amount > 0 THEN 1 END) as partial_payment_invoices,
+                SUM(grand_total) as total_invoice_amount,
+                SUM(paid_amount) as total_paid_amount,
+                SUM(outstanding_amount) as total_outstanding_amount,
+                AVG(outstanding_amount) as avg_outstanding_amount
+            FROM 
+                `tabPOS Invoice`
+            WHERE 
+                {where_clause}
+                AND docstatus >= 0
+        """
+        
+        # Monthly trend
+        monthly_trend_query = f"""
+            SELECT 
+                DATE_FORMAT(posting_date, '%Y-%m') as month,
+                COUNT(CASE WHEN outstanding_amount > 0 THEN 1 END) as partial_payment_count,
+                SUM(outstanding_amount) as monthly_outstanding
+            FROM 
+                `tabPOS Invoice`
+            WHERE 
+                {where_clause}
+                AND docstatus >= 0
+            GROUP BY 
+                DATE_FORMAT(posting_date, '%Y-%m')
+            ORDER BY 
+                month DESC
+            LIMIT 12
+        """
+        
+        # Top customers with outstanding payments
+        top_customers_query = f"""
+            SELECT 
+                customer,
+                customer_name,
+                COUNT(*) as invoice_count,
+                SUM(outstanding_amount) as total_outstanding
+            FROM 
+                `tabPOS Invoice`
+            WHERE 
+                {where_clause}
+                AND outstanding_amount > 0
+            GROUP BY 
+                customer
+            ORDER BY 
+                total_outstanding DESC
+            LIMIT 10
+        """
+        
+        summary = frappe.db.sql(summary_query, as_dict=True)[0]
+        monthly_trend = frappe.db.sql(monthly_trend_query, as_dict=True)
+        top_customers = frappe.db.sql(top_customers_query, as_dict=True)
+        
+        return {
+            'summary': summary,
+            'monthly_trend': monthly_trend,
+            'top_customers': top_customers
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Error getting partial payment analytics: {str(e)}", "Partial Payment Analytics")
+        return {'summary': {}, 'monthly_trend': [], 'top_customers': []}
+
+@frappe.whitelist()
+def convert_to_sales_invoice(pos_invoice_name, submit_immediately=False):
+    """Convert POS Invoice with partial payments to regular Sales Invoice"""
+    try:
+        pos_doc = frappe.get_doc('POS Invoice', pos_invoice_name)
+        
+        # Create new Sales Invoice
+        sales_invoice = frappe.new_doc('Sales Invoice')
+        
+        # Copy relevant fields
+        copy_fields = [
+            'customer', 'customer_name', 'posting_date', 'due_date', 'company',
+            'currency', 'conversion_rate', 'selling_price_list', 'price_list_currency',
+            'customer_address', 'address_display', 'contact_person', 'contact_display',
+            'contact_mobile', 'contact_email', 'territory', 'customer_group',
+            'cost_center', 'project', 'remarks'
+        ]
+        
+        for field in copy_fields:
+            if hasattr(pos_doc, field) and pos_doc.get(field):
+                sales_invoice.set(field, pos_doc.get(field))
+        
+        # Copy items
+        for pos_item in pos_doc.items:
+            sales_invoice.append('items', {
+                'item_code': pos_item.item_code,
+                'item_name': pos_item.item_name,
+                'description': pos_item.description,
+                'qty': pos_item.qty,
+                'uom': pos_item.uom,
+                'rate': pos_item.rate,
+                'amount': pos_item.amount,
+                'warehouse': pos_item.warehouse,
+                'cost_center': pos_item.cost_center,
+                'income_account': pos_item.income_account
+            })
+        
+        # Copy taxes
+        for pos_tax in pos_doc.taxes:
+            sales_invoice.append('taxes', {
+                'charge_type': pos_tax.charge_type,
+                'account_head': pos_tax.account_head,
+                'description': pos_tax.description,
+                'rate': pos_tax.rate,
+                'tax_amount': pos_tax.tax_amount,
+                'total': pos_tax.total,
+                'cost_center': pos_tax.cost_center
+            })
+        
+        # Set payment terms for partial payment
+        if pos_doc.outstanding_amount > 0:
+            sales_invoice.append('payment_schedule', {
+                'due_date': pos_doc.posting_date,
+                'invoice_portion': 100,
+                'payment_amount': pos_doc.grand_total,
+                'outstanding': pos_doc.outstanding_amount,
+                'paid_amount': pos_doc.paid_amount
+            })
+        
+        # Add reference to original POS Invoice
+        sales_invoice.remarks = f"{sales_invoice.remarks or ''}\n\nConverted from POS Invoice: {pos_invoice_name}"
+        
+        # Save the sales invoice
+        sales_invoice.insert()
+        
+        if submit_immediately and pos_doc.outstanding_amount <= 0:
+            sales_invoice.submit()
+        
+        # Cancel the POS Invoice
+        pos_doc.add_comment('Info', f'Converted to Sales Invoice: {sales_invoice.name}')
+        pos_doc.cancel()
+        
+        return {
+            'success': True,
+            'sales_invoice': sales_invoice.name,
+            'message': f'Successfully converted to Sales Invoice: {sales_invoice.name}'
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Error converting to sales invoice: {str(e)}", "Convert to Sales Invoice")
+        return {'success': False, 'message': str(e)}
+
+@frappe.whitelist()
+def get_payment_history(invoice_name):
+    """Get complete payment history for an invoice"""
+    try:
+        doc = frappe.get_doc('POS Invoice', invoice_name)
+        
+        payment_history = []
+        
+        # Get partial payment details
+        partial_details = get_partial_payment_details(invoice_name)
+        
+        for payment in partial_details.get('partial_payments', []):
+            payment_history.append({
+                'date': payment.get('payment_date'),
+                'mode': payment.get('mode_of_payment'),
+                'amount': payment.get('amount'),
+                'reference': payment.get('reference_number'),
+                'notes': payment.get('notes'),
+                'recorded_by': payment.get('recorded_by'),
+                'type': 'Partial Payment'
+            })
+        
+        # Get comments related to payments
+        comments = frappe.get_all('Comment',
+            filters={
+                'reference_doctype': 'POS Invoice',
+                'reference_name': invoice_name,
+                'comment_type': 'Info'
+            },
+            fields=['content', 'creation', 'owner'],
+            order_by='creation asc'
+        )
+        
+        for comment in comments:
+            if any(keyword in comment.content.lower() for keyword in ['payment', 'reminder', 'partial']):
+                payment_history.append({
+                    'date': comment.creation,
+                    'type': 'System Log',
+                    'content': comment.content,
+                    'recorded_by': comment.owner
+                })
+        
+        # Sort by date
+        payment_history.sort(key=lambda x: x.get('date') or '', reverse=True)
+        
+        return {
+            'invoice': {
+                'name': doc.name,
+                'customer': doc.customer,
+                'grand_total': doc.grand_total,
+                'paid_amount': doc.paid_amount,
+                'outstanding_amount': doc.outstanding_amount,
+                'status': doc.status
+            },
+            'payment_history': payment_history
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Error getting payment history: {str(e)}", "Payment History")
+        return {'invoice': {}, 'payment_history': []}
+
+@frappe.whitelist()
+def bulk_send_payment_reminders(invoice_names, reminder_type="email"):
+    """Send payment reminders for multiple invoices"""
+    try:
+        invoice_names = json.loads(invoice_names) if isinstance(invoice_names, str) else invoice_names
+        
+        results = []
+        for invoice_name in invoice_names:
+            result = send_payment_reminder(invoice_name, reminder_type)
+            results.append({
+                'invoice': invoice_name,
+                'success': result.get('success', False),
+                'message': result.get('message', '')
+            })
+        
+        successful_count = sum(1 for r in results if r['success'])
+        
+        return {
+            'success': True,
+            'total_processed': len(results),
+            'successful': successful_count,
+            'failed': len(results) - successful_count,
+            'details': results
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Error in bulk payment reminders: {str(e)}", "Bulk Payment Reminders")
+        return {'success': False, 'message': str(e)}
+
+# Utility functions for partial payment management
+
+def calculate_partial_payment_aging(from_date=None, to_date=None):
+    """Calculate aging analysis for partial payments"""
+    
+    conditions = ["outstanding_amount > 0"]
+    
+    if from_date:
+        conditions.append(f"posting_date >= '{from_date}'")
+    if to_date:
+        conditions.append(f"posting_date <= '{to_date}'")
+    
+    where_clause = " AND ".join(conditions)
+    
+    aging_query = f"""
+        SELECT 
+            name,
+            customer,
+            posting_date,
+            grand_total,
+            outstanding_amount,
+            DATEDIFF(CURDATE(), posting_date) as days_outstanding,
+            CASE 
+                WHEN DATEDIFF(CURDATE(), posting_date) <= 30 THEN '0-30 days'
+                WHEN DATEDIFF(CURDATE(), posting_date) <= 60 THEN '31-60 days'
+                WHEN DATEDIFF(CURDATE(), posting_date) <= 90 THEN '61-90 days'
+                ELSE '90+ days'
+            END as aging_bucket
+        FROM 
+            `tabPOS Invoice`
+        WHERE 
+            {where_clause}
+        ORDER BY 
+            days_outstanding DESC
+    """
+    
+    return frappe.db.sql(aging_query, as_dict=True)
+
+@frappe.whitelist()
+def get_partial_payment_aging_report(from_date=None, to_date=None):
+    """Get aging report for partial payments"""
+    try:
+        aging_data = calculate_partial_payment_aging(from_date, to_date)
+        
+        # Group by aging buckets
+        aging_summary = {}
+        for record in aging_data:
+            bucket = record['aging_bucket']
+            if bucket not in aging_summary:
+                aging_summary[bucket] = {
+                    'count': 0,
+                    'total_outstanding': 0,
+                    'invoices': []
+                }
+            
+            aging_summary[bucket]['count'] += 1
+            aging_summary[bucket]['total_outstanding'] += record['outstanding_amount']
+            aging_summary[bucket]['invoices'].append(record)
+        
+        return {
+            'aging_summary': aging_summary,
+            'detailed_data': aging_data
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Error getting aging report: {str(e)}", "Partial Payment Aging")
+        return {'aging_summary': {}, 'detailed_data': []}
+
+# Hook functions for automation
+
+def schedule_payment_reminders():
+    """Scheduled function to send automatic payment reminders"""
+    try:
+        # Get invoices that need reminders (e.g., 7, 14, 30 days overdue)
+        reminder_intervals = [7, 14, 30]
+        
+        for days in reminder_intervals:
+            target_date = frappe.utils.add_days(frappe.utils.getdate(), -days)
+            
+            overdue_invoices = frappe.get_all('POS Invoice',
+                filters={
+                    'posting_date': target_date,
+                    'outstanding_amount': ['>', 0],
+                    'docstatus': ['!=', 2]  # Not cancelled
+                },
+                fields=['name', 'customer', 'contact_email']
+            )
+            
+            for invoice in overdue_invoices:
+                if invoice.contact_email:
+                    # Check if reminder was already sent today
+                    existing_reminder = frappe.get_all('Comment',
+                        filters={
+                            'reference_doctype': 'POS Invoice',
+                            'reference_name': invoice.name,
+                            'content': ['like', '%Payment reminder%'],
+                            'creation': ['>=', frappe.utils.getdate()]
+                        }
+                    )
+                    
+                    if not existing_reminder:
+                        send_payment_reminder(invoice.name, "email")
+        
+        frappe.log_error("Automated payment reminders sent successfully", "Payment Reminder Scheduler")
+        
+    except Exception as e:
+        frappe.log_error(f"Error in scheduled payment reminders: {str(e)}", "Payment Reminder Scheduler")
+
+# Configuration and settings for partial payments
+
+@frappe.whitelist()
+def get_partial_payment_settings():
+    """Get partial payment configuration settings"""
+    try:
+        # You can extend POS Settings or create a custom doctype
+        settings = frappe.get_single('POS Settings')
+        
+        return {
+            'allow_partial_payments': getattr(settings, 'allow_partial_payments', True),
+            'require_approval_for_partial': getattr(settings, 'require_approval_for_partial', False),
+            'auto_send_reminders': getattr(settings, 'auto_send_reminders', True),
+            'reminder_intervals': getattr(settings, 'reminder_intervals', '7,14,30'),
+            'partial_payment_terms': getattr(settings, 'partial_payment_terms', 30),
+            'enable_partial_payment_notifications': getattr(settings, 'enable_partial_payment_notifications', True)
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Error getting partial payment settings: {str(e)}", "Partial Payment Settings")
+        return {
+            'allow_partial_payments': True,
+            'require_approval_for_partial': False,
+            'auto_send_reminders': True,
+            'reminder_intervals': '7,14,30',
+            'partial_payment_terms': 30,
+            'enable_partial_payment_notifications': True
+        }
