@@ -159,8 +159,17 @@ posnext.PointOfSale.PastOrderList = class {
 	}
 
 	setup_created_by_field() {
+		if (this.user_list.length === 0) {
+			console.log("No users found for dropdown");
+			// Set up dropdown with just "All" option
+			this.created_by_field.df.options = "All";
+			this.created_by_field.refresh();
+			return;
+		}
+
 		// Create options string for the dropdown using user_name field
 		let options = "All\n" + this.user_list.map(user => user.user_name).join('\n');
+		console.log("Dropdown options:", options); // Debug log
 		
 		// Update the created_by_field with the loaded options
 		this.created_by_field.df.options = options;
@@ -173,7 +182,7 @@ posnext.PointOfSale.PastOrderList = class {
 	get_most_recent_creator() {
 		// Make a quick call to get the most recent invoice's creator
 		frappe.call({
-			method: "erpnext.selling.page.point_of_sale.point_of_sale.get_past_order_list",
+			method: "posnext.posnext.page.posnext.point_of_sale.get_past_order_list",
 			args: { 
 				search_term: '', 
 				status: 'Draft',
@@ -250,7 +259,7 @@ posnext.PointOfSale.PastOrderList = class {
 		this.$invoices_container.html('');
 
 		return frappe.call({
-			method: "erpnext.selling.page.point_of_sale.point_of_sale.get_past_order_list",
+			method: "posnext.posnext.page.posnext.point_of_sale.get_past_order_list",
 			freeze: true,
 			args: { 
 				search_term, 
