@@ -106,62 +106,34 @@ posnext.PointOfSale.PastOrderList = class {
 	}
 
 	load_user_list() {
-		console.log("Loading User Secret Key data...");
-		
+		// Load users from User Secret Key doctype
 		frappe.call({
 			method: "frappe.client.get_list",
 			args: {
 				doctype: "User Secret Key",
-				fields: ["name", "user_name", "secret_key"],
-				// Remove the filter that excludes empty user_name to see all records
-				order_by: "creation desc",
-				limit_page_length: 100
+				fields: ["name", "user_name"],
+				filters: [["user_name", "!=", ""]],  // Only get records with user_name
+				order_by: "creation desc"
 			},
 			callback: (response) => {
-				console.log("User Secret Key raw response:", response.message);
-				
 				if (response.message) {
-					// Filter records that have user_name populated
-					this.user_list = response.message.filter(user => {
-						const hasUserName = user.user_name && user.user_name.trim() !== "";
-						console.log(`Record ${user.name}: user_name = "${user.user_name}", has valid name: ${hasUserName}`);
-						return hasUserName;
-					});
-					
-					console.log("Filtered user list:", this.user_list);
+					this.user_list = response.message;
 					this.setup_created_by_field();
-				} else {
-					console.log("No User Secret Key records found");
 				}
-			},
-			error: (error) => {
-				console.error("Error loading User Secret Key:", error);
 			}
 		});
 	}
 
 	setup_created_by_field() {
-		console.log("Setting up created by field. User list length:", this.user_list.length);
-		
-		let options = "All"; // Start with just "All"
-		
-		if (this.user_list && this.user_list.length > 0) {
-			// Add user names to options
-			const userNames = this.user_list.map(user => user.user_name);
-			options += "\n" + userNames.join('\n');
-			console.log("Final dropdown options:", options);
-		} else {
-			console.log("No valid users found, dropdown will only show 'All'");
-		}
+		// Create options string for the dropdown using user_name field
+		let options = "All\n" + this.user_list.map(user => user.user_name).join('\n');
 		
 		// Update the created_by_field with the loaded options
 		this.created_by_field.df.options = options;
 		this.created_by_field.refresh();
 		
-		// Only try to set default if we have users
-		if (this.user_list && this.user_list.length > 0) {
-			this.get_most_recent_creator();
-		}
+		// Get the most recent created_by_name from invoices to set as default
+		this.get_most_recent_creator();
 	}
 
 	get_most_recent_creator() {
