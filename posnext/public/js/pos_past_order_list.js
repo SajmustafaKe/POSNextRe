@@ -139,7 +139,7 @@ posnext.PointOfSale.PastOrderList = class {
 	get_most_recent_creator() {
 		// Make a quick call to get the most recent invoice's creator
 		frappe.call({
-			method: "erpnext.selling.page.point_of_sale.point_of_sale.get_past_order_list",
+			method: "posnext.posnext.page.posnext.get_past_order_list",
 			args: { 
 				search_term: '', 
 				status: 'Draft',
@@ -216,7 +216,7 @@ posnext.PointOfSale.PastOrderList = class {
 		this.$invoices_container.html('');
 
 		return frappe.call({
-			method: "erpnext.selling.page.point_of_sale.point_of_sale.get_past_order_list",
+			method: "posnext.posnext.page.posnext.get_past_order_list",
 			freeze: true,
 			args: { 
 				search_term, 
