@@ -112,46 +112,12 @@ posnext.PointOfSale.PastOrderList = class {
 			args: {
 				doctype: "User Secret Key",
 				fields: ["name", "user_name"],
+				filters: [["user_name", "!=", ""]],  // Only get records with user_name
 				order_by: "creation desc"
 			},
 			callback: (response) => {
-				console.log("User Secret Key response:", response.message); // Debug log
-				if (response.message && response.message.length > 0) {
-					// Filter out records without user_name
-					this.user_list = response.message.filter(user => user.user_name && user.user_name.trim() !== '');
-					console.log("Filtered user list:", this.user_list); // Debug log
-					this.setup_created_by_field();
-				} else {
-					console.log("No User Secret Key records found or user_name field is empty");
-					// Fallback: get unique created_by_name values from existing invoices
-					this.load_creators_from_invoices();
-				}
-			},
-			error: (error) => {
-				console.error("Error loading User Secret Key:", error);
-				// Fallback: get unique created_by_name values from existing invoices
-				this.load_creators_from_invoices();
-			}
-		});
-	}
-
-	load_creators_from_invoices() {
-		// Fallback method: get unique created_by_name values from POS Invoices
-		frappe.call({
-			method: "frappe.client.get_list",
-			args: {
-				doctype: "POS Invoice",
-				fields: ["created_by_name"],
-				filters: [["created_by_name", "!=", ""]],
-				order_by: "creation desc",
-				limit_page_length: 100
-			},
-			callback: (response) => {
 				if (response.message) {
-					// Get unique creator names
-					const unique_creators = [...new Set(response.message.map(inv => inv.created_by_name).filter(name => name))];
-					this.user_list = unique_creators.map(name => ({name: name, user_name: name}));
-					console.log("Creators from invoices:", this.user_list);
+					this.user_list = response.message;
 					this.setup_created_by_field();
 				}
 			}
