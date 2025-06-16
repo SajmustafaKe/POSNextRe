@@ -3,12 +3,16 @@
 
 
 import json
+from copy import deepcopy
 from typing import Dict, Optional
+import traceback
 
 import frappe
-from frappe.utils import cint
+from frappe import _
+from frappe.utils import cint, flt, now, nowdate, cstr
+from frappe.utils.file_manager import save_file
 from frappe.utils.nestedset import get_root_of
-
+from frappe.utils.pdf import get_pdf
 from erpnext.accounts.doctype.pos_invoice.pos_invoice import get_stock_availability
 from erpnext.accounts.doctype.pos_profile.pos_profile import get_child_nodes, get_item_groups
 from erpnext.stock.utils import scan_barcode
@@ -431,11 +435,6 @@ def create_customer(customer):
 		frappe.get_doc(obj).insert()
 		frappe.db.commit()
 
-
-import frappe
-from frappe.utils.pdf import get_pdf
-from frappe.utils.file_manager import save_file
-
 @frappe.whitelist()
 def generate_pdf_and_save(docname, doctype, print_format=None):
 	# Get the HTML content of the print format
@@ -621,11 +620,6 @@ def get_user_name_from_secret_key(secret_key):
         return frappe.get_value("User Secret Key", {"secret_key": secret_key}, "user_name")
     else:
         frappe.throw("Invalid secret key")
-
-
-import frappe
-import json
-from frappe.utils import now, cstr
 
 @frappe.whitelist()
 def print_captain_order(invoice_name, current_items, print_format, _lang):
@@ -837,15 +831,9 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
         
     except Exception as e:
         frappe.log_error(f"Error in print_captain_order: {str(e)}", "Captain Order Print Error")
-        import traceback
         frappe.log_error(f"Traceback: {traceback.format_exc()}", "Captain Order Print Error")
         return {"success": False, "error": str(e)}
 
-        
-import frappe
-from frappe import _
-from frappe.utils import now, flt
-import json
 
 @frappe.whitelist()
 def merge_invoices(invoice_names, customer):
@@ -1063,11 +1051,6 @@ def merge_invoices(invoice_names, customer):
         frappe.log_error(f"Error merging invoices: {str(e)}")
         return {"success": False, "error": str(e)}
 # Simplified version of the split_pos_invoice function
-
-import frappe
-import json
-from frappe.utils import flt, nowdate
-from copy import deepcopy
 
 @frappe.whitelist()
 def split_pos_invoice(original_invoice, invoice_groups, distribute_evenly=False):
@@ -1299,3 +1282,635 @@ def update_original_invoice(original_doc, invoice_groups):
     original_doc.save()
     
     return original_doc
+
+# Add these functions to your existing posnext/posnext/page/posnext/point-of-sale.py file
+
+# Split Payment Backend Functions
+# Add these imports at the top of your file if not already present
+
+# Split Payment Validation and Processing Functions
+
+@frappe.whitelist()
+def validate_split_payments(pos_invoice_name):
+    """Validate split payments if multiple payment methods are used"""
+    try:
+        doc = frappe.get_doc('POS Invoice', pos_invoice_name)
+        
+        if not doc.payments:
+            return {'valid': True, 'message': 'No payments to validate'}
+            
+        # Check if this is a split payment (multiple payment methods with amounts > 0)
+        active_payments = [p for p in doc.payments if flt(p.amount) > 0]
+        
+        if len(active_payments) <= 1:
+            return {'valid': True, 'message': 'Single payment method - no split validation needed'}
+            
+        # Validate split payment rules
+        total_payment_amount = sum(flt(p.amount) for p in active_payments)
+        grand_total = flt(doc.rounded_total) if not cint(frappe.sys_defaults.disable_rounded_total) else flt(doc.grand_total)
+        
+        # Allow small rounding differences (0.01)
+        if abs(total_payment_amount - grand_total) > 0.01:
+            return {
+                'valid': False,
+                'message': f"Total split payment amount {frappe.format_value(total_payment_amount, {'fieldtype': 'Currency'})} does not match grand total {frappe.format_value(grand_total, {'fieldtype': 'Currency'})}"
+            }
+        
+        # Validate individual payment method limits if any
+        validation_result = validate_payment_method_limits(active_payments)
+        if not validation_result['valid']:
+            return validation_result
+        
+        # Log split payment for audit if enabled
+        log_split_payment_details(doc, active_payments)
+        
+        return {'valid': True, 'message': 'Split payment validation passed'}
+        
+    except Exception as e:
+        frappe.log_error(f"Split payment validation error: {str(e)}", "Split Payment Validation")
+        return {'valid': False, 'message': str(e)}
+
+def validate_payment_method_limits(active_payments):
+    """Validate payment method specific limits"""
+    try:
+        for payment in active_payments:
+            # Get payment method limits from Mode of Payment master
+            mop_doc = frappe.get_cached_doc('Mode of Payment', payment.mode_of_payment)
+            
+            if hasattr(mop_doc, 'maximum_payment_amount') and mop_doc.maximum_payment_amount:
+                if flt(payment.amount) > flt(mop_doc.maximum_payment_amount):
+                    return {
+                        'valid': False,
+                        'message': f"Payment amount {frappe.format_value(payment.amount, {'fieldtype': 'Currency'})} for {payment.mode_of_payment} exceeds maximum limit of {frappe.format_value(mop_doc.maximum_payment_amount, {'fieldtype': 'Currency'})}"
+                    }
+        
+        return {'valid': True, 'message': 'Payment method limits validation passed'}
+        
+    except Exception as e:
+        frappe.log_error(f"Payment method limits validation error: {str(e)}", "Split Payment Validation")
+        return {'valid': False, 'message': str(e)}
+
+def log_split_payment_details(doc, active_payments):
+    """Log split payment details for audit purposes"""
+    try:
+        payment_details = []
+        split_payment_count = 0
+        
+        for payment in active_payments:
+            # Check if this payment has split details in remarks
+            if payment.remarks:
+                try:
+                    split_details = json.loads(payment.remarks)
+                    for detail in split_details:
+                        payment_details.append({
+                            'mode_of_payment': payment.mode_of_payment,
+                            'display_name': detail.get('display_name', payment.mode_of_payment),
+                            'amount': flt(detail['amount']),
+                            'reference': detail.get('reference', ''),
+                            'notes': detail.get('notes', ''),
+                            'type': payment.type
+                        })
+                        split_payment_count += 1
+                except (json.JSONDecodeError, KeyError):
+                    # If remarks is not JSON or doesn't have expected structure, treat as regular payment
+                    payment_details.append({
+                        'mode_of_payment': payment.mode_of_payment,
+                        'display_name': payment.mode_of_payment,
+                        'amount': flt(payment.amount),
+                        'reference': '',
+                        'notes': '',
+                        'type': payment.type
+                    })
+            else:
+                payment_details.append({
+                    'mode_of_payment': payment.mode_of_payment,
+                    'display_name': payment.mode_of_payment,
+                    'amount': flt(payment.amount),
+                    'reference': '',
+                    'notes': '',
+                    'type': payment.type
+                })
+        
+        # Create detailed comment for audit trail
+        comment_content = []
+        if split_payment_count > len(active_payments):
+            comment_content.append('Multiple Split Payments Used:')
+        else:
+            comment_content.append('Split Payment Used:')
+            
+        for detail in payment_details:
+            payment_line = f"{detail['display_name']}: {frappe.format_value(detail['amount'], {'fieldtype': 'Currency'})}"
+            if detail['reference']:
+                payment_line += f" (Ref: {detail['reference']})"
+            if detail['notes']:
+                payment_line += f" - {detail['notes']}"
+            comment_content.append(payment_line)
+        
+        # Add to document comments
+        frappe.get_doc({
+            'doctype': 'Comment',
+            'comment_type': 'Info',
+            'reference_doctype': doc.doctype,
+            'reference_name': doc.name,
+            'content': '\n'.join(comment_content)
+        }).insert(ignore_permissions=True)
+        
+    except Exception as e:
+        # Log error but don't fail the main transaction
+        frappe.log_error(f"Failed to log split payment details: {str(e)}", "Split Payment Audit")
+
+@frappe.whitelist()
+def get_split_payment_summary(pos_invoice_name):
+    """Get split payment summary for a POS Invoice"""
+    try:
+        doc = frappe.get_doc('POS Invoice', pos_invoice_name)
+        
+        active_payments = []
+        total_split_entries = 0
+        
+        for payment in doc.payments:
+            if flt(payment.amount) > 0:
+                # Check if this payment has split details
+                if payment.remarks:
+                    try:
+                        split_details = json.loads(payment.remarks)
+                        for detail in split_details:
+                            active_payments.append({
+                                'mode_of_payment': payment.mode_of_payment,
+                                'display_name': detail.get('display_name', payment.mode_of_payment),
+                                'amount': flt(detail['amount']),
+                                'reference': detail.get('reference', ''),
+                                'notes': detail.get('notes', ''),
+                                'type': payment.type,
+                                'formatted_amount': frappe.format_value(detail['amount'], {'fieldtype': 'Currency'})
+                            })
+                            total_split_entries += 1
+                    except (json.JSONDecodeError, KeyError):
+                        # Regular payment
+                        active_payments.append({
+                            'mode_of_payment': payment.mode_of_payment,
+                            'display_name': payment.mode_of_payment,
+                            'amount': flt(payment.amount),
+                            'reference': '',
+                            'notes': '',
+                            'type': payment.type,
+                            'formatted_amount': frappe.format_value(payment.amount, {'fieldtype': 'Currency'})
+                        })
+                else:
+                    active_payments.append({
+                        'mode_of_payment': payment.mode_of_payment,
+                        'display_name': payment.mode_of_payment,
+                        'amount': flt(payment.amount),
+                        'reference': '',
+                        'notes': '',
+                        'type': payment.type,
+                        'formatted_amount': frappe.format_value(payment.amount, {'fieldtype': 'Currency'})
+                    })
+        
+        return {
+            'is_split_payment': len(active_payments) > 1 or total_split_entries > len([p for p in doc.payments if flt(p.amount) > 0]),
+            'has_multiple_same_method': total_split_entries > len([p for p in doc.payments if flt(p.amount) > 0]),
+            'payments': active_payments,
+            'total_amount': sum(p['amount'] for p in active_payments),
+            'formatted_total': frappe.format_value(sum(p['amount'] for p in active_payments), {'fieldtype': 'Currency'}),
+            'split_entries_count': total_split_entries
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Error getting split payment summary: {str(e)}", "Split Payment Summary")
+        return {'error': str(e)}
+
+@frappe.whitelist()
+def get_split_payment_report(from_date=None, to_date=None, company=None):
+    """Get report of all split payments within date range"""
+    try:
+        conditions = ["pi.docstatus = 1"]  # Only submitted invoices
+        
+        if from_date:
+            conditions.append(f"pi.posting_date >= '{from_date}'")
+        if to_date:
+            conditions.append(f"pi.posting_date <= '{to_date}'")
+        if company:
+            conditions.append(f"pi.company = '{company}'")
+        
+        where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+        
+        query = f"""
+            SELECT 
+                pi.name,
+                pi.posting_date,
+                pi.posting_time,
+                pi.customer,
+                pi.grand_total,
+                pi.outstanding_amount,
+                pi.company,
+                GROUP_CONCAT(
+                    CONCAT(sip.mode_of_payment, ': ', sip.amount) 
+                    ORDER BY sip.amount DESC 
+                    SEPARATOR ' | '
+                ) as payment_methods,
+                COUNT(CASE WHEN sip.amount > 0 THEN 1 END) as payment_count,
+                SUM(sip.amount) as total_paid,
+                GROUP_CONCAT(
+                    CASE WHEN sip.remarks IS NOT NULL AND sip.remarks != '' 
+                    THEN CONCAT(sip.mode_of_payment, ' Details: ', sip.remarks)
+                    END
+                    SEPARATOR ' || '
+                ) as split_details
+            FROM 
+                `tabPOS Invoice` pi
+            INNER JOIN 
+                `tabSales Invoice Payment` sip ON pi.name = sip.parent
+            {where_clause}
+            GROUP BY 
+                pi.name
+            HAVING 
+                payment_count > 1 AND total_paid > 0
+            ORDER BY 
+                pi.posting_date DESC, pi.name DESC
+            LIMIT 1000
+        """
+        
+        return frappe.db.sql(query, as_dict=True)
+        
+    except Exception as e:
+        frappe.log_error(f"Error generating split payment report: {str(e)}", "Split Payment Report")
+        return []
+
+@frappe.whitelist()
+def get_payment_method_usage_stats(from_date=None, to_date=None, company=None):
+    """Get statistics on payment method usage in split payments"""
+    try:
+        conditions = ["pi.docstatus = 1"]
+        
+        if from_date:
+            conditions.append(f"pi.posting_date >= '{from_date}'")
+        if to_date:
+            conditions.append(f"pi.posting_date <= '{to_date}'")
+        if company:
+            conditions.append(f"pi.company = '{company}'")
+        
+        where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+        
+        # Get split payment statistics
+        split_stats_query = f"""
+            SELECT 
+                sip.mode_of_payment,
+                COUNT(DISTINCT pi.name) as invoices_used_in,
+                COUNT(sip.name) as total_transactions,
+                SUM(sip.amount) as total_amount,
+                AVG(sip.amount) as avg_amount,
+                MIN(sip.amount) as min_amount,
+                MAX(sip.amount) as max_amount
+            FROM 
+                `tabPOS Invoice` pi
+            INNER JOIN 
+                `tabSales Invoice Payment` sip ON pi.name = sip.parent
+            {where_clause}
+                AND pi.name IN (
+                    SELECT DISTINCT parent 
+                    FROM `tabSales Invoice Payment` 
+                    WHERE parent = pi.name AND amount > 0
+                    GROUP BY parent 
+                    HAVING COUNT(*) > 1
+                )
+            GROUP BY 
+                sip.mode_of_payment
+            ORDER BY 
+                total_amount DESC
+        """
+        
+        return frappe.db.sql(split_stats_query, as_dict=True)
+        
+    except Exception as e:
+        frappe.log_error(f"Error getting payment method stats: {str(e)}", "Split Payment Stats")
+        return []
+
+@frappe.whitelist()
+def validate_split_payment_before_submit(pos_invoice_name):
+    """Validate split payment before submitting the invoice"""
+    try:
+        doc = frappe.get_doc('POS Invoice', pos_invoice_name)
+        
+        # Run validation
+        validation_result = validate_split_payments(pos_invoice_name)
+        
+        if validation_result['valid']:
+            return {
+                'valid': True,
+                'message': 'Split payment validation passed'
+            }
+        else:
+            return validation_result
+            
+    except Exception as e:
+        frappe.log_error(f"Error validating split payment before submit: {str(e)}", "Split Payment Validation")
+        return {
+            'valid': False,
+            'message': str(e)
+        }
+
+@frappe.whitelist()
+def get_split_payment_analytics(from_date=None, to_date=None, company=None):
+    """Get analytics data for split payments"""
+    try:
+        conditions = ["pi.docstatus = 1"]
+        
+        if from_date:
+            conditions.append(f"pi.posting_date >= '{from_date}'")
+        if to_date:
+            conditions.append(f"pi.posting_date <= '{to_date}'")
+        if company:
+            conditions.append(f"pi.company = '{company}'")
+        
+        where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+        
+        # Total invoices with split payments
+        split_count_query = f"""
+            SELECT 
+                COUNT(DISTINCT pi.name) as total_split_invoices,
+                SUM(pi.grand_total) as total_split_amount,
+                AVG(pi.grand_total) as avg_split_amount
+            FROM 
+                `tabPOS Invoice` pi
+            {where_clause}
+                AND pi.name IN (
+                    SELECT DISTINCT parent 
+                    FROM `tabSales Invoice Payment` 
+                    WHERE parent = pi.name AND amount > 0
+                    GROUP BY parent 
+                    HAVING COUNT(*) > 1
+                )
+        """
+        
+        # Payment method combinations
+        combination_query = f"""
+            SELECT 
+                GROUP_CONCAT(sip.mode_of_payment ORDER BY sip.mode_of_payment SEPARATOR ' + ') as payment_combination,
+                COUNT(*) as frequency,
+                AVG(pi.grand_total) as avg_amount
+            FROM 
+                `tabPOS Invoice` pi
+            INNER JOIN 
+                `tabSales Invoice Payment` sip ON pi.name = sip.parent
+            {where_clause}
+                AND sip.amount > 0
+                AND pi.name IN (
+                    SELECT DISTINCT parent 
+                    FROM `tabSales Invoice Payment` 
+                    WHERE parent = pi.name AND amount > 0
+                    GROUP BY parent 
+                    HAVING COUNT(*) > 1
+                )
+            GROUP BY 
+                pi.name
+            ORDER BY 
+                frequency DESC
+            LIMIT 10
+        """
+        
+        # Time-based analysis
+        time_analysis_query = f"""
+            SELECT 
+                DATE(pi.posting_date) as date,
+                COUNT(DISTINCT pi.name) as split_invoices,
+                SUM(pi.grand_total) as total_amount
+            FROM 
+                `tabPOS Invoice` pi
+            {where_clause}
+                AND pi.name IN (
+                    SELECT DISTINCT parent 
+                    FROM `tabSales Invoice Payment` 
+                    WHERE parent = pi.name AND amount > 0
+                    GROUP BY parent 
+                    HAVING COUNT(*) > 1
+                )
+            GROUP BY 
+                DATE(pi.posting_date)
+            ORDER BY 
+                date DESC
+            LIMIT 30
+        """
+        
+        summary_result = frappe.db.sql(split_count_query, as_dict=True)
+        combinations_result = frappe.db.sql(combination_query, as_dict=True)
+        time_analysis_result = frappe.db.sql(time_analysis_query, as_dict=True)
+        
+        return {
+            'summary': summary_result[0] if summary_result else {},
+            'combinations': combinations_result,
+            'time_analysis': time_analysis_result
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Error getting split payment analytics: {str(e)}", "Split Payment Analytics")
+        return {'error': str(e)}
+
+@frappe.whitelist()
+def reconcile_split_payments(pos_invoice_name):
+    """Reconcile split payments if there are discrepancies"""
+    try:
+        doc = frappe.get_doc('POS Invoice', pos_invoice_name)
+        active_payments = [p for p in doc.payments if flt(p.amount) > 0]
+        
+        if len(active_payments) <= 1:
+            return {'success': True, 'message': 'No split payment to reconcile'}
+        
+        # Check for reconciliation issues
+        total_payment_amount = sum(flt(p.amount) for p in active_payments)
+        grand_total = flt(doc.rounded_total) if not cint(frappe.sys_defaults.disable_rounded_total) else flt(doc.grand_total)
+        
+        difference = grand_total - total_payment_amount
+        
+        if abs(difference) <= 0.01:
+            return {'success': True, 'message': 'Split payments are already reconciled'}
+        
+        # Auto-reconciliation logic
+        if abs(difference) <= 1.00:  # Small differences can be auto-reconciled
+            # Find the largest payment to adjust
+            largest_payment = max(active_payments, key=lambda p: flt(p.amount))
+            new_amount = flt(largest_payment.amount) + difference
+            
+            if new_amount > 0:
+                frappe.db.set_value('Sales Invoice Payment', largest_payment.name, 'amount', new_amount)
+                doc.reload()
+                
+                # Add reconciliation note
+                frappe.get_doc({
+                    'doctype': 'Comment',
+                    'comment_type': 'Info',
+                    'reference_doctype': doc.doctype,
+                    'reference_name': doc.name,
+                    'content': f'Split payment auto-reconciled: {difference} added to {largest_payment.mode_of_payment}'
+                }).insert(ignore_permissions=True)
+                
+                return {
+                    'success': True, 
+                    'message': f'Auto-reconciled difference of {frappe.format_value(abs(difference), {"fieldtype": "Currency"})}'
+                }
+        
+        return {
+            'success': False, 
+            'message': f'Manual reconciliation required. Difference: {frappe.format_value(difference, {"fieldtype": "Currency"})}'
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Error reconciling split payments: {str(e)}", "Split Payment Reconciliation")
+        return {'success': False, 'message': str(e)}
+
+@frappe.whitelist()
+def get_payment_method_limits():
+    """Get payment method limits for validation"""
+    try:
+        payment_methods = frappe.get_all('Mode of Payment', 
+            fields=['name', 'maximum_payment_amount', 'type'],
+            filters={'enabled': 1}
+        )
+        
+        limits = {}
+        for method in payment_methods:
+            limits[method.name] = {
+                'max_amount': flt(method.maximum_payment_amount) if method.maximum_payment_amount else None,
+                'type': method.type
+            }
+        
+        return limits
+        
+    except Exception as e:
+        frappe.log_error(f"Error getting payment method limits: {str(e)}", "Payment Method Limits")
+        return {}
+
+@frappe.whitelist()
+def check_split_payment_permissions(user=None):
+    """Check if user has permissions for split payment operations"""
+    try:
+        if not user:
+            user = frappe.session.user
+        
+        # Check if user has required roles
+        required_roles = ['Sales User', 'POS User', 'Sales Manager']
+        user_roles = frappe.get_roles(user)
+        
+        has_permission = any(role in user_roles for role in required_roles)
+        
+        # Additional checks
+        can_modify_payments = 'Sales Manager' in user_roles or 'System Manager' in user_roles
+        can_view_reports = has_permission
+        
+        return {
+            'can_use_split_payments': has_permission,
+            'can_modify_payments': can_modify_payments,
+            'can_view_reports': can_view_reports,
+            'max_split_count': 5 if 'Sales Manager' in user_roles else 3
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Error checking split payment permissions: {str(e)}", "Split Payment Permissions")
+        return {
+            'can_use_split_payments': False,
+            'can_modify_payments': False,
+            'can_view_reports': False,
+            'max_split_count': 0
+        }
+
+@frappe.whitelist()
+def get_split_payment_settings():
+    """Get split payment configuration settings"""
+    try:
+        # You can create a custom Single DocType for settings or use existing settings
+        settings = frappe.get_single('POS Settings')
+        
+        return {
+            'max_split_count': getattr(settings, 'max_split_payment_count', 5),
+            'allow_same_method_split': getattr(settings, 'allow_same_method_split', True),
+            'require_reference_for_split': getattr(settings, 'require_reference_for_split', False),
+            'auto_reconcile_threshold': getattr(settings, 'auto_reconcile_threshold', 1.0),
+            'enable_split_payment_audit': getattr(settings, 'enable_split_payment_audit', True)
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Error getting split payment settings: {str(e)}", "Split Payment Settings")
+        # Return default settings if unable to fetch
+        return {
+            'max_split_count': 5,
+            'allow_same_method_split': True,
+            'require_reference_for_split': False,
+            'auto_reconcile_threshold': 1.0,
+            'enable_split_payment_audit': True
+        }
+
+# Error handling and logging functions
+
+def log_split_payment_error(error_message, pos_invoice=None, additional_data=None):
+    """Log split payment related errors"""
+    try:
+        error_log = {
+            'error_message': error_message,
+            'pos_invoice': pos_invoice,
+            'user': frappe.session.user,
+            'timestamp': frappe.utils.now(),
+            'additional_data': additional_data
+        }
+        
+        frappe.log_error(
+            message=json.dumps(error_log),
+            title="Split Payment Error"
+        )
+        
+    except Exception as e:
+        # Fallback logging
+        frappe.log_error(f"Split payment error logging failed: {str(e)}")
+
+# Hook function to be called when POS Invoice is submitted
+def on_submit_pos_invoice(doc, method):
+    """Hook called when POS Invoice is submitted"""
+    try:
+        if doc.doctype == 'POS Invoice':
+            # Check if this is a split payment
+            active_payments = [p for p in doc.payments if flt(p.amount) > 0]
+            if len(active_payments) > 1:
+                # Log split payment for audit
+                log_split_payment_details(doc, active_payments)
+                
+                # Additional processing for split payments if needed
+                create_split_payment_log(doc, active_payments)
+                
+    except Exception as e:
+        frappe.log_error(f"Error in split payment submission hook: {str(e)}", "Split Payment Submission")
+
+def create_split_payment_log(doc, active_payments):
+    """Create a log entry for split payments for reporting purposes"""
+    try:
+        # Create a custom doctype record for split payment tracking
+        # This is optional - only if you want detailed reporting
+        
+        # For now, we'll just add a comprehensive comment
+        payment_summary = []
+        total_methods = len(active_payments)
+        total_amount = sum(flt(p.amount) for p in active_payments)
+        
+        for payment in active_payments:
+            payment_info = f"{payment.mode_of_payment}: {frappe.format_value(payment.amount, {'fieldtype': 'Currency'})}"
+            if payment.remarks:
+                try:
+                    split_details = json.loads(payment.remarks)
+                    if len(split_details) > 1:
+                        payment_info += f" (Split into {len(split_details)} transactions)"
+                except:
+                    pass
+            payment_summary.append(payment_info)
+        
+        comprehensive_comment = f"""
+SPLIT PAYMENT SUMMARY:
+- Total Payment Methods: {total_methods}
+- Total Amount: {frappe.format_value(total_amount, {'fieldtype': 'Currency'})}
+- Payment Breakdown: {' | '.join(payment_summary)}
+- Processed by: {frappe.session.user}
+- Timestamp: {frappe.utils.now()}
+        """.strip()
+        
+        doc.add_comment('Info', comprehensive_comment)
+        
+    except Exception as e:
+        # Log error but don't fail the main transaction
+        frappe.log_error(f"Failed to create split payment log: {str(e)}", "Split Payment Log Error")
