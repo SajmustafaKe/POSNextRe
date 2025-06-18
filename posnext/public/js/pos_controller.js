@@ -424,8 +424,6 @@ find_available_opening_entry() {
 
 				edit_cart: () => this.payment.edit_cart(),
 				save_draft_invoice: () => this.save_draft_invoice(),
-				show_recent_orders: () => this.toggle_recent_order(),
-
 				toggle_recent_order: () => this.toggle_recent_order(),
 				customer_details_updated: (details) => {
 					this.customer_details = details;
@@ -534,7 +532,13 @@ find_available_opening_entry() {
 								message: __('POS invoice {0} created succesfully', [r.doc.name])
 							});
 						});
-				}
+				},
+				open_recent_orders: () => {
+           		 this.recent_order_list.toggle_component(true);
+            	this.item_selector.toggle_component(false);
+            	this.cart.toggle_component(false);
+            	this.wrapper.find('.past-order-summary').css("display","flex");
+        }
 			}
 		});
 	}

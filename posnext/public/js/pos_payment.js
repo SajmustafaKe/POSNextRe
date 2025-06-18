@@ -871,12 +871,17 @@ posnext.PointOfSale.Payment = class {
 				indicator: "green"
 			});
 			
-			// Use the same logic as Complete Order - toggle components and show recent orders
-			this.events.toggle_other_sections(false); // Hide payment section
-			this.toggle_component(false); // Hide payment component
-			
-			// Show recent orders list (same pattern as submit_invoice shows order summary)
-			this.open_recent_orders_view();
+			// Navigate to recent orders using events (reverse of previous_screen)
+			if (this.events.open_recent_orders) {
+				this.events.open_recent_orders();
+			} else {
+				// Fallback message
+				frappe.msgprint({
+					title: __('Partial Payment Saved'),
+					message: __('Partial payment saved successfully. Please check Recent Orders to view the saved order.'),
+					indicator: 'green'
+				});
+			}
 			
 		}).catch((error) => {
 			console.error('Error saving partial payment:', error);
@@ -888,12 +893,13 @@ posnext.PointOfSale.Payment = class {
 	}
 
 	open_recent_orders_view() {
-		// Use the same component toggling pattern as submit_invoice
-		// Instead of showing order_summary, show recent_order_list
+		// Use the same pattern as previous_screen but in reverse
+		// Instead of: this.recent_order_list.toggle_component(false) → show main screen
+		// We do: hide main screen → this.recent_order_list.toggle_component(true)
+		
 		if (this.events.show_recent_orders) {
+			// Custom event following the previous_screen pattern
 			this.events.show_recent_orders();
-		} else if (this.events.toggle_recent_order) {
-			this.events.toggle_recent_order();
 		} else {
 			// Fallback message
 			frappe.msgprint({
