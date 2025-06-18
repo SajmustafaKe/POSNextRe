@@ -6,6 +6,8 @@ posnext.PointOfSale.Payment = class {
 		this.events = events;
 		this.split_payments = []; // Store multiple payment methods
 		this.is_split_mode = false; // Track if we're in split payment mode
+		this.allow_overpayment = true; // Allow overpayment in split mode
+		this.auto_set_amount = false; // Disable auto-setting amount to grand total
 
 		this.init_component();
 	}
@@ -43,6 +45,18 @@ posnext.PointOfSale.Payment = class {
 							<span>${__('Remaining')}: </span>
 							<span class="split-remaining-amount">0.00</span>
 						</div>
+						<div class="split-change" style="display: none;">
+							<span>${__('Change')}: </span>
+							<span class="split-change-amount">0.00</span>
+						</div>
+					</div>
+					<div class="split-payment-actions">
+						<button class="btn btn-sm btn-primary save-partial-payment-btn" style="margin-right: 10px;">
+							${__('Save Partial Payment')}
+						</button>
+						<button class="btn btn-sm btn-success complete-split-payment-btn">
+							${__('Complete Payment')}
+						</button>
 					</div>
 				</div>
 				<div class="fields-numpad-container">
@@ -201,7 +215,7 @@ posnext.PointOfSale.Payment = class {
 						font-weight: bold;
 					}
 					
-					.split-total, .split-remaining {
+					.split-total, .split-remaining, .split-change {
 						display: flex;
 						justify-content: space-between;
 						margin: 5px 0;
@@ -215,6 +229,10 @@ posnext.PointOfSale.Payment = class {
 						color: #4CAF50;
 					}
 					
+					.split-change-amount {
+						color: #2196F3;
+					}
+					
 					.payment-mode-split-active {
 						border: 2px solid #2196F3 !important;
 						background-color: #e3f2fd !important;
@@ -223,6 +241,31 @@ posnext.PointOfSale.Payment = class {
 					.add-to-split-btn {
 						margin-top: 5px;
 						width: 100%;
+					}
+					
+					.split-payment-actions {
+						margin-top: 15px;
+						text-align: center;
+					}
+					
+					.save-partial-payment-btn {
+						background-color: #ffc107;
+						border-color: #ffc107;
+						color: #212529;
+					}
+					
+					.save-partial-payment-btn:hover {
+						background-color: #e0a800;
+						border-color: #d39e00;
+					}
+					
+					.payment-status-partial {
+						background-color: #fff3cd;
+						border: 1px solid #ffeaa7;
+						border-radius: 4px;
+						padding: 8px;
+						margin: 10px 0;
+						color: #856404;
 					}
 				</style>
 			`);
@@ -383,6 +426,30 @@ posnext.PointOfSale.Payment = class {
 			}
 		});
 
+		// Save partial payment
+		this.$component.on('click', '.save-partial-payment-btn', function() {
+			if (me.split_payments.length === 0) {
+				frappe.show_alert({
+					message: __("Please add at least one payment method"),
+					indicator: "orange"
+				});
+				return;
+			}
+			me.save_partial_payment();
+		});
+
+		// Complete split payment
+		this.$component.on('click', '.complete-split-payment-btn', function() {
+			if (me.split_payments.length === 0) {
+				frappe.show_alert({
+					message: __("Please add at least one payment method"),
+					indicator: "orange"
+				});
+				return;
+			}
+			me.complete_split_payment();
+		});
+
 		frappe.ui.form.on('POS Invoice', 'contact_mobile', (frm) => {
 			const contact = frm.doc.contact_mobile;
 			const request_button = $(this.request_for_payment_field?.$input[0]);
@@ -426,10 +493,12 @@ posnext.PointOfSale.Payment = class {
 			const doc = this.events.get_frm().doc;
 			
 			if (me.is_split_mode) {
-				if (!me.validate_split_payment()) {
-					return;
-				}
-				me.apply_split_payments_to_doc();
+				// In split mode, handle through split payment buttons
+				frappe.show_alert({
+					message: __("Please use the split payment buttons to save or complete the order"),
+					indicator: "orange"
+				});
+				return;
 			}
 			
 			const paid_amount = doc.paid_amount;
@@ -472,6 +541,7 @@ posnext.PointOfSale.Payment = class {
 
 	toggle_split_payment_mode(enable) {
 		this.is_split_mode = enable;
+		this.auto_set_amount = !enable; // Disable auto-setting in split mode
 		
 		if (enable) {
 			this.$split_container.show();
@@ -537,18 +607,8 @@ posnext.PointOfSale.Payment = class {
 
 		if (!payment_method) return;
 
-		// Check if adding this amount would exceed the grand total
-		const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
-		const current_split_total = this.get_split_total();
-		
-		if (current_split_total + amount > grand_total) {
-			const remaining = grand_total - current_split_total;
-			frappe.show_alert({
-				message: __("Amount exceeds remaining total. Maximum you can add is {0}", [format_currency(remaining, doc.currency)]),
-				indicator: "orange"
-			});
-			return;
-		}
+		// In enhanced mode, we allow overpayment
+		// No need to check against grand total limit
 
 		// Generate unique ID for this split payment entry
 		const split_id = `${mode}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -592,9 +652,6 @@ posnext.PointOfSale.Payment = class {
 
 		const doc = this.events.get_frm().doc;
 		const current_amount = payment.amount;
-		const remaining_without_this = this.get_split_total() - current_amount;
-		const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
-		const max_amount = grand_total - remaining_without_this;
 
 		frappe.prompt([{
 			label: __('Amount'),
@@ -616,14 +673,6 @@ posnext.PointOfSale.Payment = class {
 			if (values.amount <= 0) {
 				frappe.show_alert({
 					message: __("Amount must be greater than 0"),
-					indicator: "red"
-				});
-				return;
-			}
-
-			if (values.amount > max_amount) {
-				frappe.show_alert({
-					message: __("Amount cannot exceed {0}", [format_currency(max_amount, doc.currency)]),
 					indicator: "red"
 				});
 				return;
@@ -705,38 +754,84 @@ posnext.PointOfSale.Payment = class {
 		
 		const split_total = this.get_split_total();
 		const remaining = grand_total - split_total;
+		const change = split_total > grand_total ? split_total - grand_total : 0;
 
 		this.$component.find('.split-total-amount').text(format_currency(split_total, currency));
-		this.$component.find('.split-remaining-amount').text(format_currency(remaining, currency));
+		this.$component.find('.split-remaining-amount').text(format_currency(Math.max(0, remaining), currency));
+		
+		// Show/hide change section
+		if (change > 0) {
+			this.$component.find('.split-change').show();
+			this.$component.find('.split-change-amount').text(format_currency(change, currency));
+		} else {
+			this.$component.find('.split-change').hide();
+		}
+
+		// Update button states
+		const is_complete = remaining <= 0;
+		const has_payments = this.split_payments.length > 0;
+		
+		this.$component.find('.save-partial-payment-btn').prop('disabled', !has_payments);
+		this.$component.find('.complete-split-payment-btn').prop('disabled', !has_payments);
 	}
 
 	get_split_total() {
 		return this.split_payments.reduce((total, payment) => total + payment.amount, 0);
 	}
 
-	validate_split_payment() {
+	save_partial_payment() {
+		const doc = this.events.get_frm().doc;
+		
+		if (this.split_payments.length === 0) {
+			frappe.show_alert({
+				message: __("Please add at least one payment method"),
+				indicator: "orange"
+			});
+			return;
+		}
+
+		// Apply split payments to the document
+		this.apply_split_payments_to_doc();
+		
+		// Set status to partly paid
+		frappe.model.set_value(doc.doctype, doc.name, 'status', 'Partly Paid');
+		
+		// Save the document
+		this.events.get_frm().save().then(() => {
+			frappe.show_alert({
+				message: __("Partial payment saved successfully"),
+				indicator: "green"
+			});
+			
+			// Show payment status
+			this.show_payment_status();
+		});
+	}
+
+	complete_split_payment() {
 		const doc = this.events.get_frm().doc;
 		const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
 		const split_total = this.get_split_total();
-
+		
 		if (this.split_payments.length === 0) {
 			frappe.show_alert({
-				message: __("Please add at least one payment method to split"),
+				message: __("Please add at least one payment method"),
 				indicator: "orange"
 			});
-			return false;
+			return;
 		}
 
-		if (Math.abs(split_total - grand_total) > 0.01) { // Allow small rounding differences
-			frappe.show_alert({
-				message: __("Split payment total ({0}) must equal grand total ({1})", 
-					[format_currency(split_total, doc.currency), format_currency(grand_total, doc.currency)]),
-				indicator: "orange"
-			});
-			return false;
+		// Apply split payments to the document
+		this.apply_split_payments_to_doc();
+		
+		// Calculate change if overpaid
+		if (split_total > grand_total) {
+			const change_amount = split_total - grand_total;
+			frappe.model.set_value(doc.doctype, doc.name, 'change_amount', change_amount);
 		}
-
-		return true;
+		
+		// Submit the invoice
+		this.events.submit_invoice();
 	}
 
 	apply_split_payments_to_doc() {
@@ -809,10 +904,34 @@ posnext.PointOfSale.Payment = class {
 			existing_remarks ? `${existing_remarks}\n${split_remarks}` : split_remarks);
 	}
 
+	show_payment_status() {
+		const doc = this.events.get_frm().doc;
+		const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
+		const paid_amount = doc.paid_amount;
+		const remaining = grand_total - paid_amount;
+		
+		// Remove existing status display
+		this.$component.find('.payment-status-partial').remove();
+		
+		if (remaining > 0) {
+			const status_html = `
+				<div class="payment-status-partial">
+					<strong>${__('Status: Partly Paid')}</strong><br>
+					${__('Paid')}: ${format_currency(paid_amount, doc.currency)}<br>
+					${__('Remaining')}: ${format_currency(remaining, doc.currency)}
+				</div>
+			`;
+			this.$split_container.prepend(status_html);
+		}
+	}
+
 	clear_split_payments() {
 		this.split_payments = [];
 		this.render_split_payments_list();
 		this.update_split_summary();
+		
+		// Remove payment status display
+		this.$component.find('.payment-status-partial').remove();
 	}
 
 	// Handle regular (non-split) payment selection
@@ -842,7 +961,11 @@ posnext.PointOfSale.Payment = class {
 
 			me.selected_mode = me[`${mode}_control`];
 			me.selected_mode && me.selected_mode.$input.get(0).focus();
-			me.auto_set_remaining_amount();
+			
+			// Only auto-set remaining amount if not in split mode and auto_set_amount is enabled
+			if (me.auto_set_amount) {
+				me.auto_set_remaining_amount();
+			}
 		}
 	}
 
@@ -892,7 +1015,7 @@ posnext.PointOfSale.Payment = class {
 		const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
 		const remaining_amount = grand_total - doc.paid_amount;
 		const current_value = this.selected_mode ? this.selected_mode.get_value() : undefined;
-		if (!current_value && remaining_amount > 0 && this.selected_mode) {
+		if (!current_value && remaining_amount > 0 && this.selected_mode && this.auto_set_amount) {
 			this.selected_mode.set_value(remaining_amount);
 		}
 	}
@@ -903,7 +1026,7 @@ posnext.PointOfSale.Payment = class {
 		frappe.ui.keys.on("ctrl+enter", () => {
 			const payment_is_visible = this.$component.is(":visible");
 			const active_mode = this.$payment_modes.find(".border-primary");
-			if (payment_is_visible && active_mode.length) {
+			if (payment_is_visible && active_mode.length && !this.is_split_mode) {
 				this.$component.find('.submit-order-btn').click();
 			}
 		});
@@ -1038,6 +1161,10 @@ posnext.PointOfSale.Payment = class {
 	focus_on_default_mop() {
 		const doc = this.events.get_frm().doc;
 		const payments = doc.payments;
+		
+		// Don't auto-focus in split mode
+		if (this.is_split_mode) return;
+		
 		payments.forEach(p => {
 			const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
 			if (p.default) {
