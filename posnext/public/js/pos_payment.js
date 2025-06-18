@@ -871,8 +871,13 @@ posnext.PointOfSale.Payment = class {
 				indicator: "green"
 			});
 			
-			// Open POS past order list using the controller reference
-			this.open_past_order_summary(doc);
+			// Use the same logic as Complete Order - toggle components and show recent orders
+			this.events.toggle_other_sections(false); // Hide payment section
+			this.toggle_component(false); // Hide payment component
+			
+			// Show recent orders list (same pattern as submit_invoice shows order summary)
+			this.open_recent_orders_view();
+			
 		}).catch((error) => {
 			console.error('Error saving partial payment:', error);
 			frappe.show_alert({
@@ -882,45 +887,18 @@ posnext.PointOfSale.Payment = class {
 		});
 	}
 
-	open_past_order_summary(doc) {
-		try {
-			// Method 1: Use existing toggle_recent_order event (already in cart events)
-			if (this.events.toggle_recent_order) {
-				this.events.toggle_recent_order();
-				return;
-			}
-			
-			// Method 2: Use existing toggle_recent_order_list if available
-			if (this.events.toggle_recent_order_list) {
-				this.events.toggle_recent_order_list(true);
-				return;
-			}
-			
-			// Method 3: Direct controller access
-			const pos_controller = this.events.pos_controller || this.events.controller;
-			if (pos_controller && pos_controller.toggle_recent_order_list) {
-				pos_controller.toggle_recent_order_list(true);
-				return;
-			}
-			
-			// Method 4: Access via window controller
-			if (window.pos_controller && window.pos_controller.toggle_recent_order_list) {
-				window.pos_controller.toggle_recent_order_list(true);
-				return;
-			}
-			
-			// Success message with instruction to access Recent Orders
+	open_recent_orders_view() {
+		// Use the same component toggling pattern as submit_invoice
+		// Instead of showing order_summary, show recent_order_list
+		if (this.events.show_recent_orders) {
+			this.events.show_recent_orders();
+		} else if (this.events.toggle_recent_order) {
+			this.events.toggle_recent_order();
+		} else {
+			// Fallback message
 			frappe.msgprint({
 				title: __('Partial Payment Saved'),
-				message: __('Partial payment saved successfully for order: {0}. The Recent Orders view will open automatically.', [doc.name]),
-				indicator: 'green'
-			});
-			
-		} catch (error) {
-			console.error('Error opening past order list:', error);
-			frappe.msgprint({
-				title: __('Order Saved'),
-				message: __('Partial payment saved successfully for order: {0}. Please click "Recent Orders" to view the saved order.', [doc.name]),
+				message: __('Partial payment saved successfully. Please check Recent Orders to view the saved order.'),
 				indicator: 'green'
 			});
 		}

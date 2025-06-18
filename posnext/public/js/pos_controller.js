@@ -424,6 +424,12 @@ find_available_opening_entry() {
 
 				edit_cart: () => this.payment.edit_cart(),
 				save_draft_invoice: () => this.save_draft_invoice(),
+				show_recent_orders: () => {
+            this.toggle_components(false);           // Hide item selector, cart, etc.
+            this.recent_order_list.toggle_component(true);  // Show recent orders
+            this.order_summary.toggle_component(true);      // Show order summary panel
+        },
+
 				toggle_recent_order: () => this.toggle_recent_order(),
 				customer_details_updated: (details) => {
 					this.customer_details = details;
