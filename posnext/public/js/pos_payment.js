@@ -85,12 +85,19 @@ posnext.PointOfSale.Payment = class {
 		// Check memory backup
 		if (window.pos_payment_backups && window.pos_payment_backups[this.payment_backup_key]) {
 			const backup_data = window.pos_payment_backups[this.payment_backup_key];
+			const current_doc = this.events.get_frm().doc;
 			
 			console.log('🔄 Restoring payments from backup:', backup_data);
+			
+			let total_restored = 0;
 			
 			// Restore split payments
 			if (backup_data.split_payments && backup_data.split_payments.length > 0) {
 				this.split_payments = [...backup_data.split_payments];
+				
+				// Calculate total from split payments
+				total_restored = this.split_payments.reduce((sum, payment) => sum + payment.amount, 0);
+				
 				console.log('✅ Restored split payments:', this.split_payments);
 			}
 			
@@ -103,13 +110,66 @@ posnext.PointOfSale.Payment = class {
 			// Store original payment data for later use
 			if (backup_data.payments && backup_data.payments.length > 0) {
 				this.original_payment_data = backup_data.payments;
+				
+				// If no split payments but have original payments, calculate total from original
+				if (total_restored === 0) {
+					total_restored = backup_data.payments.reduce((sum, payment) => sum + payment.amount, 0);
+				}
+				
 				console.log('✅ Stored original payment data:', this.original_payment_data);
+			}
+			
+			// Apply payments to document if we have payment data
+			if (total_restored > 0) {
+				// Update document paid amount
+				frappe.model.set_value(current_doc.doctype, current_doc.name, 'paid_amount', total_restored);
+				
+				// Calculate outstanding
+				const grand_total = current_doc.grand_total || current_doc.rounded_total || 0;
+				const outstanding = grand_total - total_restored;
+				frappe.model.set_value(current_doc.doctype, current_doc.name, 'outstanding_amount', Math.max(0, outstanding));
+				
+				// Set status
+				let status = 'Draft';
+				if (total_restored >= grand_total) {
+					status = 'Paid';
+				} else if (total_restored > 0) {
+					status = 'Partly Paid';
+				}
+				frappe.model.set_value(current_doc.doctype, current_doc.name, 'status', status);
+				
+				// Apply individual payment amounts to payment records
+				if (backup_data.payments) {
+					backup_data.payments.forEach(backup_payment => {
+						const current_payment = current_doc.payments.find(p => 
+							p.mode_of_payment === backup_payment.mode_of_payment
+						);
+						
+						if (current_payment) {
+							frappe.model.set_value(current_payment.doctype, current_payment.name, 'amount', backup_payment.amount);
+							if (backup_payment.reference_no) {
+								frappe.model.set_value(current_payment.doctype, current_payment.name, 'reference_no', backup_payment.reference_no);
+							}
+							if (backup_payment.remarks) {
+								frappe.model.set_value(current_payment.doctype, current_payment.name, 'remarks', backup_payment.remarks);
+							}
+						}
+					});
+				}
+				
+				console.log(`💰 Applied backup totals - Paid: ${total_restored}, Outstanding: ${outstanding}, Status: ${status}`);
+				
+				// Force UI refresh
+				setTimeout(() => {
+					this.update_totals_section(current_doc);
+					this.render_payment_mode_dom();
+				}, 200);
 			}
 			
 			// Show user notification
 			if (this.split_payments.length > 0 || this.original_payment_data) {
 				frappe.show_alert({
-					message: __("Payment data restored from previous session"),
+					message: __("Payment data restored from previous session (Total: {0})", [format_currency(total_restored, current_doc.currency)]),
 					indicator: "green"
 				});
 				return true;
@@ -1177,16 +1237,20 @@ posnext.PointOfSale.Payment = class {
 		const doc = this.events.get_frm().doc;
 		const payments = doc.payments;
 
-		// Render payment modes with "Add to Split" buttons
+		// Render payment modes with "Add to Split" buttons - ensure ALL payment methods are shown
 		this.$payment_modes.html(`${
 			payments.map((p, i) => {
 				const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
 				const payment_type = p.type;
+				const amount = p.amount > 0 ? format_currency(p.amount, doc.currency) : '';
 
 				return (`
 					<div class="payment-mode-wrapper">
 						<div class="mode-of-payment" data-mode="${mode}" data-payment-type="${payment_type}">
-							${p.mode_of_payment}
+							<div class="payment-mode-header">
+								<span class="payment-mode-name">${p.mode_of_payment}</span>
+								${amount ? `<span class="payment-mode-amount">${amount}</span>` : ''}
+							</div>
 							<div class="${mode} mode-of-payment-control"></div>
 							<button class="add-to-split-btn btn btn-sm btn-primary">
 								${__('Add to Split')}
@@ -1214,7 +1278,72 @@ posnext.PointOfSale.Payment = class {
 				render_input: true,
 			});
 			this[`${mode}_control`].toggle_label(false);
+			
+			// Set current value if exists
+			if (p.amount > 0) {
+				this[`${mode}_control`].set_value(p.amount);
+			}
 		});
+
+		// Add loyalty points payment mode if applicable
+		this.render_loyalty_points_payment_mode();
+		
+		// Add some CSS to ensure proper display of payment modes in split mode
+		if (!$('#split-payment-modes-styles').length) {
+			$('head').append(`
+				<style id="split-payment-modes-styles">
+					.payment-mode-wrapper {
+						margin-bottom: 10px;
+						width: 100%;
+					}
+					
+					.payment-mode-header {
+						display: flex;
+						justify-content: space-between;
+						align-items: center;
+						margin-bottom: 5px;
+					}
+					
+					.payment-mode-name {
+						font-weight: bold;
+						color: #333;
+					}
+					
+					.payment-mode-amount {
+						color: #28a745;
+						font-weight: bold;
+						font-size: 14px;
+					}
+					
+					.mode-of-payment {
+						border: 1px solid #ddd;
+						border-radius: 6px;
+						padding: 10px;
+						background-color: #f8f9fa;
+						margin-bottom: 8px;
+					}
+					
+					.mode-of-payment:hover {
+						background-color: #e9ecef;
+						border-color: #adb5bd;
+					}
+					
+					.payment-mode-split-active {
+						border-color: #007bff !important;
+						background-color: #e7f3ff !important;
+					}
+					
+					.add-to-split-btn {
+						width: 100%;
+						margin-top: 8px;
+					}
+					
+					.mode-of-payment-control {
+						margin: 8px 0;
+					}
+				</style>
+			`);
+		}
 	}
 
 	add_split_payment(mode, amount) {
@@ -1753,7 +1882,9 @@ posnext.PointOfSale.Payment = class {
 		
 		console.log('🔄 Processing original payment data into split payments...');
 		
+		const current_doc = this.events.get_frm().doc;
 		this.split_payments = [];
+		let total_paid = 0;
 		
 		this.original_payment_data.forEach((payment, index) => {
 			if (payment.amount && payment.amount > 0) {
@@ -1772,17 +1903,58 @@ posnext.PointOfSale.Payment = class {
 				};
 				
 				this.split_payments.push(split_payment);
+				total_paid += payment.amount;
 				console.log('✅ Created split payment from backup:', split_payment);
+				
+				// Apply to document payment as well
+				const current_payment = current_doc.payments.find(p => 
+					p.mode_of_payment === payment.mode_of_payment
+				);
+				
+				if (current_payment) {
+					frappe.model.set_value(current_payment.doctype, current_payment.name, 'amount', payment.amount);
+					if (payment.reference_no) {
+						frappe.model.set_value(current_payment.doctype, current_payment.name, 'reference_no', payment.reference_no);
+					}
+					if (payment.remarks) {
+						frappe.model.set_value(current_payment.doctype, current_payment.name, 'remarks', payment.remarks);
+					}
+				}
 			}
 		});
 		
 		if (this.split_payments.length > 0) {
+			// Update document totals
+			frappe.model.set_value(current_doc.doctype, current_doc.name, 'paid_amount', total_paid);
+			
+			// Calculate outstanding amount
+			const grand_total = current_doc.grand_total || current_doc.rounded_total || 0;
+			const outstanding = grand_total - total_paid;
+			frappe.model.set_value(current_doc.doctype, current_doc.name, 'outstanding_amount', Math.max(0, outstanding));
+			
+			// Set status based on payment
+			let status = 'Draft';
+			if (total_paid >= grand_total) {
+				status = 'Paid';
+			} else if (total_paid > 0) {
+				status = 'Partly Paid';
+			}
+			frappe.model.set_value(current_doc.doctype, current_doc.name, 'status', status);
+			
+			console.log(`💰 Updated document totals - Paid: ${total_paid}, Outstanding: ${outstanding}, Status: ${status}`);
+			
 			// Enable split mode
 			this.$component.find('#split-payment-checkbox').prop('checked', true);
 			this.toggle_split_payment_mode(true);
 			
+			// Force UI refresh
+			setTimeout(() => {
+				this.update_totals_section(current_doc);
+				this.render_payment_mode_dom();
+			}, 300);
+			
 			frappe.show_alert({
-				message: __("Payments restored from backup ({0} payment(s))", [this.split_payments.length]),
+				message: __("Payments restored from backup ({0} payment(s), Total: {1})", [this.split_payments.length, format_currency(total_paid, current_doc.currency)]),
 				indicator: "green"
 			});
 		}
