@@ -505,14 +505,20 @@ posnext.PointOfSale.Payment = class {
 		console.log('Document payments:', doc.payments);
 		console.log('Document paid_amount:', doc.paid_amount);
 		
+		// Check if doc.payments exists and has entries
+		if (!doc.payments || !Array.isArray(doc.payments)) {
+			console.log('No payments array found');
+			return;
+		}
+		
 		// Load existing payments that have amounts > 0
 		doc.payments.forEach((payment, index) => {
 			console.log(`Processing payment ${index}:`, payment);
 			
-			if (payment.amount > 0) {
+			// Check if payment has amount and amount > 0
+			if (payment.amount && payment.amount > 0) {
 				const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
 				
-				// Always treat as single payment entry for now to ensure it shows up
 				const split_id = `${mode}_existing_${index}`;
 				const existing_payment = {
 					id: split_id,
@@ -520,7 +526,7 @@ posnext.PointOfSale.Payment = class {
 					mode_of_payment: payment.mode_of_payment,
 					display_name: payment.mode_of_payment,
 					amount: payment.amount,
-					type: payment.type,
+					type: payment.type || 'Cash',
 					reference_number: payment.reference_no || '',
 					notes: payment.remarks || '',
 					is_existing: true
@@ -531,34 +537,54 @@ posnext.PointOfSale.Payment = class {
 			}
 		});
 		
-		// Additional check - if no payments found but paid_amount > 0, 
-		// try to find any payment record with amount
+		// Alternative check - if no payments found but paid_amount > 0
+		// Look for any payment method that might have been set
 		if (this.split_payments.length === 0 && doc.paid_amount > 0) {
-			console.log('No payments found but paid_amount > 0, checking alternative sources...');
+			console.log('No payments found but paid_amount > 0, checking for default payment...');
 			
-			// Check if there are any payment entries in the sales invoice payments table
-			if (doc.payments && doc.payments.length > 0) {
-				doc.payments.forEach((payment, index) => {
-					console.log(`Checking payment entry ${index}:`, payment);
-					if (payment.amount && payment.amount > 0) {
-						const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-						const split_id = `${mode}_fallback_${index}`;
-						const fallback_payment = {
-							id: split_id,
-							mode: mode,
-							mode_of_payment: payment.mode_of_payment,
-							display_name: payment.mode_of_payment + ' (Recovered)',
-							amount: payment.amount,
-							type: payment.type || 'Cash',
-							reference_number: payment.reference_no || '',
-							notes: 'Recovered existing payment',
-							is_existing: true
-						};
-						
-						this.split_payments.push(fallback_payment);
-						console.log('Added fallback payment:', fallback_payment);
-					}
-				});
+			// Try to find which payment method was used by checking controls
+			const payment_modes = doc.payments || [];
+			payment_modes.forEach((payment, index) => {
+				const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+				const control = this[`${mode}_control`];
+				
+				if (control && control.get_value() > 0) {
+					const split_id = `${mode}_control_${index}`;
+					const control_payment = {
+						id: split_id,
+						mode: mode,
+						mode_of_payment: payment.mode_of_payment,
+						display_name: payment.mode_of_payment + ' (From Control)',
+						amount: control.get_value(),
+						type: payment.type || 'Cash',
+						reference_number: '',
+						notes: 'Recovered from payment control',
+						is_existing: true
+					};
+					
+					this.split_payments.push(control_payment);
+					console.log('Added control payment:', control_payment);
+				}
+			});
+			
+			// Last resort - create a generic payment entry
+			if (this.split_payments.length === 0 && payment_modes.length > 0) {
+				const first_payment = payment_modes[0];
+				const mode = first_payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+				const fallback_payment = {
+					id: `${mode}_fallback_0`,
+					mode: mode,
+					mode_of_payment: first_payment.mode_of_payment,
+					display_name: first_payment.mode_of_payment + ' (Fallback)',
+					amount: doc.paid_amount,
+					type: first_payment.type || 'Cash',
+					reference_number: '',
+					notes: 'Fallback payment entry',
+					is_existing: true
+				};
+				
+				this.split_payments.push(fallback_payment);
+				console.log('Added fallback payment:', fallback_payment);
 			}
 		}
 		
@@ -845,38 +871,83 @@ posnext.PointOfSale.Payment = class {
 				indicator: "green"
 			});
 			
-			// Open POS past order summary
+			// Open POS past order list using the controller reference
 			this.open_past_order_summary(doc);
+		}).catch((error) => {
+			console.error('Error saving partial payment:', error);
+			frappe.show_alert({
+				message: __("Error saving partial payment"),
+				indicator: "red"
+			});
 		});
 	}
 
 	open_past_order_summary(doc) {
-		// Navigate to POS past order list
 		try {
-			// Try to access the POS past order list component
-			if (this.events.toggle_recent_order_list) {
-				this.events.toggle_recent_order_list();
-			} else if (window.pos_past_order_list) {
-				window.pos_past_order_list.show();
-			} else {
-				// Fallback - trigger the past order list view
-				const pos_controller = this.events.pos_controller || window.pos_controller;
-				if (pos_controller && pos_controller.past_order_list) {
-					pos_controller.past_order_list.toggle_component(true);
-				} else {
-					// Last resort - you may need to adjust this path
-					frappe.require('assets/posnext/js/pos_past_order_list.js', () => {
-						if (window.pos_past_order_list) {
-							window.pos_past_order_list.show();
-						}
-					});
+			// Get the POS controller from events
+			const pos_controller = this.events.pos_controller;
+			
+			if (pos_controller) {
+				// Method 1: Direct controller access
+				if (pos_controller.toggle_recent_order_list) {
+					pos_controller.toggle_recent_order_list(true);
+					return;
+				}
+				
+				// Method 2: Access recent order list component
+				if (pos_controller.recent_order_list) {
+					pos_controller.recent_order_list.toggle_component(true);
+					pos_controller.toggle_components(false); // Hide other components
+					return;
 				}
 			}
+			
+			// Method 3: Try to get controller from global scope or events
+			const controller = this.events.controller || 
+							   this.events.get_controller?.() || 
+							   window.pos_controller;
+			
+			if (controller && controller.toggle_recent_order_list) {
+				controller.toggle_recent_order_list(true);
+				return;
+			}
+			
+			// Method 4: Try through events system
+			if (this.events.toggle_recent_order_list) {
+				this.events.toggle_recent_order_list();
+				return;
+			}
+			
+			// Method 5: Trigger through cart events (since cart has toggle_recent_order)
+			if (this.events.get_frm && this.events.get_frm().pos_controller) {
+				const frm_controller = this.events.get_frm().pos_controller;
+				if (frm_controller.toggle_recent_order_list) {
+					frm_controller.toggle_recent_order_list(true);
+					return;
+				}
+			}
+			
+			// Method 6: Try to access through the wrapper's parent components
+			const pos_app = this.wrapper.closest('.point-of-sale-app');
+			if (pos_app.length && window.pos_instance) {
+				if (window.pos_instance.toggle_recent_order_list) {
+					window.pos_instance.toggle_recent_order_list(true);
+					return;
+				}
+			}
+			
+			// Fallback - show a success message with order info
+			frappe.msgprint({
+				title: __('Partial Payment Saved'),
+				message: __('Partial payment saved successfully for order: {0}. Please access Recent Orders to view the order.', [doc.name]),
+				indicator: 'green'
+			});
+			
 		} catch (error) {
 			console.error('Error opening past order list:', error);
 			frappe.msgprint({
 				title: __('Order Saved'),
-				message: __('Partial payment saved. Order: {0}', [doc.name]),
+				message: __('Partial payment saved successfully for order: {0}. Please access Recent Orders manually.', [doc.name]),
 				indicator: 'green'
 			});
 		}
@@ -1101,7 +1172,12 @@ posnext.PointOfSale.Payment = class {
 	render_payment_section() {
 		this.render_payment_mode_dom();
 		this.update_totals_section();
-		this.check_for_existing_payments(); // Check if we should auto-enable split mode
+		
+		// Small delay to ensure DOM is ready before checking payments
+		setTimeout(() => {
+			this.check_for_existing_payments();
+		}, 100);
+		
 		this.focus_on_default_mop();
 	}
 
@@ -1198,8 +1274,31 @@ posnext.PointOfSale.Payment = class {
 	check_for_existing_payments() {
 		const doc = this.events.get_frm().doc;
 		
-		// Check if there are any existing payments with amounts > 0 OR if paid_amount > 0
-		const has_existing_payments = doc.payments.some(payment => payment.amount > 0) || doc.paid_amount > 0;
+		// More thorough check for existing payments
+		let has_existing_payments = false;
+		
+		// Check 1: payments array
+		if (doc.payments && Array.isArray(doc.payments)) {
+			has_existing_payments = doc.payments.some(payment => 
+				payment.amount && payment.amount > 0
+			);
+		}
+		
+		// Check 2: paid_amount field
+		if (!has_existing_payments && doc.paid_amount && doc.paid_amount > 0) {
+			has_existing_payments = true;
+		}
+		
+		// Check 3: payment controls
+		if (!has_existing_payments && doc.payments) {
+			doc.payments.forEach(payment => {
+				const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+				const control = this[`${mode}_control`];
+				if (control && control.get_value() > 0) {
+					has_existing_payments = true;
+				}
+			});
+		}
 		
 		if (has_existing_payments && !this.is_split_mode) {
 			// Automatically enable split payment mode
