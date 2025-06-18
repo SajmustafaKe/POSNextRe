@@ -798,10 +798,12 @@ posnext.PointOfSale.Payment = class {
 			
 			if (original_doc && original_doc.payments) {
 				let found_payments = false;
+				let total_amount = 0;
 				
 				original_doc.payments.forEach(payment => {
 					if (payment.amount && payment.amount > 0) {
 						found_payments = true;
+						total_amount += payment.amount;
 						console.log(`💰 Found original payment: ${payment.mode_of_payment} = ${payment.amount}`);
 					}
 				});
@@ -811,9 +813,12 @@ posnext.PointOfSale.Payment = class {
 					// Store original payment data for later restoration
 					this.original_payment_data = original_doc.payments;
 					
+					// Apply the payments to current document immediately
+					this.apply_original_payments_to_document(original_doc);
+					
 					// Show user notification about detected payments
 					frappe.show_alert({
-						message: __("Original payments detected! Split payment mode will be enabled."),
+						message: __("Original payments detected and restored! Total: {0}", [format_currency(total_amount, original_doc.currency)]),
 						indicator: "green"
 					});
 					
@@ -827,6 +832,73 @@ posnext.PointOfSale.Payment = class {
 		}).catch(error => {
 			console.error('❌ Error fetching original payment data:', error);
 		});
+	}
+
+	// Apply original payments to current document and update UI
+	apply_original_payments_to_document(original_doc) {
+		const current_doc = this.events.get_frm().doc;
+		
+		console.log('🔄 Applying original payments to current document...');
+		
+		if (!original_doc.payments || !current_doc.payments) {
+			console.error('❌ Missing payments array in documents');
+			return;
+		}
+		
+		let total_paid = 0;
+		
+		// Apply each payment amount to corresponding payment method
+		original_doc.payments.forEach(original_payment => {
+			if (original_payment.amount && original_payment.amount > 0) {
+				// Find matching payment method in current document
+				const current_payment = current_doc.payments.find(p => 
+					p.mode_of_payment === original_payment.mode_of_payment
+				);
+				
+				if (current_payment) {
+					// Set the amount
+					frappe.model.set_value(current_payment.doctype, current_payment.name, 'amount', original_payment.amount);
+					
+					// Copy other fields
+					if (original_payment.reference_no) {
+						frappe.model.set_value(current_payment.doctype, current_payment.name, 'reference_no', original_payment.reference_no);
+					}
+					if (original_payment.remarks) {
+						frappe.model.set_value(current_payment.doctype, current_payment.name, 'remarks', original_payment.remarks);
+					}
+					
+					total_paid += original_payment.amount;
+					console.log(`✅ Applied payment: ${original_payment.mode_of_payment} = ${original_payment.amount}`);
+				}
+			}
+		});
+		
+		// Update document totals
+		if (total_paid > 0) {
+			frappe.model.set_value(current_doc.doctype, current_doc.name, 'paid_amount', total_paid);
+			
+			// Calculate outstanding amount
+			const grand_total = current_doc.grand_total || current_doc.rounded_total || 0;
+			const outstanding = grand_total - total_paid;
+			frappe.model.set_value(current_doc.doctype, current_doc.name, 'outstanding_amount', Math.max(0, outstanding));
+			
+			// Set status based on payment
+			let status = 'Draft';
+			if (total_paid >= grand_total) {
+				status = 'Paid';
+			} else if (total_paid > 0) {
+				status = 'Partly Paid';
+			}
+			frappe.model.set_value(current_doc.doctype, current_doc.name, 'status', status);
+			
+			console.log(`💰 Updated totals - Paid: ${total_paid}, Outstanding: ${outstanding}, Status: ${status}`);
+			
+			// Force UI refresh
+			setTimeout(() => {
+				this.update_totals_section(current_doc);
+				this.render_payment_mode_dom();
+			}, 200);
+		}
 	}
 
 	// Enhanced load_existing_payments method for edited orders
