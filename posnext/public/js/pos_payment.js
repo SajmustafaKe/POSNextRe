@@ -871,6 +871,9 @@ posnext.PointOfSale.Payment = class {
 				indicator: "green"
 			});
 			
+			// Hide payment UI first
+			this.toggle_component(false);
+			
 			// Navigate to recent orders using events (reverse of previous_screen)
 			if (this.events.open_recent_orders) {
 				this.events.open_recent_orders();

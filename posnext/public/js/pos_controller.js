@@ -534,10 +534,9 @@ find_available_opening_entry() {
 						});
 				},
 				open_recent_orders: () => {
-           		 this.recent_order_list.toggle_component(true);
-            	this.item_selector.toggle_component(false);
-            	this.cart.toggle_component(false);
-            	this.wrapper.find('.past-order-summary').css("display","flex");
+				this.toggle_components(false);
+           		this.recent_order_list.toggle_component(true);
+   				this.order_summary.toggle_component(true);
         }
 			}
 		});
