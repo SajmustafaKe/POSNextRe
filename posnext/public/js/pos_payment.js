@@ -56,13 +56,6 @@ posnext.PointOfSale.Payment = class {
 						</button>
 					</div>
 				</div>
-				<div class="fields-numpad-container">
-					<div class="fields-section">
-						<div class="section-label">${__('Additional Information')}</div>
-						<div class="invoice-fields"></div>
-					</div>
-					<div class="number-pad"></div>
-				</div>
 				<div class="totals-section">
 					<div class="totals"></div>
 				</div>
@@ -274,86 +267,21 @@ posnext.PointOfSale.Payment = class {
 		this.$split_list = this.$component.find('.split-payments-list');
 		this.$totals_section = this.$component.find('.totals-section');
 		this.$totals = this.$component.find('.totals');
-		this.$numpad = this.$component.find('.number-pad');
-		this.$invoice_fields_section = this.$component.find('.fields-section');
 	}
 
 	make_invoice_fields_control() {
-		frappe.db.get_doc("POS Settings", undefined).then((doc) => {
-			const fields = doc.invoice_fields;
-			if (!fields.length) return;
-
-			this.$invoice_fields = this.$invoice_fields_section.find('.invoice-fields');
-			this.$invoice_fields.html('');
-			const frm = this.events.get_frm();
-
-			fields.forEach(df => {
-				this.$invoice_fields.append(
-					`<div class="invoice_detail_field ${df.fieldname}-field" data-fieldname="${df.fieldname}"></div>`
-				);
-				let df_events = {
-					onchange: function() {
-						frm.set_value(this.df.fieldname, this.get_value());
-					}
-				};
-				if (df.fieldtype == "Button") {
-					df_events = {
-						click: function() {
-							if (frm.script_manager.has_handlers(df.fieldname, frm.doc.doctype)) {
-								frm.script_manager.trigger(df.fieldname, frm.doc.doctype, frm.doc.docname);
-							}
-						}
-					};
-				}
-
-				this[`${df.fieldname}_field`] = frappe.ui.form.make_control({
-					df: {
-						...df,
-						...df_events
-					},
-					parent: this.$invoice_fields.find(`.${df.fieldname}-field`),
-					render_input: true,
-				});
-				this[`${df.fieldname}_field`].set_value(frm.doc[df.fieldname]);
-			});
-		});
+		// Removed - additional information section no longer exists
+		return;
 	}
 
 	initialize_numpad() {
-		const me = this;
-		this.number_pad = new posnext.PointOfSale.NumberPad({
-			wrapper: this.$numpad,
-			events: {
-				numpad_event: function($btn) {
-					me.on_numpad_clicked($btn);
-				}
-			},
-			cols: 3,
-			keys: [
-				[ 1, 2, 3 ],
-				[ 4, 5, 6 ],
-				[ 7, 8, 9 ],
-				[ '.', 0, 'Delete' ]
-			],
-		});
-
+		// Removed - numpad no longer exists
 		this.numpad_value = '';
 	}
 
 	on_numpad_clicked($btn) {
-		const button_value = $btn.attr('data-button-value');
-
-		highlight_numpad_btn($btn);
-		this.numpad_value = button_value === 'delete' ? this.numpad_value.slice(0, -1) : this.numpad_value + button_value;
-		this.selected_mode.$input.get(0).focus();
-		this.selected_mode.set_value(this.numpad_value);
-
-		function highlight_numpad_btn($btn) {
-			$btn.addClass('shadow-base-inner bg-selected');
-			setTimeout(() => {
-				$btn.removeClass('shadow-base-inner bg-selected');
-			}, 100);
-		}
+		// Removed - numpad no longer exists
+		return;
 	}
 
 	bind_events() {
@@ -581,11 +509,22 @@ posnext.PointOfSale.Payment = class {
 				// Check if this payment has split details in remarks
 				let split_details = [];
 				try {
-					if (payment.remarks) {
+					// First check if payment.remarks contains JSON data
+					if (payment.remarks && payment.remarks.trim().startsWith('[')) {
 						split_details = JSON.parse(payment.remarks);
+					} else if (payment.remarks && payment.remarks.includes('Split Payment:')) {
+						// Handle case where remarks contains "Split Payment:" prefix
+						const split_part = payment.remarks.split('Split Payment:')[1];
+						if (split_part && split_part.trim().startsWith('[')) {
+							split_details = JSON.parse(split_part.trim());
+						}
 					}
 				} catch (e) {
-					// If parsing fails, treat as single payment
+					console.log('Could not parse payment remarks as JSON:', e);
+				}
+				
+				// If no valid split details found, treat as single payment
+				if (!split_details.length) {
 					split_details = [{
 						amount: payment.amount,
 						reference: '',
@@ -595,24 +534,30 @@ posnext.PointOfSale.Payment = class {
 				}
 				
 				// Add each split detail as separate payment
-				if (split_details.length > 0) {
-					split_details.forEach((detail, detailIndex) => {
-						const split_id = `${mode}_existing_${index}_${detailIndex}`;
-						this.split_payments.push({
-							id: split_id,
-							mode: mode,
-							mode_of_payment: payment.mode_of_payment,
-							display_name: detail.display_name || payment.mode_of_payment,
-							amount: detail.amount,
-							type: payment.type,
-							reference_number: detail.reference || '',
-							notes: detail.notes || '',
-							is_existing: true // Mark as existing payment
-						});
+				split_details.forEach((detail, detailIndex) => {
+					const split_id = `${mode}_existing_${index}_${detailIndex}`;
+					this.split_payments.push({
+						id: split_id,
+						mode: mode,
+						mode_of_payment: payment.mode_of_payment,
+						display_name: detail.display_name || payment.mode_of_payment,
+						amount: detail.amount || payment.amount, // Fallback to payment amount
+						type: payment.type,
+						reference_number: detail.reference || '',
+						notes: detail.notes || '',
+						is_existing: true // Mark as existing payment
 					});
-				} else {
-					// Single payment without split details
-					const split_id = `${mode}_existing_${index}`;
+				});
+			}
+		});
+		
+		// If no split payments were loaded but document has paid_amount > 0,
+		// it might be an older format - try to reconstruct from paid amounts
+		if (this.split_payments.length === 0 && doc.paid_amount > 0) {
+			doc.payments.forEach((payment, index) => {
+				if (payment.amount > 0) {
+					const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+					const split_id = `${mode}_reconstructed_${index}`;
 					this.split_payments.push({
 						id: split_id,
 						mode: mode,
@@ -621,12 +566,12 @@ posnext.PointOfSale.Payment = class {
 						amount: payment.amount,
 						type: payment.type,
 						reference_number: '',
-						notes: '',
+						notes: 'Reconstructed from existing payment',
 						is_existing: true
 					});
 				}
-			}
-		});
+			});
+		}
 		
 		// Renumber the loaded payments
 		this.renumber_same_payment_methods();
@@ -635,6 +580,9 @@ posnext.PointOfSale.Payment = class {
 		this.render_split_payments_list();
 		this.update_split_summary();
 		this.show_payment_status();
+		
+		// Debug log
+		console.log('Loaded existing payments:', this.split_payments);
 	}
 
 	render_split_payment_modes() {
@@ -908,9 +856,32 @@ posnext.PointOfSale.Payment = class {
 				indicator: "green"
 			});
 			
-			// Show payment status
-			this.show_payment_status();
+			// Open POS past order summary
+			this.open_past_order_summary(doc);
 		});
+	}
+
+	open_past_order_summary(doc) {
+		// Navigate to past order summary
+		frappe.set_route('Form', 'POS Invoice', doc.name);
+		
+		// Alternative approach if the above doesn't work:
+		// You might need to trigger the past order summary view specifically
+		// This depends on how your POS system is structured
+		setTimeout(() => {
+			if (window.pos_past_order_summary) {
+				window.pos_past_order_summary.show(doc);
+			} else if (this.events.show_past_order_summary) {
+				this.events.show_past_order_summary(doc);
+			} else {
+				// Fallback - you may need to adjust this based on your POS structure
+				frappe.msgprint({
+					title: __('Order Saved'),
+					message: __('Partial payment saved. Order: {0}', [doc.name]),
+					indicator: 'green'
+				});
+			}
+		}, 500);
 	}
 
 	apply_split_payments_to_doc() {
@@ -1230,8 +1201,8 @@ posnext.PointOfSale.Payment = class {
 	check_for_existing_payments() {
 		const doc = this.events.get_frm().doc;
 		
-		// Check if there are any existing payments with amounts > 0
-		const has_existing_payments = doc.payments.some(payment => payment.amount > 0);
+		// Check if there are any existing payments with amounts > 0 OR if paid_amount > 0
+		const has_existing_payments = doc.payments.some(payment => payment.amount > 0) || doc.paid_amount > 0;
 		
 		if (has_existing_payments && !this.is_split_mode) {
 			// Automatically enable split payment mode
