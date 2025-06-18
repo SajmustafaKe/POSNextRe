@@ -7,7 +7,7 @@ posnext.PointOfSale.Payment = class {
 		this.split_payments = []; // Store multiple payment methods
 		this.is_split_mode = false; // Track if we're in split payment mode
 		this.allow_overpayment = true; // Allow overpayment in split mode
-		this.auto_set_amount = true; // Control auto-setting amount to grand total
+		this.auto_set_amount = false; // Disable auto-setting amount to grand total
 
 		this.init_component();
 	}
@@ -554,7 +554,7 @@ posnext.PointOfSale.Payment = class {
 
 	toggle_split_payment_mode(enable) {
 		this.is_split_mode = enable;
-		this.auto_set_amount = !enable; // Disable auto-setting in split mode
+		// Auto-setting is always disabled now
 		
 		if (enable) {
 			this.$split_container.show();
@@ -1038,10 +1038,7 @@ posnext.PointOfSale.Payment = class {
 			me.selected_mode = me[`${mode}_control`];
 			me.selected_mode && me.selected_mode.$input.get(0).focus();
 			
-			// Only auto-set remaining amount if not in split mode and auto_set_amount is enabled
-			if (me.auto_set_amount) {
-				me.auto_set_remaining_amount();
-			}
+			// Auto-setting is now disabled for both modes
 		}
 	}
 
@@ -1087,13 +1084,9 @@ posnext.PointOfSale.Payment = class {
 	}
 
 	auto_set_remaining_amount() {
-		const doc = this.events.get_frm().doc;
-		const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
-		const remaining_amount = grand_total - doc.paid_amount;
-		const current_value = this.selected_mode ? this.selected_mode.get_value() : undefined;
-		if (!current_value && remaining_amount > 0 && this.selected_mode && this.auto_set_amount) {
-			this.selected_mode.set_value(remaining_amount);
-		}
+		// Auto-setting is now disabled - this method is kept for compatibility
+		// but no longer automatically sets amounts
+		return;
 	}
 
 	attach_shortcuts() {
@@ -1140,6 +1133,7 @@ posnext.PointOfSale.Payment = class {
 		this.render_payment_mode_dom();
 		this.make_invoice_fields_control();
 		this.update_totals_section();
+		this.check_for_existing_payments(); // Check if we should auto-enable split mode
 		this.focus_on_default_mop();
 	}
 
@@ -1231,6 +1225,24 @@ posnext.PointOfSale.Payment = class {
 
 		this.render_loyalty_points_payment_mode();
 		this.attach_cash_shortcuts(doc);
+	}
+
+	check_for_existing_payments() {
+		const doc = this.events.get_frm().doc;
+		
+		// Check if there are any existing payments with amounts > 0
+		const has_existing_payments = doc.payments.some(payment => payment.amount > 0);
+		
+		if (has_existing_payments && !this.is_split_mode) {
+			// Automatically enable split payment mode
+			this.$component.find('#split-payment-checkbox').prop('checked', true);
+			this.toggle_split_payment_mode(true);
+			
+			frappe.show_alert({
+				message: __("Split payment mode enabled automatically due to existing payments"),
+				indicator: "blue"
+			});
+		}
 	}
 
 	focus_on_default_mop() {
