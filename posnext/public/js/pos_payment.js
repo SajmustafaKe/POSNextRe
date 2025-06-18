@@ -478,20 +478,52 @@ posnext.PointOfSale.Payment = class {
 				this[`${mode}_control`].set_value(default_mop.amount);
 			}
 		});
+
+		// Add event listeners for document updates
+		frappe.ui.form.on('POS Invoice', 'status', (frm) => {
+			// Refresh payments display when status changes (like when partial payment is saved)
+			if (this && this.refresh_payments_display) {
+				setTimeout(() => {
+					this.refresh_payments_display();
+				}, 500); // Small delay to ensure document is fully updated
+			}
+		});
+
+		// Also trigger refresh when the document is reloaded
+		frappe.ui.form.on('POS Invoice', 'refresh', (frm) => {
+			if (this && this.refresh_payments_display) {
+				setTimeout(() => {
+					this.refresh_payments_display();
+				}, 1000); // Longer delay for document refresh
+			}
+		});
 	}
 
 	toggle_split_payment_mode(enable) {
 		this.is_split_mode = enable;
-		// Auto-setting is always disabled now
+		
+		console.log(`Toggling split payment mode: ${enable}`);
 		
 		if (enable) {
 			this.$split_container.show();
-			this.load_existing_payments(); // Load existing payments into split mode
+			
+			// First render the split payment modes
 			this.render_split_payment_modes();
+			
+			// Then load existing payments
+			this.load_existing_payments();
+			
+			// If no payments were loaded but there are payments in the document, try to sync
+			if (this.split_payments.length === 0) {
+				this.sync_document_payments_to_split();
+			}
+			
+			console.log(`Split mode enabled. Loaded ${this.split_payments.length} payments.`);
 		} else {
 			this.$split_container.hide();
 			this.clear_split_payments();
 			this.render_payment_mode_dom(); // Restore original payment modes
+			console.log('Split mode disabled.');
 		}
 	}
 
@@ -504,6 +536,7 @@ posnext.PointOfSale.Payment = class {
 		console.log('Loading existing payments for doc:', doc.name);
 		console.log('Document payments:', doc.payments);
 		console.log('Document paid_amount:', doc.paid_amount);
+		console.log('Document status:', doc.status);
 		
 		// Check if doc.payments exists and has entries
 		if (!doc.payments || !Array.isArray(doc.payments)) {
@@ -537,49 +570,56 @@ posnext.PointOfSale.Payment = class {
 			}
 		});
 		
-		// Alternative check - if no payments found but paid_amount > 0
-		// Look for any payment method that might have been set
+		// If no payments found but paid_amount > 0, try to reconstruct from controls
 		if (this.split_payments.length === 0 && doc.paid_amount > 0) {
-			console.log('No payments found but paid_amount > 0, checking for default payment...');
+			console.log('No payments found but paid_amount > 0, checking payment controls...');
 			
-			// Try to find which payment method was used by checking controls
-			const payment_modes = doc.payments || [];
-			payment_modes.forEach((payment, index) => {
+			// Check each payment method control for values
+			doc.payments.forEach((payment, index) => {
 				const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
 				const control = this[`${mode}_control`];
 				
-				if (control && control.get_value() > 0) {
-					const split_id = `${mode}_control_${index}`;
-					const control_payment = {
-						id: split_id,
-						mode: mode,
-						mode_of_payment: payment.mode_of_payment,
-						display_name: payment.mode_of_payment + ' (From Control)',
-						amount: control.get_value(),
-						type: payment.type || 'Cash',
-						reference_number: '',
-						notes: 'Recovered from payment control',
-						is_existing: true
-					};
+				if (control) {
+					const control_value = control.get_value();
+					console.log(`Control ${mode} value:`, control_value);
 					
-					this.split_payments.push(control_payment);
-					console.log('Added control payment:', control_payment);
+					if (control_value > 0) {
+						const split_id = `${mode}_control_${index}`;
+						const control_payment = {
+							id: split_id,
+							mode: mode,
+							mode_of_payment: payment.mode_of_payment,
+							display_name: payment.mode_of_payment,
+							amount: control_value,
+							type: payment.type || 'Cash',
+							reference_number: '',
+							notes: 'Loaded from payment control',
+							is_existing: true
+						};
+						
+						this.split_payments.push(control_payment);
+						console.log('Added control payment:', control_payment);
+					}
 				}
 			});
 			
-			// Last resort - create a generic payment entry
-			if (this.split_payments.length === 0 && payment_modes.length > 0) {
-				const first_payment = payment_modes[0];
-				const mode = first_payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+			// Last resort - distribute paid_amount across available payment methods
+			if (this.split_payments.length === 0 && doc.payments.length > 0) {
+				console.log('Creating fallback payment entry...');
+				
+				// Find the first available payment method or default one
+				let target_payment = doc.payments.find(p => p.default) || doc.payments[0];
+				const mode = target_payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+				
 				const fallback_payment = {
 					id: `${mode}_fallback_0`,
 					mode: mode,
-					mode_of_payment: first_payment.mode_of_payment,
-					display_name: first_payment.mode_of_payment + ' (Fallback)',
+					mode_of_payment: target_payment.mode_of_payment,
+					display_name: target_payment.mode_of_payment + ' (Auto-detected)',
 					amount: doc.paid_amount,
-					type: first_payment.type || 'Cash',
+					type: target_payment.type || 'Cash',
 					reference_number: '',
-					notes: 'Fallback payment entry',
+					notes: 'Auto-detected from paid amount',
 					is_existing: true
 				};
 				
@@ -598,6 +638,74 @@ posnext.PointOfSale.Payment = class {
 		
 		console.log('Final loaded split payments:', this.split_payments);
 		console.log('Split total:', this.get_split_total());
+		console.log('Document paid_amount after load:', doc.paid_amount);
+	}
+
+	// New method to sync document payments to split display
+	sync_document_payments_to_split() {
+		const doc = this.events.get_frm().doc;
+		
+		console.log('Syncing document payments to split display...');
+		
+		// Clear current split payments
+		this.split_payments = [];
+		
+		// Load from document payments
+		if (doc.payments && Array.isArray(doc.payments)) {
+			doc.payments.forEach((payment, index) => {
+				if (payment.amount && payment.amount > 0) {
+					const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+					
+					const existing_payment = {
+						id: `${mode}_sync_${index}`,
+						mode: mode,
+						mode_of_payment: payment.mode_of_payment,
+						display_name: payment.mode_of_payment,
+						amount: payment.amount,
+						type: payment.type || 'Cash',
+						reference_number: payment.reference_no || '',
+						notes: payment.remarks || '',
+						is_existing: true
+					};
+					
+					this.split_payments.push(existing_payment);
+					console.log('Synced payment:', existing_payment);
+				}
+			});
+		}
+		
+		// Renumber and update display
+		this.renumber_same_payment_methods();
+		this.render_split_payments_list();
+		this.update_split_summary();
+		this.show_payment_status();
+		
+		console.log('Sync complete. Split payments:', this.split_payments);
+	}
+
+	// Add this method to force refresh payments when document is updated
+	refresh_payments_display() {
+		const doc = this.events.get_frm().doc;
+		
+		console.log('Refreshing payments display...');
+		console.log('Current document state:', {
+			name: doc.name,
+			status: doc.status,
+			paid_amount: doc.paid_amount,
+			payments: doc.payments,
+			is_split_mode: this.is_split_mode
+		});
+		
+		if (this.is_split_mode) {
+			// Reload payments in split mode
+			this.sync_document_payments_to_split();
+		} else {
+			// Check if we should enable split mode
+			this.check_for_existing_payments();
+		}
+		
+		// Always update totals
+		this.update_totals_section(doc);
 	}
 
 	render_split_payment_modes() {
@@ -1136,6 +1244,11 @@ posnext.PointOfSale.Payment = class {
 		// Small delay to ensure DOM is ready before checking payments
 		setTimeout(() => {
 			this.check_for_existing_payments();
+			
+			// Additional check: if we enabled split mode, make sure payments are loaded
+			if (this.is_split_mode) {
+				this.sync_document_payments_to_split();
+			}
 		}, 100);
 		
 		this.focus_on_default_mop();
@@ -1234,31 +1347,47 @@ posnext.PointOfSale.Payment = class {
 	check_for_existing_payments() {
 		const doc = this.events.get_frm().doc;
 		
+		console.log('Checking for existing payments...');
+		console.log('Document status:', doc.status);
+		console.log('Document paid_amount:', doc.paid_amount);
+		console.log('Document payments:', doc.payments);
+		
 		// More thorough check for existing payments
 		let has_existing_payments = false;
+		let total_existing_amount = 0;
 		
-		// Check 1: payments array
+		// Check 1: payments array for amounts > 0
 		if (doc.payments && Array.isArray(doc.payments)) {
-			has_existing_payments = doc.payments.some(payment => 
-				payment.amount && payment.amount > 0
-			);
+			doc.payments.forEach(payment => {
+				if (payment.amount && payment.amount > 0) {
+					has_existing_payments = true;
+					total_existing_amount += payment.amount;
+					console.log(`Found payment: ${payment.mode_of_payment} = ${payment.amount}`);
+				}
+			});
 		}
 		
-		// Check 2: paid_amount field
+		// Check 2: paid_amount field (fallback check)
 		if (!has_existing_payments && doc.paid_amount && doc.paid_amount > 0) {
 			has_existing_payments = true;
+			total_existing_amount = doc.paid_amount;
+			console.log(`Found paid_amount: ${doc.paid_amount}`);
 		}
 		
-		// Check 3: payment controls
+		// Check 3: payment controls (last resort)
 		if (!has_existing_payments && doc.payments) {
 			doc.payments.forEach(payment => {
 				const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
 				const control = this[`${mode}_control`];
 				if (control && control.get_value() > 0) {
 					has_existing_payments = true;
+					total_existing_amount += control.get_value();
+					console.log(`Found control value: ${payment.mode_of_payment} = ${control.get_value()}`);
 				}
 			});
 		}
+		
+		console.log(`Has existing payments: ${has_existing_payments}, Total: ${total_existing_amount}`);
 		
 		if (has_existing_payments && !this.is_split_mode) {
 			// Automatically enable split payment mode
@@ -1266,7 +1395,7 @@ posnext.PointOfSale.Payment = class {
 			this.toggle_split_payment_mode(true);
 			
 			frappe.show_alert({
-				message: __("Split payment mode enabled automatically due to existing payments"),
+				message: __("Split payment mode enabled automatically (Found payments: {0})", [format_currency(total_existing_amount, doc.currency)]),
 				indicator: "blue"
 			});
 		}
