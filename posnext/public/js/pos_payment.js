@@ -527,118 +527,304 @@ posnext.PointOfSale.Payment = class {
 		}
 	}
 
+	// Enhanced debugging and payment detection for edited orders
+	check_for_existing_payments() {
+		const doc = this.events.get_frm().doc;
+		
+		console.log('=== EDIT ORDER FLOW DEBUGGING ===');
+		console.log('Document details:', {
+			name: doc.name,
+			original_name: doc.__original_name || 'Not set',
+			is_local: doc.__islocal,
+			is_new: doc.name && doc.name.startsWith('new-'),
+			docstatus: doc.docstatus,
+			status: doc.status,
+			creation: doc.creation,
+			modified: doc.modified
+		});
+		
+		// Check if this looks like an edited existing order
+		const is_edited_order = (
+			doc.name.startsWith('new-') && 
+			(doc.creation || doc.modified || doc.status !== 'Draft')
+		);
+		
+		if (is_edited_order) {
+			console.log('🔍 This appears to be an EDITED existing order!');
+			console.log('Looking for payment indicators...');
+			
+			// For edited orders, be more aggressive in looking for payment signs
+			let has_payment_indicators = false;
+			let reasons = [];
+			
+			// Check 1: Any payment amounts > 0
+			if (doc.payments && Array.isArray(doc.payments)) {
+				doc.payments.forEach(payment => {
+					if (payment.amount && payment.amount > 0) {
+						has_payment_indicators = true;
+						reasons.push(`Payment: ${payment.mode_of_payment} = ${payment.amount}`);
+					}
+				});
+			}
+			
+			// Check 2: Paid amount > 0
+			if (doc.paid_amount && doc.paid_amount > 0) {
+				has_payment_indicators = true;
+				reasons.push(`Paid amount: ${doc.paid_amount}`);
+			}
+			
+			// Check 3: Status indicates payment
+			if (doc.status && ['Partly Paid', 'Paid'].includes(doc.status)) {
+				has_payment_indicators = true;
+				reasons.push(`Status: ${doc.status}`);
+			}
+			
+			// Check 4: Outstanding amount calculation
+			if (doc.outstanding_amount && doc.grand_total && doc.outstanding_amount < doc.grand_total) {
+				has_payment_indicators = true;
+				const paid = doc.grand_total - doc.outstanding_amount;
+				reasons.push(`Outstanding suggests payment: ${paid}`);
+			}
+			
+			// Check 5: Creation/modification date suggests it's not truly new
+			if (doc.creation || doc.modified) {
+				has_payment_indicators = true;
+				reasons.push('Has creation/modified date');
+			}
+			
+			console.log('Payment indicators found:', has_payment_indicators);
+			console.log('Reasons:', reasons);
+			
+			if (has_payment_indicators && !this.is_split_mode) {
+				console.log('🎯 Enabling split mode for edited order');
+				this.$component.find('#split-payment-checkbox').prop('checked', true);
+				this.toggle_split_payment_mode(true);
+				
+				frappe.show_alert({
+					message: __("Split payment mode enabled for edited order: {0}", [reasons.join(', ')]),
+					indicator: "blue"
+				});
+				return;
+			}
+		}
+		
+		// Continue with normal logic for truly new orders
+		console.log('📝 Processing as normal order...');
+		
+		// Standard check for existing payments
+		let has_existing_payments = false;
+		let total_existing_amount = 0;
+		
+		// Check 1: payments array for amounts > 0
+		if (doc.payments && Array.isArray(doc.payments)) {
+			doc.payments.forEach(payment => {
+				if (payment.amount && payment.amount > 0) {
+					has_existing_payments = true;
+					total_existing_amount += payment.amount;
+					console.log(`Found payment: ${payment.mode_of_payment} = ${payment.amount}`);
+				}
+			});
+		}
+		
+		// Check 2: paid_amount field (fallback check)
+		if (!has_existing_payments && doc.paid_amount && doc.paid_amount > 0) {
+			has_existing_payments = true;
+			total_existing_amount = doc.paid_amount;
+			console.log(`Found paid_amount: ${doc.paid_amount}`);
+		}
+		
+		// Check 3: payment controls (last resort)
+		if (!has_existing_payments && doc.payments) {
+			doc.payments.forEach(payment => {
+				const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+				const control = this[`${mode}_control`];
+				if (control && control.get_value() > 0) {
+					has_existing_payments = true;
+					total_existing_amount += control.get_value();
+					console.log(`Found control value: ${payment.mode_of_payment} = ${control.get_value()}`);
+				}
+			});
+		}
+		
+		console.log(`Has existing payments: ${has_existing_payments}, Total: ${total_existing_amount}`);
+		
+		if (has_existing_payments && !this.is_split_mode) {
+			// Automatically enable split payment mode
+			this.$component.find('#split-payment-checkbox').prop('checked', true);
+			this.toggle_split_payment_mode(true);
+			
+			frappe.show_alert({
+				message: __("Split payment mode enabled automatically (Found payments: {0})", [format_currency(total_existing_amount, doc.currency)]),
+				indicator: "blue"
+			});
+		}
+	}
+
+	// Enhanced load_existing_payments method for edited orders
 	load_existing_payments() {
 		const doc = this.events.get_frm().doc;
+		
+		console.log('=== LOADING PAYMENTS FOR EDITED ORDER ===');
+		console.log('Document name:', doc.name);
+		console.log('Is edited order:', doc.name.startsWith('new-') && (doc.creation || doc.status !== 'Draft'));
 		
 		// Clear existing split payments
 		this.split_payments = [];
 		
-		console.log('Loading existing payments for doc:', doc.name);
-		console.log('Document payments:', doc.payments);
-		console.log('Document paid_amount:', doc.paid_amount);
-		console.log('Document status:', doc.status);
-		
-		// Check if doc.payments exists and has entries
 		if (!doc.payments || !Array.isArray(doc.payments)) {
 			console.log('No payments array found');
 			return;
 		}
 		
-		// Load existing payments that have amounts > 0
-		doc.payments.forEach((payment, index) => {
-			console.log(`Processing payment ${index}:`, payment);
+		// For edited orders, also check for historical payment data
+		// that might be stored in remarks or other fields
+		if (doc.name.startsWith('new-') && doc.remarks) {
+			console.log('Checking remarks for split payment history:', doc.remarks);
 			
-			// Check if payment has amount and amount > 0
-			if (payment.amount && payment.amount > 0) {
-				const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-				
-				const split_id = `${mode}_existing_${index}`;
-				const existing_payment = {
-					id: split_id,
-					mode: mode,
-					mode_of_payment: payment.mode_of_payment,
-					display_name: payment.mode_of_payment,
-					amount: payment.amount,
-					type: payment.type || 'Cash',
-					reference_number: payment.reference_no || '',
-					notes: payment.remarks || '',
-					is_existing: true
-				};
-				
-				this.split_payments.push(existing_payment);
-				console.log('Added existing payment:', existing_payment);
-			}
-		});
-		
-		// If no payments found but paid_amount > 0, try to reconstruct from controls
-		if (this.split_payments.length === 0 && doc.paid_amount > 0) {
-			console.log('No payments found but paid_amount > 0, checking payment controls...');
-			
-			// Check each payment method control for values
-			doc.payments.forEach((payment, index) => {
-				const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-				const control = this[`${mode}_control`];
-				
-				if (control) {
-					const control_value = control.get_value();
-					console.log(`Control ${mode} value:`, control_value);
-					
-					if (control_value > 0) {
-						const split_id = `${mode}_control_${index}`;
-						const control_payment = {
-							id: split_id,
-							mode: mode,
-							mode_of_payment: payment.mode_of_payment,
-							display_name: payment.mode_of_payment,
-							amount: control_value,
-							type: payment.type || 'Cash',
-							reference_number: '',
-							notes: 'Loaded from payment control',
-							is_existing: true
-						};
-						
-						this.split_payments.push(control_payment);
-						console.log('Added control payment:', control_payment);
-					}
-				}
-			});
-			
-			// Last resort - distribute paid_amount across available payment methods
-			if (this.split_payments.length === 0 && doc.payments.length > 0) {
-				console.log('Creating fallback payment entry...');
-				
-				// Find the first available payment method or default one
-				let target_payment = doc.payments.find(p => p.default) || doc.payments[0];
-				const mode = target_payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-				
-				const fallback_payment = {
-					id: `${mode}_fallback_0`,
-					mode: mode,
-					mode_of_payment: target_payment.mode_of_payment,
-					display_name: target_payment.mode_of_payment + ' (Auto-detected)',
-					amount: doc.paid_amount,
-					type: target_payment.type || 'Cash',
-					reference_number: '',
-					notes: 'Auto-detected from paid amount',
-					is_existing: true
-				};
-				
-				this.split_payments.push(fallback_payment);
-				console.log('Added fallback payment:', fallback_payment);
+			// Look for split payment summary in remarks
+			if (doc.remarks.includes('Split Payment:')) {
+				console.log('Found split payment history in remarks!');
+				this.parse_split_payment_from_remarks(doc.remarks);
 			}
 		}
 		
-		// Renumber the loaded payments
-		this.renumber_same_payment_methods();
+		// Process current payments array
+		doc.payments.forEach((payment, index) => {
+			console.log(`Processing payment ${index}:`, {
+				mode: payment.mode_of_payment,
+				amount: payment.amount,
+				reference: payment.reference_no,
+				remarks: payment.remarks
+			});
+			
+			if (payment.amount && payment.amount > 0) {
+				const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+				
+				// Try to parse split details from payment remarks
+				let split_details = [];
+				if (payment.remarks) {
+					try {
+						split_details = JSON.parse(payment.remarks);
+						console.log('Parsed split details:', split_details);
+					} catch (e) {
+						// Not JSON, treat as single payment
+						split_details = [{
+							amount: payment.amount,
+							reference: payment.reference_no || '',
+							notes: payment.remarks || '',
+							display_name: payment.mode_of_payment
+						}];
+					}
+				} else {
+					// No remarks, single payment
+					split_details = [{
+						amount: payment.amount,
+						reference: payment.reference_no || '',
+						notes: '',
+						display_name: payment.mode_of_payment
+					}];
+				}
+				
+				// Add each split detail as a separate entry
+				split_details.forEach((detail, detail_index) => {
+					if (detail.amount && detail.amount > 0) {
+						const split_id = `${mode}_existing_${index}_${detail_index}`;
+						const existing_payment = {
+							id: split_id,
+							mode: mode,
+							mode_of_payment: payment.mode_of_payment,
+							display_name: detail.display_name || payment.mode_of_payment,
+							amount: detail.amount,
+							type: payment.type || 'Cash',
+							reference_number: detail.reference || payment.reference_no || '',
+							notes: detail.notes || payment.remarks || '',
+							is_existing: true
+						};
+						
+						this.split_payments.push(existing_payment);
+						console.log('Added existing payment:', existing_payment);
+					}
+				});
+			}
+		});
 		
-		// Update the UI
+		// If still no payments found but document suggests payments exist
+		if (this.split_payments.length === 0 && (doc.paid_amount > 0 || doc.status === 'Partly Paid')) {
+			console.log('Creating fallback payment from document state...');
+			this.create_fallback_payment_from_document(doc);
+		}
+		
+		// Renumber and update display
+		this.renumber_same_payment_methods();
 		this.render_split_payments_list();
 		this.update_split_summary();
 		this.show_payment_status();
 		
 		console.log('Final loaded split payments:', this.split_payments);
-		console.log('Split total:', this.get_split_total());
-		console.log('Document paid_amount after load:', doc.paid_amount);
+	}
+
+	// Helper method to parse split payment data from remarks
+	parse_split_payment_from_remarks(remarks) {
+		try {
+			// Extract split payment section from remarks
+			const split_section = remarks.split('Split Payment:')[1];
+			if (!split_section) return;
+			
+			// Parse payment entries (format: "Method: Amount (Ref: xxx) - notes | ...")
+			const payment_entries = split_section.split(' | ');
+			
+			payment_entries.forEach((entry, index) => {
+				const parts = entry.trim().match(/(.+?):\s*([^(]+)(?:\(Ref:\s*([^)]*)\))?(?:\s*-\s*(.+))?/);
+				if (parts) {
+					const [, display_name, amount_str, reference, notes] = parts;
+					const amount = parseFloat(amount_str.replace(/[^0-9.-]/g, ''));
+					
+					if (amount > 0) {
+						const mode = display_name.replace(/ +/g, "_").toLowerCase();
+						const split_payment = {
+							id: `remarks_${mode}_${index}`,
+							mode: mode,
+							mode_of_payment: display_name.replace(/ #\d+$/, ''), // Remove numbering
+							display_name: display_name,
+							amount: amount,
+							type: 'Cash', // Default
+							reference_number: reference || '',
+							notes: notes || '',
+							is_existing: true
+						};
+						
+						this.split_payments.push(split_payment);
+						console.log('Parsed from remarks:', split_payment);
+					}
+				}
+			});
+		} catch (error) {
+			console.error('Error parsing split payment from remarks:', error);
+		}
+	}
+
+	// Helper method to create fallback payment
+	create_fallback_payment_from_document(doc) {
+		if (doc.payments && doc.payments.length > 0) {
+			// Use the first available payment method
+			const first_payment = doc.payments.find(p => p.default) || doc.payments[0];
+			const mode = first_payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+			
+			const fallback_payment = {
+				id: `fallback_${mode}_0`,
+				mode: mode,
+				mode_of_payment: first_payment.mode_of_payment,
+				display_name: first_payment.mode_of_payment + ' (Auto-detected)',
+				amount: doc.paid_amount,
+				type: first_payment.type || 'Cash',
+				reference_number: '',
+				notes: 'Auto-detected from edited order',
+				is_existing: true
+			};
+			
+			this.split_payments.push(fallback_payment);
+			console.log('Created fallback payment:', fallback_payment);
+		}
 	}
 
 	// New method to sync document payments to split display
@@ -1342,63 +1528,6 @@ posnext.PointOfSale.Payment = class {
 
 		this.render_loyalty_points_payment_mode();
 		this.attach_cash_shortcuts(doc);
-	}
-
-	check_for_existing_payments() {
-		const doc = this.events.get_frm().doc;
-		
-		console.log('Checking for existing payments...');
-		console.log('Document status:', doc.status);
-		console.log('Document paid_amount:', doc.paid_amount);
-		console.log('Document payments:', doc.payments);
-		
-		// More thorough check for existing payments
-		let has_existing_payments = false;
-		let total_existing_amount = 0;
-		
-		// Check 1: payments array for amounts > 0
-		if (doc.payments && Array.isArray(doc.payments)) {
-			doc.payments.forEach(payment => {
-				if (payment.amount && payment.amount > 0) {
-					has_existing_payments = true;
-					total_existing_amount += payment.amount;
-					console.log(`Found payment: ${payment.mode_of_payment} = ${payment.amount}`);
-				}
-			});
-		}
-		
-		// Check 2: paid_amount field (fallback check)
-		if (!has_existing_payments && doc.paid_amount && doc.paid_amount > 0) {
-			has_existing_payments = true;
-			total_existing_amount = doc.paid_amount;
-			console.log(`Found paid_amount: ${doc.paid_amount}`);
-		}
-		
-		// Check 3: payment controls (last resort)
-		if (!has_existing_payments && doc.payments) {
-			doc.payments.forEach(payment => {
-				const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-				const control = this[`${mode}_control`];
-				if (control && control.get_value() > 0) {
-					has_existing_payments = true;
-					total_existing_amount += control.get_value();
-					console.log(`Found control value: ${payment.mode_of_payment} = ${control.get_value()}`);
-				}
-			});
-		}
-		
-		console.log(`Has existing payments: ${has_existing_payments}, Total: ${total_existing_amount}`);
-		
-		if (has_existing_payments && !this.is_split_mode) {
-			// Automatically enable split payment mode
-			this.$component.find('#split-payment-checkbox').prop('checked', true);
-			this.toggle_split_payment_mode(true);
-			
-			frappe.show_alert({
-				message: __("Split payment mode enabled automatically (Found payments: {0})", [format_currency(total_existing_amount, doc.currency)]),
-				indicator: "blue"
-			});
-		}
 	}
 
 	focus_on_default_mop() {
