@@ -1,1444 +1,1371 @@
+/* eslint-disable no-unused-vars */
 frappe.provide('posnext.PointOfSale');
-posnext.PointOfSale.PastOrderSummary = class {
-	constructor({ wrapper, pos_profile,events }) {
+posnext.PointOfSale.Payment = class {
+	constructor({ events, wrapper }) {
 		this.wrapper = wrapper;
-		this.pos_profile = pos_profile;
 		this.events = events;
-		//this.print_receipt_on_order_complete = settings.print_receipt_on_order_complete;
-		
+		this.split_payments = []; // Store multiple payment methods
+		this.is_split_mode = false; // Track if we're in split payment mode
+		this.allow_overpayment = true; // Allow overpayment in split mode
+		this.auto_set_amount = false; // Disable auto-setting amount to grand total
+
 		this.init_component();
 	}
 
 	init_component() {
 		this.prepare_dom();
-		this.init_email_print_dialog();
+		this.initialize_numpad();
 		this.bind_events();
 		this.attach_shortcuts();
 	}
 
 	prepare_dom() {
 		this.wrapper.append(
-			`<section class="past-order-summary">
-				<div class="no-summary-placeholder">
-					${__('Select an invoice to load summary data')}
-				</div>
-				<div class="invoice-summary-wrapper" >
-					<div class="abs-container" >
-						<div class="upper-section"></div>
-						<div class="label">${__('Items')}</div>
-						<div class="items-container summary-container"></div>
-						<div class="label">${__('Totals')}</div>
-						<div class="totals-container summary-container"></div>
-						<div class="label">${__('Payments')}</div>
-						<div class="payments-container summary-container"></div>
-						<div class="summary-btns"></div>
+			`<section class="payment-container">
+				<div class="section-label payment-section">
+					${__('Payment Method')}
+					<div class="split-payment-toggle">
+						<label class="switch">
+							<input type="checkbox" id="split-payment-checkbox">
+							<span class="slider round"></span>
+						</label>
+						<span class="split-label">${__('Split Payment')}</span>
 					</div>
 				</div>
+				<div class="payment-modes"></div>
+				<div class="split-payments-container" style="display: none;">
+					<div class="section-label">${__('Split Payments')}</div>
+					<div class="split-payments-list"></div>
+					<div class="split-payment-summary">
+						<div class="split-total">
+							<span>${__('Total Allocated')}: </span>
+							<span class="split-total-amount">0.00</span>
+						</div>
+						<div class="split-remaining">
+							<span>${__('Remaining')}: </span>
+							<span class="split-remaining-amount">0.00</span>
+						</div>
+						<div class="split-change" style="display: none;">
+							<span>${__('Change')}: </span>
+							<span class="split-change-amount">0.00</span>
+						</div>
+					</div>
+					<div class="split-payment-actions">
+						<button class="btn btn-sm btn-warning save-partial-payment-btn">
+							${__('Save Partial Payment')}
+						</button>
+					</div>
+				</div>
+				<div class="totals-section">
+					<div class="totals"></div>
+				</div>
+				<div class="submit-order-btn">${__("Complete Order")}</div>
 			</section>`
 		);
+		
+		// Add CSS for split payment functionality
+		if (!$('#split-payment-styles').length) {
+			$('head').append(`
+				<style id="split-payment-styles">
+					.payment-section {
+						display: flex;
+						justify-content: space-between;
+						align-items: center;
+					}
+					
+					.split-payment-toggle {
+						display: flex;
+						align-items: center;
+						gap: 10px;
+						margin-left: auto;
+					}
+					
+					.switch {
+						position: relative;
+						display: inline-block;
+						width: 50px;
+						height: 24px;
+					}
+					
+					.switch input {
+						opacity: 0;
+						width: 0;
+						height: 0;
+					}
+					
+					.slider {
+						position: absolute;
+						cursor: pointer;
+						top: 0;
+						left: 0;
+						right: 0;
+						bottom: 0;
+						background-color: #ccc;
+						transition: .4s;
+						border-radius: 24px;
+					}
+					
+					.slider:before {
+						position: absolute;
+						content: "";
+						height: 18px;
+						width: 18px;
+						left: 3px;
+						bottom: 3px;
+						background-color: white;
+						transition: .4s;
+						border-radius: 50%;
+					}
+					
+					input:checked + .slider {
+						background-color: #2196F3;
+					}
+					
+					input:checked + .slider:before {
+						transform: translateX(26px);
+					}
+					
+					.split-payments-container {
+						border: 1px solid #e0e0e0;
+						border-radius: 8px;
+						padding: 15px;
+						margin: 10px 0;
+						background-color: #f9f9f9;
+					}
+					
+					.split-payment-item {
+						display: flex;
+						justify-content: space-between;
+						align-items: flex-start;
+						padding: 12px;
+						border: 1px solid #e0e0e0;
+						border-radius: 6px;
+						margin-bottom: 8px;
+						background-color: white;
+					}
+					
+					.split-payment-info {
+						flex: 1;
+						display: flex;
+						flex-direction: column;
+					}
+					
+					.split-payment-method {
+						font-weight: bold;
+						color: #333;
+						margin-bottom: 4px;
+					}
+					
+					.split-payment-details {
+						display: flex;
+						gap: 8px;
+						flex-wrap: wrap;
+					}
+					
+					.split-reference-input, .split-notes-input {
+						border: 1px solid #ddd;
+						border-radius: 3px;
+						padding: 2px 6px;
+					}
+					
+					.split-payment-actions {
+						display: flex;
+						align-items: center;
+						gap: 8px;
+					}
+					
+					.split-payment-amount {
+						color: #2196F3;
+						font-weight: bold;
+						font-size: 14px;
+					}
+					
+					.split-payment-edit, .split-payment-remove {
+						padding: 4px 8px;
+						border: none;
+						border-radius: 4px;
+						cursor: pointer;
+						font-size: 12px;
+					}
+					
+					.split-payment-edit {
+						background: #17a2b8;
+						color: white;
+					}
+					
+					.split-payment-remove {
+						background: #dc3545;
+						color: white;
+					}
+					
+					.split-payment-summary {
+						margin-top: 15px;
+						padding-top: 15px;
+						border-top: 2px solid #2196F3;
+						font-weight: bold;
+					}
+					
+					.split-total, .split-remaining, .split-change {
+						display: flex;
+						justify-content: space-between;
+						margin: 5px 0;
+					}
+					
+					.split-remaining-amount {
+						color: #ff6b6b;
+					}
+					
+					.split-total-amount {
+						color: #4CAF50;
+					}
+					
+					.split-change-amount {
+						color: #2196F3;
+					}
+					
+					.payment-mode-split-active {
+						border: 2px solid #2196F3 !important;
+						background-color: #e3f2fd !important;
+					}
+					
+					.add-to-split-btn {
+						margin-top: 5px;
+						width: 100%;
+					}
+					
+					.split-payment-actions {
+						margin-top: 15px;
+						text-align: center;
+					}
+					
+					.save-partial-payment-btn {
+						background-color: #ffc107;
+						border-color: #ffc107;
+						color: #212529;
+					}
+					
+					.save-partial-payment-btn:hover {
+						background-color: #e0a800;
+						border-color: #d39e00;
+					}
+					
+					.payment-status-partial {
+						background-color: #fff3cd;
+						border: 1px solid #ffeaa7;
+						border-radius: 4px;
+						padding: 8px;
+						margin: 10px 0;
+						color: #856404;
+					}
+				</style>
+			`);
+		}
 
-		this.$component = this.wrapper.find('.past-order-summary');
-		this.$summary_wrapper = this.$component.find('.invoice-summary-wrapper');
-		this.$summary_container = this.$component.find('.abs-container');
-		this.$upper_section = this.$summary_container.find('.upper-section');
-		this.$items_container = this.$summary_container.find('.items-container');
-		this.$totals_container = this.$summary_container.find('.totals-container');
-		this.$payment_container = this.$summary_container.find('.payments-container');
-		this.$summary_btns = this.$summary_container.find('.summary-btns');
+		this.$component = this.wrapper.find('.payment-container');
+		this.$payment_modes = this.$component.find('.payment-modes');
+		this.$split_container = this.$component.find('.split-payments-container');
+		this.$split_list = this.$component.find('.split-payments-list');
+		this.$totals_section = this.$component.find('.totals-section');
+		this.$totals = this.$component.find('.totals');
 	}
 
-	init_email_print_dialog() {
-		const email_dialog = new frappe.ui.Dialog({
-			title: 'Email Receipt',
-			fields: [
-				{fieldname: 'email_id', fieldtype: 'Data', options: 'Email', label: 'Email ID', reqd: 1},
-				{fieldname:'content', fieldtype:'Small Text', label:'Message (if any)'}
-			],
-			primary_action: () => {
-				this.send_email();
-			},
-			primary_action_label: __('Send'),
-		});
-		this.email_dialog = email_dialog;
-
-		const print_dialog = new frappe.ui.Dialog({
-			title: 'Print Receipt',
-			fields: [
-				{fieldname: 'print', fieldtype: 'Data', label: 'Print Preview'}
-			],
-			primary_action: () => {
-				this.print_receipt();
-			},
-			primary_action_label: __('Print'),
-		});
-		this.print_dialog = print_dialog;
-
-		const print_order_dialog = new frappe.ui.Dialog({
-			title: 'Print-Order',
-			fields: [
-				{fieldname: 'print', fieldtype: 'Data', label: 'Print Preview'}
-			],
-			primary_action: () => {
-				this.print_order();
-			},
-			primary_action_label: __('Print'),
-		});
-		this.print_order_dialog = print_order_dialog;
+	make_invoice_fields_control() {
+		// Removed - additional information section no longer exists
+		return;
 	}
 
-	get_upper_section_html(doc) {
-		const { status } = doc;
-		let indicator_color = '';
-
-		in_list(['Paid', 'Consolidated'], status) && (indicator_color = 'green');
-		status === 'Draft' && (indicator_color = 'red');
-		status === 'Return' && (indicator_color = 'grey');
-
-		return `<div class="left-section">
-					<div class="customer-name">${doc.customer}</div>
-					<div class="customer-email">${this.customer_email}</div>
-					<div class="cashier">${__('Sold by')}: ${doc.created_by_name}</div>
-				</div>
-				<div class="right-section">
-					<div class="paid-amount">${format_currency(doc.paid_amount, doc.currency)}</div>
-					<div class="invoice-name">${doc.name}</div>
-					<span class="indicator-pill whitespace-nowrap ${indicator_color}"><span>${doc.status}</span></span>
-				</div>`;
+	initialize_numpad() {
+		// Removed - numpad no longer exists
+		this.numpad_value = '';
 	}
 
-	get_item_html(doc, item_data) {
-		return `<div class="item-row-wrapper">
-					<div class="item-name">${item_data.item_name}</div>
-					<div class="item-qty">${item_data.qty || 0} ${item_data.uom}</div>
-					<div class="item-rate-disc">${get_rate_discount_html()}</div>
-				</div>`;
+	on_numpad_clicked($btn) {
+		// Removed - numpad no longer exists
+		return;
+	}
 
-		function get_rate_discount_html() {
-			if (item_data.rate && item_data.price_list_rate && item_data.rate !== item_data.price_list_rate) {
-				return `<span class="item-disc">(${item_data.discount_percentage}% off)</span>
-						<div class="item-rate">${format_currency(item_data.rate, doc.currency)}</div>`;
+	bind_events() {
+		const me = this;
+
+		// Split payment toggle
+		this.$component.on('change', '#split-payment-checkbox', function() {
+			me.toggle_split_payment_mode($(this).is(':checked'));
+		});
+
+		// Modified payment mode click handler for split payments
+		this.$payment_modes.on('click', '.mode-of-payment', function(e) {
+			const mode_clicked = $(this);
+			if (!$(e.target).is(mode_clicked)) return;
+
+			const mode = mode_clicked.attr('data-mode');
+			
+			if (me.is_split_mode) {
+				me.handle_split_payment_selection(mode_clicked, mode);
 			} else {
-				return `<div class="item-rate">${format_currency(item_data.price_list_rate || item_data.rate, doc.currency)}</div>`;
+				me.handle_regular_payment_selection(mode_clicked, mode);
 			}
-		}
+		});
+
+		// Add payment to split
+		this.$component.on('click', '.add-to-split-btn', function() {
+			const mode = $(this).closest('.mode-of-payment').attr('data-mode');
+			const amount = me[`${mode}_control`] ? parseFloat(me[`${mode}_control`].get_value()) || 0 : 0;
+			
+			if (amount > 0) {
+				me.add_split_payment(mode, amount);
+			} else {
+				frappe.show_alert({
+					message: __("Please enter an amount greater than 0"),
+					indicator: "orange"
+				});
+			}
+		});
+
+		// Remove split payment
+		this.$component.on('click', '.split-payment-remove', function() {
+			const index = $(this).data('index');
+			me.remove_split_payment(index);
+		});
+
+		// Edit split payment amount
+		this.$component.on('click', '.split-payment-edit', function() {
+			const index = $(this).data('index');
+			me.edit_split_payment(index);
+		});
+
+		// Update reference number
+		this.$component.on('blur', '.split-reference-input', function() {
+			const index = $(this).data('index');
+			const value = $(this).val();
+			if (me.split_payments[index]) {
+				me.split_payments[index].reference_number = value;
+			}
+		});
+
+		// Update notes
+		this.$component.on('blur', '.split-notes-input', function() {
+			const index = $(this).data('index');
+			const value = $(this).val();
+			if (me.split_payments[index]) {
+				me.split_payments[index].notes = value;
+			}
+		});
+
+		// Save partial payment
+		this.$component.on('click', '.save-partial-payment-btn', function() {
+			if (me.split_payments.length === 0) {
+				frappe.show_alert({
+					message: __("Please add at least one payment method"),
+					indicator: "orange"
+				});
+				return;
+			}
+			me.save_partial_payment();
+		});
+
+		frappe.ui.form.on('POS Invoice', 'contact_mobile', (frm) => {
+			const contact = frm.doc.contact_mobile;
+			const request_button = $(this.request_for_payment_field?.$input[0]);
+			if (contact) {
+				request_button.removeClass('btn-default').addClass('btn-primary');
+			} else {
+				request_button.removeClass('btn-primary').addClass('btn-default');
+			}
+		});
+
+		frappe.ui.form.on('POS Invoice', 'coupon_code', (frm) => {
+			if (frm.doc.coupon_code && !frm.applying_pos_coupon_code) {
+				if (!frm.doc.ignore_pricing_rule) {
+					frm.applying_pos_coupon_code = true;
+					frappe.run_serially([
+						() => frm.doc.ignore_pricing_rule=1,
+						() => frm.trigger('ignore_pricing_rule'),
+						() => frm.doc.ignore_pricing_rule=0,
+						() => frm.trigger('apply_pricing_rule'),
+						() => frm.save(),
+						() => this.update_totals_section(frm.doc),
+						() => (frm.applying_pos_coupon_code = false)
+					]);
+				} else if (frm.doc.ignore_pricing_rule) {
+					frappe.show_alert({
+						message: __("Ignore Pricing Rule is enabled. Cannot apply coupon code."),
+						indicator: "orange"
+					});
+				}
+			}
+		});
+
+		this.setup_listener_for_payments();
+
+		this.$payment_modes.on('click', '.shortcut', function() {
+			const value = $(this).attr('data-value');
+			me.selected_mode.set_value(value);
+		});
+
+		this.$component.on('click', '.submit-order-btn', () => {
+			const doc = this.events.get_frm().doc;
+			const items = doc.items;
+			const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
+			
+			if (!items.length) {
+				frappe.show_alert({ 
+					message: __("You cannot submit empty order."), 
+					indicator: "orange" 
+				});
+				frappe.utils.play_sound("error");
+				return;
+			}
+
+			if (me.is_split_mode) {
+				// In split mode, check if payment is complete
+				const split_total = me.get_split_total();
+				
+				if (split_total < grand_total) {
+					const remaining = grand_total - split_total;
+					frappe.show_alert({
+						message: __("Payment incomplete. Remaining amount: {0}. Use 'Save Partial Payment' or add more payments.", [format_currency(remaining, doc.currency)]),
+						indicator: "orange"
+					});
+					frappe.utils.play_sound("error");
+					return;
+				}
+				
+				// Apply split payments and complete
+				me.apply_split_payments_to_doc();
+				
+				// Calculate change if overpaid
+				if (split_total > grand_total) {
+					const change_amount = split_total - grand_total;
+					frappe.model.set_value(doc.doctype, doc.name, 'change_amount', change_amount);
+				}
+			} else {
+				// Regular mode - check paid amount
+				const paid_amount = doc.paid_amount;
+				
+				if (paid_amount == 0) {
+					frappe.show_alert({ 
+						message: __("You cannot submit the order without payment."), 
+						indicator: "orange" 
+					});
+					frappe.utils.play_sound("error");
+					return;
+				}
+			}
+
+			this.events.submit_invoice();
+		});
+
+		frappe.ui.form.on('POS Invoice', 'paid_amount', (frm) => {
+			this.update_totals_section(frm.doc);
+
+			// need to re calculate cash shortcuts after discount is applied
+			const is_cash_shortcuts_invisible = !this.$payment_modes.find('.cash-shortcuts').is(':visible');
+			this.attach_cash_shortcuts(frm.doc);
+			!is_cash_shortcuts_invisible && this.$payment_modes.find('.cash-shortcuts').css('display', 'grid');
+			this.render_payment_mode_dom();
+		});
+
+		frappe.ui.form.on('POS Invoice', 'loyalty_amount', (frm) => {
+			const formatted_currency = format_currency(frm.doc.loyalty_amount, frm.doc.currency);
+			this.$payment_modes.find(`.loyalty-amount-amount`).html(formatted_currency);
+		});
+
+		frappe.ui.form.on("Sales Invoice Payment", "amount", (frm, cdt, cdn) => {
+			// for setting correct amount after loyalty points are redeemed
+			const default_mop = locals[cdt][cdn];
+			const mode = default_mop.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+			if (this[`${mode}_control`] && this[`${mode}_control`].get_value() != default_mop.amount) {
+				this[`${mode}_control`].set_value(default_mop.amount);
+			}
+		});
 	}
 
-	get_discount_html(doc) {
-		if (doc.discount_amount) {
-			return `<div class="summary-row-wrapper">
-						<div>Discount (${doc.additional_discount_percentage} %)</div>
-						<div>${format_currency(doc.discount_amount, doc.currency)}</div>
-					</div>`;
+	toggle_split_payment_mode(enable) {
+		this.is_split_mode = enable;
+		// Auto-setting is always disabled now
+		
+		if (enable) {
+			this.$split_container.show();
+			this.load_existing_payments(); // Load existing payments into split mode
+			this.render_split_payment_modes();
 		} else {
-			return ``;
+			this.$split_container.hide();
+			this.clear_split_payments();
+			this.render_payment_mode_dom(); // Restore original payment modes
 		}
 	}
 
-	get_net_total_html(doc) {
-		return `<div class="summary-row-wrapper">
-					<div>${__('Net Total')}</div>
-					<div>${format_currency(doc.net_total, doc.currency)}</div>
-				</div>`;
+	load_existing_payments() {
+		const doc = this.events.get_frm().doc;
+		
+		// Clear existing split payments
+		this.split_payments = [];
+		
+		// Load existing payments that have amounts > 0
+		doc.payments.forEach((payment, index) => {
+			if (payment.amount > 0) {
+				const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+				
+				// Check if this payment has split details in remarks
+				let split_details = [];
+				try {
+					// First check if payment.remarks contains JSON data
+					if (payment.remarks && payment.remarks.trim().startsWith('[')) {
+						split_details = JSON.parse(payment.remarks);
+					} else if (payment.remarks && payment.remarks.includes('Split Payment:')) {
+						// Handle case where remarks contains "Split Payment:" prefix
+						const split_part = payment.remarks.split('Split Payment:')[1];
+						if (split_part && split_part.trim().startsWith('[')) {
+							split_details = JSON.parse(split_part.trim());
+						}
+					}
+				} catch (e) {
+					console.log('Could not parse payment remarks as JSON:', e);
+				}
+				
+				// If no valid split details found, treat as single payment
+				if (!split_details.length) {
+					split_details = [{
+						amount: payment.amount,
+						reference: '',
+						notes: '',
+						display_name: payment.mode_of_payment
+					}];
+				}
+				
+				// Add each split detail as separate payment
+				split_details.forEach((detail, detailIndex) => {
+					const split_id = `${mode}_existing_${index}_${detailIndex}`;
+					this.split_payments.push({
+						id: split_id,
+						mode: mode,
+						mode_of_payment: payment.mode_of_payment,
+						display_name: detail.display_name || payment.mode_of_payment,
+						amount: detail.amount || payment.amount, // Fallback to payment amount
+						type: payment.type,
+						reference_number: detail.reference || '',
+						notes: detail.notes || '',
+						is_existing: true // Mark as existing payment
+					});
+				});
+			}
+		});
+		
+		// If no split payments were loaded but document has paid_amount > 0,
+		// it might be an older format - try to reconstruct from paid amounts
+		if (this.split_payments.length === 0 && doc.paid_amount > 0) {
+			doc.payments.forEach((payment, index) => {
+				if (payment.amount > 0) {
+					const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+					const split_id = `${mode}_reconstructed_${index}`;
+					this.split_payments.push({
+						id: split_id,
+						mode: mode,
+						mode_of_payment: payment.mode_of_payment,
+						display_name: payment.mode_of_payment,
+						amount: payment.amount,
+						type: payment.type,
+						reference_number: '',
+						notes: 'Reconstructed from existing payment',
+						is_existing: true
+					});
+				}
+			});
+		}
+		
+		// Renumber the loaded payments
+		this.renumber_same_payment_methods();
+		
+		// Update the UI
+		this.render_split_payments_list();
+		this.update_split_summary();
+		this.show_payment_status();
+		
+		// Debug log
+		console.log('Loaded existing payments:', this.split_payments);
 	}
 
-	get_taxes_html(doc) {
-		if (!doc.taxes.length) return '';
+	render_split_payment_modes() {
+		const doc = this.events.get_frm().doc;
+		const payments = doc.payments;
 
-		let taxes_html = doc.taxes.map(t => {
-			// if tax rate is 0, don't print it.
-			const description = /[0-9]+/.test(t.description) ? t.description : ((t.rate != 0) ? `${t.description} @ ${t.rate}%`: t.description);
+		// Render payment modes with "Add to Split" buttons
+		this.$payment_modes.html(`${
+			payments.map((p, i) => {
+				const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+				const payment_type = p.type;
+
+				return (`
+					<div class="payment-mode-wrapper">
+						<div class="mode-of-payment" data-mode="${mode}" data-payment-type="${payment_type}">
+							${p.mode_of_payment}
+							<div class="${mode} mode-of-payment-control"></div>
+							<button class="add-to-split-btn btn btn-sm btn-primary">
+								${__('Add to Split')}
+							</button>
+						</div>
+					</div>
+				`);
+			}).join('')
+		}`);
+
+		// Create controls for each payment method
+		payments.forEach(p => {
+			const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+			
+			this[`${mode}_control`] = frappe.ui.form.make_control({
+				df: {
+					label: p.mode_of_payment,
+					fieldtype: 'Currency',
+					placeholder: __('Enter {0} amount.', [p.mode_of_payment]),
+					onchange: function() {
+						// Update the display but don't modify the actual payment record yet
+					}
+				},
+				parent: this.$payment_modes.find(`.${mode}.mode-of-payment-control`),
+				render_input: true,
+			});
+			this[`${mode}_control`].toggle_label(false);
+		});
+	}
+
+	add_split_payment(mode, amount) {
+		const doc = this.events.get_frm().doc;
+		const payment_method = doc.payments.find(p => 
+			p.mode_of_payment.replace(/ +/g, "_").toLowerCase() === mode
+		);
+
+		if (!payment_method) return;
+
+		// Generate unique ID for this split payment entry
+		const split_id = `${mode}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+		
+		// Add reference number for same payment method splits
+		const same_method_count = this.split_payments.filter(p => p.mode === mode).length;
+		const reference = same_method_count > 0 ? ` #${same_method_count + 1}` : '';
+
+		// Add to split payments array
+		this.split_payments.push({
+			id: split_id,
+			mode: mode,
+			mode_of_payment: payment_method.mode_of_payment,
+			display_name: payment_method.mode_of_payment + reference,
+			amount: amount,
+			type: payment_method.type,
+			reference_number: '',
+			notes: '',
+			is_existing: false
+		});
+
+		// Clear the input
+		if (this[`${mode}_control`]) {
+			this[`${mode}_control`].set_value(0);
+		}
+
+		this.render_split_payments_list();
+		this.update_split_summary();
+	}
+
+	remove_split_payment(index) {
+		// Don't allow removing existing payments
+		if (this.split_payments[index] && this.split_payments[index].is_existing) {
+			frappe.show_alert({
+				message: __("Cannot remove existing payment"),
+				indicator: "orange"
+			});
+			return;
+		}
+		
+		this.split_payments.splice(index, 1);
+		this.renumber_same_payment_methods();
+		this.render_split_payments_list();
+		this.update_split_summary();
+	}
+
+	edit_split_payment(index) {
+		const payment = this.split_payments[index];
+		if (!payment) return;
+
+		// Don't allow editing existing payments
+		if (payment.is_existing) {
+			frappe.show_alert({
+				message: __("Cannot edit existing payment"),
+				indicator: "orange"
+			});
+			return;
+		}
+
+		const doc = this.events.get_frm().doc;
+		const current_amount = payment.amount;
+
+		frappe.prompt([{
+			label: __('Amount'),
+			fieldname: 'amount',
+			fieldtype: 'Currency',
+			default: current_amount,
+			reqd: 1
+		}, {
+			label: __('Reference Number'),
+			fieldname: 'reference_number',
+			fieldtype: 'Data',
+			default: payment.reference_number
+		}, {
+			label: __('Notes'),
+			fieldname: 'notes',
+			fieldtype: 'Small Text',
+			default: payment.notes
+		}], (values) => {
+			if (values.amount <= 0) {
+				frappe.show_alert({
+					message: __("Amount must be greater than 0"),
+					indicator: "red"
+				});
+				return;
+			}
+
+			// Update the payment
+			this.split_payments[index].amount = values.amount;
+			this.split_payments[index].reference_number = values.reference_number || '';
+			this.split_payments[index].notes = values.notes || '';
+
+			this.render_split_payments_list();
+			this.update_split_summary();
+		}, __('Edit Split Payment'), __('Update'));
+	}
+
+	renumber_same_payment_methods() {
+		// Group by payment method and renumber
+		const method_counts = {};
+		
+		this.split_payments.forEach(payment => {
+			if (!method_counts[payment.mode]) {
+				method_counts[payment.mode] = 0;
+			}
+			method_counts[payment.mode]++;
+			
+			// Update display name with proper numbering
+			const reference = method_counts[payment.mode] > 1 ? ` #${method_counts[payment.mode]}` : '';
+			payment.display_name = payment.mode_of_payment + reference;
+		});
+	}
+
+	render_split_payments_list() {
+		const doc = this.events.get_frm().doc;
+		const currency = doc.currency;
+
+		if (this.split_payments.length === 0) {
+			this.$split_list.html(`<div class="text-muted text-center">${__('No split payments added yet')}</div>`);
+			return;
+		}
+
+		const html = this.split_payments.map((payment, index) => {
+			const existing_badge = payment.is_existing ? 
+				`<span class="badge badge-success" style="font-size: 10px; margin-left: 5px;">${__('Paid')}</span>` : '';
+			
 			return `
-				<div class="tax-row">
-					<div class="tax-label">${description}</div>
-					<div class="tax-value">${format_currency(t.tax_amount_after_discount_amount, doc.currency)}</div>
+				<div class="split-payment-item" data-split-id="${payment.id}">
+					<div class="split-payment-info">
+						<span class="split-payment-method">
+							${payment.display_name}${existing_badge}
+						</span>
+						<div class="split-payment-details">
+							<input type="text" class="split-reference-input" 
+								   placeholder="${__('Reference #')}" 
+								   value="${payment.reference_number}"
+								   data-index="${index}"
+								   ${payment.is_existing ? 'readonly' : ''}
+								   style="width: 100px; font-size: 11px; margin-top: 2px;">
+							<input type="text" class="split-notes-input" 
+								   placeholder="${__('Notes')}" 
+								   value="${payment.notes}"
+								   data-index="${index}"
+								   ${payment.is_existing ? 'readonly' : ''}
+								   style="width: 120px; font-size: 11px; margin-top: 2px;">
+						</div>
+					</div>
+					<div class="split-payment-actions">
+						<span class="split-payment-amount">${format_currency(payment.amount, currency)}</span>
+						${!payment.is_existing ? `
+							<button class="split-payment-edit btn btn-xs btn-secondary" data-index="${index}" title="${__('Edit Amount')}">
+								<i class="fa fa-edit"></i>
+							</button>
+							<button class="split-payment-remove btn btn-xs btn-danger" data-index="${index}" title="${__('Remove')}">
+								<i class="fa fa-trash"></i>
+							</button>
+						` : `
+							<span class="text-muted" style="font-size: 11px;">${__('Existing Payment')}</span>
+						`}
+					</div>
 				</div>
 			`;
 		}).join('');
 
-		return `<div class="taxes-wrapper">${taxes_html}</div>`;
+		this.$split_list.html(html);
 	}
 
-	get_grand_total_html(doc) {
-		return `<div class="summary-row-wrapper grand-total">
-					<div>${__('Grand Total')}</div>
-					<div>${format_currency(doc.grand_total, doc.currency)}</div>
-				</div>`;
-	}
+	update_split_summary() {
+		const doc = this.events.get_frm().doc;
+		const currency = doc.currency;
+		const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
+		
+		const split_total = this.get_split_total();
+		const remaining = grand_total - split_total;
+		const change = split_total > grand_total ? split_total - grand_total : 0;
 
-	get_payment_html(doc, payment) {
-		return `<div class="summary-row-wrapper payments">
-					<div>${__(payment.mode_of_payment)}</div>
-					<div>${format_currency(payment.amount, doc.currency)}</div>
-				</div>`;
-	}
-
-	bind_events() {
-		this.$summary_container.on('click', '.return-btn', () => {
-			this.events.process_return(this.doc.name);
-			this.toggle_component(false);
-			this.$component.find('.no-summary-placeholder').css('display', 'flex');
-			this.$summary_wrapper.css('display', 'none');
-		});
-
-		this.$summary_container.on('click', '.edit-btn', () => {
-			this.events.edit_order(this.doc.name);
-			this.toggle_component(false);
-			this.$component.find('.no-summary-placeholder').css('display', 'flex');
-			this.$summary_wrapper.css('display', 'none');
-		});
-
-		this.$summary_container.on('click', '.delete-btn', () => {
-			this.events.delete_order(this.doc.name);
-			this.show_summary_placeholder();
-		});
-
-		this.$summary_container.on('click', '.send-btn', () => {
-			// this.events.delete_order(this.doc.name);
-			// this.show_summary_placeholder();
-		console.log(this.pos_profile)
-		var field_names = this.pos_profile.custom_whatsapp_field_names.map(x => this.doc[x.field_names.toString()]);
-			console.log(field_names)
-			console.log(field_names.join(","))
-			var message = "https://wa.me/" +  this.doc.customer +"?text="
-			message += formatString(this.pos_profile.custom_whatsapp_message, field_names);
-			console.log(message)
-			// message += "Hello, here is the file you requested."
-			frappe.call({
-				method: "posnext.posnext.page.posnext.point_of_sale.generate_pdf_and_save",
-				args: {
-					docname: this.doc.name,
-					doctype: this.doc.doctype,
-					print_format: this.pos_profile.print_format
-				},
-				freeze: true,
-				freeze_message: "Creating file then send to whatsapp thru link....",
-				callback: function (r) {
-					message += "Please Find your invoice here \n "+window.origin+r.message.file_url
-					window.open(message)
-                }
-			})
-			// this.toggle_component(false);
-			// this.$component.find('.no-summary-placeholder').removeClass('d-none');
-			// this.$summary_wrapper.addClass('d-none');
-		});
-		function formatString(str, args) {
-			return str.replace(/{(\d+)}/g, function(match, number) {
-				return typeof args[number] !== 'undefined'
-					? args[number]
-					: match;
-			});
+		this.$component.find('.split-total-amount').text(format_currency(split_total, currency));
+		this.$component.find('.split-remaining-amount').text(format_currency(Math.max(0, remaining), currency));
+		
+		// Show/hide change section
+		if (change > 0) {
+			this.$component.find('.split-change').show();
+			this.$component.find('.split-change-amount').text(format_currency(change, currency));
+		} else {
+			this.$component.find('.split-change').hide();
 		}
 
-		this.$summary_container.on('click', '.new-btn', () => {
-			this.events.new_order();
-			this.toggle_component(false);
-			this.$component.find('.no-summary-placeholder').css('display', 'flex');
-			this.$summary_wrapper.css('display', 'none');
-		});
+		// Update button states
+		const has_payments = this.split_payments.length > 0;
+		this.$component.find('.save-partial-payment-btn').prop('disabled', !has_payments);
+	}
 
-		this.$summary_container.on('click', '.email-btn', () => {
-			this.email_dialog.fields_dict.email_id.set_value(this.customer_email);
-			this.email_dialog.show();
-		});
+	get_split_total() {
+		return this.split_payments.reduce((total, payment) => total + payment.amount, 0);
+	}
 
-		this.$summary_container.on('click', '.print-order-btn', () => {
-			this.print_order();
-		});
-        
-        this.$summary_container.on('click', '.split-order-btn', () => {
-			this.split_order();
-		});
+	save_partial_payment() {
+		const doc = this.events.get_frm().doc;
+		
+		if (this.split_payments.length === 0) {
+			frappe.show_alert({
+				message: __("Please add at least one payment method"),
+				indicator: "orange"
+			});
+			return;
+		}
 
-		this.$summary_container.on('click', '.print-btn', () => {
-			this.print_receipt();
+		// Apply split payments to the document
+		this.apply_split_payments_to_doc();
+		
+		// Set status to partly paid
+		frappe.model.set_value(doc.doctype, doc.name, 'status', 'Partly Paid');
+		
+		// Save the document
+		this.events.get_frm().save().then(() => {
+			frappe.show_alert({
+				message: __("Partial payment saved successfully"),
+				indicator: "green"
+			});
+			
+			// Open POS past order summary
+			this.open_past_order_summary(doc);
 		});
 	}
 
-	print_receipt() {
-    const frm = this.events.get_frm();
-    const print_format = frm.pos_print_format;
-    const doctype = this.doc.doctype;
-    const docname = this.doc.name;
-    const letterhead = this.doc.letter_head || __("No Letterhead");
-    const lang_code = this.doc.language || frappe.boot.lang;
-    
-    // Check if QZ printing is enabled in Print Settings
-    frappe.db.get_value("Print Settings", "Print Settings", "enable_raw_printing")
-        .then(({ message }) => {
-            if (message && message.enable_raw_printing === "1") {
-                // Use QZ Tray for direct printing
-                this._print_via_qz(doctype, docname, print_format, letterhead, lang_code);
-            } else {
-                // Fallback to regular print dialog
-                frappe.utils.print(
-                    doctype,
-                    docname,
-                    print_format,
-                    letterhead,
-                    lang_code
-                );
-            }
-        });
-}
-
-// Add this method to replace the empty split_order() method in your class
-
-// Enhanced frontend methods with invoice assignment capability
-// Simplified split order functionality
-
-split_order() {
-    // Basic validation
-    if (!this.doc || !this.doc.items || this.doc.items.length === 0) {
-        frappe.show_alert({
-            message: __("No items available to split."),
-            indicator: 'red'
-        });
-        return;
-    }
-
-    if (this.doc.docstatus !== 0) {
-        frappe.show_alert({
-            message: __("Cannot split submitted invoices."),
-            indicator: 'red'
-        });
-        return;
-    }
-
-    this.show_simple_split_dialog();
-}
-
-show_simple_split_dialog() {
-    // Prepare items data
-    const items_data = this.doc.items.map((item, index) => ({
-        idx: index + 1,
-        item_code: item.item_code,
-        item_name: item.item_name || item.item_code,
-        available_qty: item.qty,
-        split_qty: 0,
-        rate: item.rate,
-        uom: item.uom,
-        invoice_number: 1,
-        selected: false
-    }));
-
-    const dialog = new frappe.ui.Dialog({
-        title: __('Split Order'),
-        size: 'large',
-        fields: [
-            {
-                fieldtype: 'HTML',
-                fieldname: 'instructions',
-                options: `
-                    <div class="alert alert-info mb-3">
-                        <strong>How to split:</strong>
-                        <ol class="mb-0">
-                            <li>Check items you want to move to new invoices</li>
-                            <li>Enter quantities to split</li>
-                            <li>Choose which invoice each item goes to</li>
-                            <li>Click "Split Order" to complete</li>
-                        </ol>
-                    </div>
-                `
-            },
-            {
-                fieldtype: 'Int',
-                fieldname: 'number_of_invoices',
-                label: __('Number of New Invoices'),
-                default: 1,
-                reqd: 1,
-                description: __('How many new invoices to create (1-5)'),
-                change: () => {
-                    const count = dialog.get_value('number_of_invoices');
-                    if (count >= 1 && count <= 5) {
-                        this.update_split_table(dialog, items_data, count);
-                    }
-                }
-            },
-            {
-                fieldtype: 'HTML',
-                fieldname: 'split_table',
-                options: this.get_split_table_html(items_data, 1)
-            }
-        ],
-        primary_action: () => {
-            this.execute_simple_split(dialog, items_data);
-        },
-        primary_action_label: __('Split Order'),
-        secondary_action_label: __('Cancel')
-    });
-
-    // Store references
-    this.split_dialog = dialog;
-    this.split_items_data = items_data;
-
-    dialog.show();
-
-    // Bind events after dialog shows
-    setTimeout(() => {
-        this.bind_split_events(dialog);
-    }, 100);
-}
-
-get_split_table_html(items_data, invoice_count) {
-    // Generate invoice options
-    let invoice_options = '';
-    for (let i = 1; i <= invoice_count; i++) {
-        invoice_options += `<option value="${i}">Invoice ${i}</option>`;
-    }
-
-    let html = `
-        <div class="split-table-container">
-            <table class="table table-bordered">
-                <thead class="thead-light">
-                    <tr>
-                        <th width="5%">
-                            <input type="checkbox" id="select-all" title="Select All">
-                        </th>
-                        <th width="25%">${__('Item')}</th>
-                        <th width="15%">${__('Available Qty')}</th>
-                        <th width="15%">${__('Split Qty')}</th>
-                        <th width="15%">${__('Rate')}</th>
-                        <th width="15%">${__('Amount')}</th>
-                        <th width="10%">${__('Invoice')}</th>
-                    </tr>
-                </thead>
-                <tbody>
-    `;
-
-    items_data.forEach((item, index) => {
-        html += `
-            <tr data-index="${index}">
-                <td>
-                    <input type="checkbox" class="item-select" data-index="${index}">
-                </td>
-                <td>
-                    <div><strong>${item.item_code}</strong></div>
-                    <small class="text-muted">${item.item_name}</small>
-                </td>
-                <td>
-                    <span class="badge badge-secondary">${item.available_qty} ${item.uom}</span>
-                </td>
-                <td>
-                    <input type="number" 
-                           class="form-control split-qty" 
-                           data-index="${index}"
-                           min="0" 
-                           max="${item.available_qty}" 
-                           step="0.01"
-                           value="0">
-                </td>
-                <td>
-                    ${format_currency(item.rate, this.doc.currency)}
-                </td>
-                <td>
-                    <span class="split-amount" data-index="${index}">
-                        ${format_currency(0, this.doc.currency)}
-                    </span>
-                </td>
-                <td>
-                    <select class="form-control invoice-select" data-index="${index}">
-                        ${invoice_options}
-                    </select>
-                </td>
-            </tr>
-        `;
-    });
-
-    html += `
-                </tbody>
-            </table>
-            <div class="row mt-3">
-                <div class="col-md-6">
-                    <div class="alert alert-light">
-                        <strong>Selected Items:</strong> <span id="selected-count">0</span>
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <div class="alert alert-light">
-                        <strong>Total Split Amount:</strong> <span id="total-amount">${format_currency(0, this.doc.currency)}</span>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-
-    return html;
-}
-
-update_split_table(dialog, items_data, invoice_count) {
-    if (invoice_count < 1 || invoice_count > 5) {
-        frappe.show_alert({
-            message: __("Number of invoices must be between 1 and 5"),
-            indicator: 'orange'
-        });
-        return;
-    }
-
-    // Update the table HTML
-    const new_html = this.get_split_table_html(items_data, invoice_count);
-    dialog.fields_dict.split_table.$wrapper.html(new_html);
-
-    // Restore previous selections
-    this.restore_selections(dialog, items_data);
-
-    // Re-bind events
-    setTimeout(() => {
-        this.bind_split_events(dialog);
-    }, 100);
-}
-
-restore_selections(dialog, items_data) {
-    const wrapper = dialog.$wrapper;
-    
-    items_data.forEach((item, index) => {
-        const row = wrapper.find(`tr[data-index="${index}"]`);
-        
-        // Restore checkbox
-        row.find('.item-select').prop('checked', item.selected);
-        
-        // Restore quantity
-        row.find('.split-qty').val(item.split_qty);
-        
-        // Restore invoice selection
-        row.find('.invoice-select').val(item.invoice_number);
-        
-        // Update amount display
-        this.update_split_amount(index, item.split_qty, item.rate);
-    });
-
-    this.update_summary();
-}
-
-bind_split_events(dialog) {
-    const wrapper = dialog.$wrapper;
-
-    // Select all functionality
-    wrapper.find('#select-all').on('change', (e) => {
-        const checked = $(e.target).is(':checked');
-        wrapper.find('.item-select').prop('checked', checked);
-        
-        // Update quantities
-        wrapper.find('.split-qty').each((i, input) => {
-            const index = $(input).data('index');
-            const max_qty = parseFloat($(input).attr('max'));
-            const qty = checked ? max_qty : 0;
-            
-            $(input).val(qty);
-            this.split_items_data[index].selected = checked;
-            this.split_items_data[index].split_qty = qty;
-            this.update_split_amount(index, qty, this.split_items_data[index].rate);
-        });
-        
-        this.update_summary();
-    });
-
-    // Individual item selection
-    wrapper.find('.item-select').on('change', (e) => {
-        const checkbox = $(e.target);
-        const index = checkbox.data('index');
-        const checked = checkbox.is(':checked');
-        const qty_input = wrapper.find(`.split-qty[data-index="${index}"]`);
-        
-        this.split_items_data[index].selected = checked;
-        
-        if (checked) {
-            // Set to max quantity when selected
-            const max_qty = parseFloat(qty_input.attr('max'));
-            qty_input.val(max_qty);
-            this.split_items_data[index].split_qty = max_qty;
-            this.update_split_amount(index, max_qty, this.split_items_data[index].rate);
-        } else {
-            // Clear quantity when deselected
-            qty_input.val(0);
-            this.split_items_data[index].split_qty = 0;
-            this.update_split_amount(index, 0, this.split_items_data[index].rate);
-        }
-        
-        this.update_summary();
-    });
-
-    // Quantity input changes
-    wrapper.find('.split-qty').on('input change', (e) => {
-        const input = $(e.target);
-        const index = input.data('index');
-        let qty = parseFloat(input.val()) || 0;
-        const max_qty = parseFloat(input.attr('max'));
-        
-        // Validate quantity
-        if (qty > max_qty) {
-            qty = max_qty;
-            input.val(qty);
-        }
-        if (qty < 0) {
-            qty = 0;
-            input.val(qty);
-        }
-        
-        // Update checkbox
-        const checkbox = wrapper.find(`.item-select[data-index="${index}"]`);
-        checkbox.prop('checked', qty > 0);
-        
-        // Update data
-        this.split_items_data[index].split_qty = qty;
-        this.split_items_data[index].selected = qty > 0;
-        
-        this.update_split_amount(index, qty, this.split_items_data[index].rate);
-        this.update_summary();
-    });
-
-    // Invoice selection changes
-    wrapper.find('.invoice-select').on('change', (e) => {
-        const select = $(e.target);
-        const index = select.data('index');
-        const invoice_num = parseInt(select.val());
-        
-        this.split_items_data[index].invoice_number = invoice_num;
-    });
-}
-
-update_split_amount(index, qty, rate) {
-    const amount = qty * rate;
-    this.split_dialog.$wrapper.find(`.split-amount[data-index="${index}"]`)
-        .text(format_currency(amount, this.doc.currency));
-}
-
-update_summary() {
-    const selected_items = this.split_items_data.filter(item => item.selected && item.split_qty > 0);
-    const total_amount = selected_items.reduce((sum, item) => sum + (item.split_qty * item.rate), 0);
-    
-    this.split_dialog.$wrapper.find('#selected-count').text(selected_items.length);
-    this.split_dialog.$wrapper.find('#total-amount').text(format_currency(total_amount, this.doc.currency));
-}
-
-execute_simple_split(dialog, items_data) {
-    // Get selected items
-    const selected_items = items_data.filter(item => item.selected && item.split_qty > 0);
-    
-    if (selected_items.length === 0) {
-        frappe.show_alert({
-            message: __("Please select at least one item to split."),
-            indicator: 'orange'
-        });
-        return;
-    }
-
-    // Group items by invoice number
-    const invoice_groups = {};
-    selected_items.forEach(item => {
-        const invoice_key = item.invoice_number.toString();
-        if (!invoice_groups[invoice_key]) {
-            invoice_groups[invoice_key] = [];
-        }
-        invoice_groups[invoice_key].push({
-            item_code: item.item_code,
-            split_qty: item.split_qty
-        });
-    });
-
-    // Show confirmation
-    const invoice_count = Object.keys(invoice_groups).length;
-    const total_items = selected_items.length;
-    const total_amount = selected_items.reduce((sum, item) => sum + (item.split_qty * item.rate), 0);
-
-    frappe.confirm(
-        __(`This will create ${invoice_count} new invoice(s) with ${total_items} items (${format_currency(total_amount, this.doc.currency)}). Continue?`),
-        () => {
-            this.process_split_order(invoice_groups);
-            dialog.hide();
-        }
-    );
-}
-
-process_split_order(invoice_groups) {
-    frappe.dom.freeze(__('Splitting order...'));
-    
-    frappe.call({
-        method: "posnext.posnext.page.posnext.point_of_sale.split_pos_invoice",
-        args: {
-            original_invoice: this.doc.name,
-            invoice_groups: invoice_groups,
-            distribute_evenly: false
-        },
-        callback: (r) => {
-            frappe.dom.unfreeze();
-            
-            if (!r.exc && r.message && r.message.success) {
-                const result = r.message;
-                
-                // Show success message
-                frappe.show_alert({
-                    message: __(`Successfully created ${result.new_invoices.length} new invoice(s)!`),
-                    indicator: 'green'
-                });
-
-                // Show simple result summary
-                this.show_split_success(result);
-
-                // Refresh the page after a short delay
-                setTimeout(() => {
-                    window.location.reload();
-                }, 2000);
-                
-            } else {
-                frappe.show_alert({
-                    message: __("Failed to split order: ") + (r.message || r.exc),
-                    indicator: 'red'
-                });
-            }
-        },
-        error: (r) => {
-            frappe.dom.unfreeze();
-            frappe.show_alert({
-                message: __("Error occurred while splitting order."),
-                indicator: 'red'
-            });
-        }
-    });
-}
-
-show_split_success(result) {
-    let message = `<div class="text-center">
-        <div class="mb-3">
-            <i class="fa fa-check-circle text-success" style="font-size: 48px;"></i>
-        </div>
-        <h4>Order Split Successfully!</h4>
-        <p class="mb-3">Created ${result.new_invoices.length} new invoice(s):</p>
-        <ul class="list-unstyled">`;
-
-    result.new_invoices.forEach(invoice => {
-        message += `<li><strong>${invoice.name}</strong> - ${format_currency(invoice.grand_total, this.doc.currency)}</li>`;
-    });
-
-    message += `</ul>
-        <div class="alert alert-info mt-3">
-            <i class="fa fa-info-circle"></i> Page will refresh automatically to show new invoices
-        </div>
-    </div>`;
-
-    const success_dialog = new frappe.ui.Dialog({
-        title: __('Split Complete'),
-        fields: [
-            {
-                fieldtype: 'HTML',
-                fieldname: 'success_message',
-                options: message
-            }
-        ],
-        primary_action: () => {
-            success_dialog.hide();
-            window.location.reload();
-        },
-        primary_action_label: __('Refresh Page'),
-        secondary_action_label: __('Close')
-    });
-
-    success_dialog.show();
-}
-print_order() {
-    const doctype = this.doc.doctype;
-    const docname = this.doc.name;
-    const print_format = "Captain Order";
-    const letterhead = this.doc.letter_head || __("No Letterhead");
-    const lang_code = this.doc.language || frappe.boot.lang;
-
-    const _print_via_qz = (doctype, docname, print_format, letterhead, lang_code) => {
-        const print_format_printer_map = _get_print_format_printer_map();
-        const mapped_printer = _get_mapped_printer(print_format_printer_map, doctype, print_format);
-
-        if (mapped_printer.length === 1) {
-            _print_with_mapped_printer(doctype, docname, print_format, letterhead, lang_code, mapped_printer[0]);
-        } else if (_is_raw_printing(print_format)) {
-            frappe.show_alert({
-                message: __("Printer mapping not set."),
-                subtitle: __("Please set a printer mapping for this print format in the Printer Settings"),
-                indicator: "warning"
-            }, 14);
-            _printer_setting_dialog(doctype, print_format);
-        } else {
-            _render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code);
-        }
-    };
-
-    const _print_with_mapped_printer = (doctype, docname, print_format, letterhead, lang_code, printer_map) => {
-        if (_is_raw_printing(print_format)) {
-            _get_raw_commands(doctype, docname, print_format, lang_code, (out) => {
-                if (out.message === "No new items to print") {
-                    frappe.show_alert({
-                        message: __("No new items to print for this captain order."),
-                        indicator: "info"
-                    }, 10);
-                    return;
-                }
-                frappe.ui.form.qz_connect()
-                    .then(() => {
-                        let config = qz.configs.create(printer_map.printer);
-                        let data = [out.raw_commands];
-                        console.log("Sending raw commands to QZ printer:", out.raw_commands);
-                        return qz.print(config, data);
-                    })
-                    .then(frappe.ui.form.qz_success)
-                    .catch((err) => {
-                        frappe.ui.form.qz_fail(err);
-                        console.error("QZ printing error:", err);
-                        frappe.show_alert({
-                            message: __("Failed to print: " + (err.message || err)),
-                            indicator: 'red'
-                        });
-                        frappe.utils.play_sound("error");
-                    });
-            });
-        } else {
-            frappe.show_alert({
-                message: __('PDF printing via "Raw Print" is not supported.'),
-                subtitle: __("Please remove the printer mapping in Printer Settings and try again."),
-                indicator: "info"
-            }, 14);
-            _render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code);
-        }
-    };
-
-    const _get_raw_commands = (doctype, docname, print_format, lang_code, callback) => {
-        // Send all current items - let Python calculate what's new
-        const items_to_print = this.doc.items.map(item => ({
-            item_code: item.item_code,
-            item_name: item.item_name || item.item_code,
-            qty: item.qty,
-            uom: item.uom,
-            rate: item.rate,
-            name: item.name
-        }));
-        
-        console.log("Items to print:", items_to_print);
-        
-        frappe.call({
-            method: "posnext.posnext.page.posnext.point_of_sale.print_captain_order",
-            args: {
-                invoice_name: docname,
-                current_items: items_to_print,
-                print_format: print_format,
-                _lang: lang_code
-                // Removed force_print parameter completely
-            },
-            callback: (r) => {
-                console.log("Print captain order response:", r.message);
-                if (!r.exc && r.message && r.message.success) {
-                    // Check if there are actually new items to print
-                    if (r.message.new_items_count === 0) {
-                        callback({ message: "No new items to print" });
-                        return;
-                    }
-                    
-                    // Check if data is empty or has no items
-                    if (!r.message.data || !r.message.data.items || r.message.data.items.length === 0) {
-                        callback({ message: "No new items to print" });
-                        return;
-                    }
-                    
-                    _render_print_format(r.message.data, print_format, (raw_commands) => {
-                        callback({ raw_commands: raw_commands, message: r.message.message });
-                    });
-                } else {
-                    frappe.show_alert({
-                        message: __("Failed to generate print data: " + (r.message?.error || "Unknown error")),
-                        indicator: 'red'
-                    });
-                    frappe.utils.play_sound("error");
-                }
-            }
-        });
-    };
-
-    const _render_print_format = (doc_data, print_format, callback) => {
-        if (!doc_data || !doc_data.items || !doc_data.items.length) {
-            console.log("Skipping render: doc_data has no items");
-            callback(""); // Return empty commands
-            return;
-        }
-
-        frappe.call({
-            method: "frappe.client.get",
-            args: {
-                doctype: "Print Format",
-                name: print_format
-            },
-            callback: (r) => {
-                if (!r.exc && r.message) {
-                    const print_format_doc = r.message;
-                    if (print_format_doc.raw_printing !== 1) {
-                        frappe.show_alert({
-                            message: __("Print format is not set for raw printing."),
-                            indicator: 'red'
-                        });
-                        frappe.utils.play_sound("error");
-                        return;
-                    }
-
-                    const template = print_format_doc.raw_commands || '';
-                    if (!template) {
-                        frappe.show_alert({
-                            message: __("No raw commands defined in the print format."),
-                            indicator: 'red'
-                        });
-                        frappe.utils.play_sound("error");
-                        return;
-                    }
-
-                    console.log("Print format template:", template);
-                    console.log("Items to render:", doc_data.items); // Debug log for items
-                    try {
-                        const context = { doc: doc_data };
-                        const raw_commands = frappe.render_template(template, context);
-                        console.log("Rendered raw commands:", raw_commands);
-                        callback(raw_commands);
-                    } catch (error) {
-                        console.error("Template rendering error:", error);
-                        frappe.show_alert({
-                            message: __("Error rendering print format: " + (error.message || error)),
-                            indicator: 'red'
-                        });
-                        frappe.utils.play_sound("error");
-                        callback(""); // Return empty commands
-                    }
-                } else {
-                    frappe.show_alert({
-                        message: __("Failed to fetch print format."),
-                        indicator: 'red'
-                    });
-                    frappe.utils.play_sound("error");
-                    callback("");
-                }
-            }
-        });
-    };
-
-    const _is_raw_printing = (format) => {
-        let print_format = {};
-        if (locals["Print Format"] && locals["Print Format"][format]) {
-            print_format = locals["Print Format"][format];
-        }
-        return print_format.raw_printing === 1;
-    };
-
-    const _get_print_format_printer_map = () => {
-        try {
-            return JSON.parse(localStorage.print_format_printer_map || "{}");
-        } catch (e) {
-            return {};
-        }
-    };
-
-    const _get_mapped_printer = (print_format_printer_map, doctype, print_format) => {
-        if (print_format_printer_map[doctype]) {
-            return print_format_printer_map[doctype].filter(
-                (printer_map) => printer_map.print_format === print_format
-            );
-        }
-        return [];
-    };
-
-    const _render_pdf_or_regular_print = (doctype, docname, print_format, letterhead, lang_code) => {
-        frappe.utils.print(
-            doctype,
-            docname,
-            print_format,
-            letterhead,
-            lang_code
-        );
-    };
-
-    const _printer_setting_dialog = (doctype, current_print_format) => {
-        let print_format_printer_map = _get_print_format_printer_map();
-        let data = print_format_printer_map[doctype] || [];
-
-        frappe.ui.form.qz_get_printer_list().then((printer_list) => {
-            if (!(printer_list && printer_list.length)) {
-                frappe.throw(__("No Printer is Available."));
-                return;
-            }
-
-            const dialog = new frappe.ui.Dialog({
-                title: __("Printer Settings"),
-                fields: [
-                    { fieldtype: "Section Break" },
-                    {
-                        fieldname: "printer_mapping",
-                        fieldtype: "Table",
-                        label: __("Printer Mapping"),
-                        in_place_edit: true,
-                        data: data,
-                        get_data: () => data,
-                        fields: [
-                            {
-                                fieldtype: "Select",
-                                fieldname: "print_format",
-                                default: 0,
-                                options: frappe.meta.get_print_formats(doctype),
-                                read_only: 0,
-                                in_list_view: 1,
-                                label: __("Print Format")
-                            },
-                            {
-                                fieldtype: "Select",
-                                fieldname: "printer",
-                                default: 0,
-                                options: printer_list,
-                                read_only: 0,
-                                in_list_view: 1,
-                                label: __("Printer")
-                            }
-                        ]
-                    }
-                ],
-                primary_action: () => {
-                    let printer_mapping = dialog.get_values()["printer_mapping"];
-                    if (printer_mapping && printer_mapping.length) {
-                        let print_format_list = printer_mapping.map((a) => a.print_format);
-                        let has_duplicate = print_format_list.some(
-                            (item, idx) => print_format_list.indexOf(item) != idx
-                        );
-                        if (has_duplicate) {
-                            frappe.throw(__("Cannot have multiple printers mapped to a single print format."));
-                            return;
-                        }
-                    } else {
-                        printer_mapping = [];
-                    }
-
-                    let saved_print_format_printer_map = _get_print_format_printer_map();
-                    saved_print_format_printer_map[doctype] = printer_mapping;
-                    localStorage.print_format_printer_map = JSON.stringify(saved_print_format_printer_map);
-
-                    dialog.hide();
-
-                    _print_via_qz(doctype, docname, current_print_format, letterhead, lang_code);
-                },
-                primary_action_label: __("Save")
-            });
-
-            dialog.show();
-        });
-    };
-
-    // Main logic
-    if (!this.doc.items.length) {
-        frappe.show_alert({
-            message: __("No items in the invoice to print."),
-            indicator: 'red'
-        });
-        return frappe.utils.play_sound("error");
-    }
-
-    console.log("Print Order button clicked");
-    frappe.dom.freeze();
-    frappe.db.get_value("Print Settings", "Print Settings", "enable_raw_printing")
-        .then(({ message }) => {
-            frappe.dom.unfreeze();
-            if (message && message.enable_raw_printing === "1") {
-                _print_via_qz(doctype, docname, print_format, letterhead, lang_code);
-            } else {
-                _render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code);
-            }
-        })
-        .catch(() => {
-            frappe.dom.unfreeze();
-            frappe.show_alert({
-                message: __("Failed to check Print Settings."),
-                indicator: 'red'
-            });
-            frappe.utils.play_sound("error");
-        });
-}
-// Add these helper methods at the appropriate location in your class (not inside another method)
-_print_via_qz(doctype, docname, print_format, letterhead, lang_code) {
-    // First check if we have a mapped printer for this print format
-    const print_format_printer_map = this._get_print_format_printer_map();
-    const mapped_printer = this._get_mapped_printer(print_format_printer_map, doctype, print_format);
-    
-    if (mapped_printer.length === 1) {
-        // Printer is already mapped in localStorage
-        this._print_with_mapped_printer(doctype, docname, print_format, letterhead, lang_code, mapped_printer[0]);
-    } else if (this._is_raw_printing(print_format)) {
-        // Printer not mapped but current format is raw printing
-        frappe.show_alert({
-            message: __("Printer mapping not set."),
-            subtitle: __("Please set a printer mapping for this print format in the Printer Settings"),
-            indicator: "warning"
-        }, 14);
-        this._printer_setting_dialog(doctype, print_format);
-    } else {
-        // Regular printing via dialog
-        this._render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code);
-    }
-}
-
-_print_with_mapped_printer(doctype, docname, print_format, letterhead, lang_code, printer_map) {
-    if (this._is_raw_printing(print_format)) {
-        // Get raw commands and send to printer
-        this._get_raw_commands(doctype, docname, print_format, lang_code, (out) => {
-            frappe.ui.form.qz_connect()
-                .then(() => {
-                    let config = qz.configs.create(printer_map.printer);
-                    let data = [out.raw_commands];
-                    return qz.print(config, data);
-                })
-                .then(frappe.ui.form.qz_success)
-                .catch((err) => {
-                    frappe.ui.form.qz_fail(err);
-                });
-        });
-    } else {
-        frappe.show_alert({
-            message: __('PDF printing via "Raw Print" is not supported.'),
-            subtitle: __("Please remove the printer mapping in Printer Settings and try again."),
-            indicator: "info"
-        }, 14);
-        // Fallback to regular print
-        this._render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code);
-    }
-}
-
-_get_raw_commands(doctype, docname, print_format, lang_code, callback) {
-    frappe.call({
-        method: "frappe.www.printview.get_rendered_raw_commands",
-        args: {
-            doc: frappe.get_doc(doctype, docname),
-            print_format: print_format,
-            _lang: lang_code
-        },
-        callback: (r) => {
-            if (!r.exc) {
-                callback(r.message);
-            }
-        }
-    });
-}
-
-_is_raw_printing(format) {
-    let print_format = {};
-    if (locals["Print Format"] && locals["Print Format"][format]) {
-        print_format = locals["Print Format"][format];
-    }
-    return print_format.raw_printing === 1;
-}
-
-_get_print_format_printer_map() {
-    try {
-        return JSON.parse(localStorage.print_format_printer_map || "{}");
-    } catch (e) {
-        return {};
-    }
-}
-_get_mapped_printer(print_format_printer_map, doctype, print_format) {
-    if (print_format_printer_map[doctype]) {
-        return print_format_printer_map[doctype].filter(
-            (printer_map) => printer_map.print_format === print_format
-        );
-    }
-    return [];
-}
-
-_render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code) {
-    // Fallback to regular print method
-    frappe.utils.print(
-        doctype,
-        docname,
-        print_format,
-        letterhead,
-        lang_code
-    );
-}
-
-_printer_setting_dialog(doctype, current_print_format) {
-    // Dialog for Printer Settings similar to the one in print.js
-    let print_format_printer_map = this._get_print_format_printer_map();
-    let data = print_format_printer_map[doctype] || [];
-    
-    frappe.ui.form.qz_get_printer_list().then((printer_list) => {
-        if (!(printer_list && printer_list.length)) {
-            frappe.throw(__("No Printer is Available."));
-            return;
-        }
-        
-        const dialog = new frappe.ui.Dialog({
-            title: __("Printer Settings"),
-            fields: [
-                {
-                    fieldtype: "Section Break"
-                },
-                {
-                    fieldname: "printer_mapping",
-                    fieldtype: "Table",
-                    label: __("Printer Mapping"),
-                    in_place_edit: true,
-                    data: data,
-                    get_data: () => {
-                        return data;
-                    },
-                    fields: [
-                        {
-                            fieldtype: "Select",
-                            fieldname: "print_format",
-                            default: 0,
-                            options: frappe.meta.get_print_formats(doctype),
-                            read_only: 0,
-                            in_list_view: 1,
-                            label: __("Print Format")
-                        },
-                        {
-                            fieldtype: "Select",
-                            fieldname: "printer",
-                            default: 0,
-                            options: printer_list,
-                            read_only: 0,
-                            in_list_view: 1,
-                            label: __("Printer")
-                        }
-                    ]
-                }
-            ],
-            primary_action: () => {
-                let printer_mapping = dialog.get_values()["printer_mapping"];
-                if (printer_mapping && printer_mapping.length) {
-                    let print_format_list = printer_mapping.map((a) => a.print_format);
-                    let has_duplicate = print_format_list.some(
-                        (item, idx) => print_format_list.indexOf(item) != idx
-                    );
-                    if (has_duplicate) {
-                        frappe.throw(__("Cannot have multiple printers mapped to a single print format."));
-                        return;
-                    }
-                } else {
-                    printer_mapping = [];
-                }
-                
-                let saved_print_format_printer_map = this._get_print_format_printer_map();
-                saved_print_format_printer_map[doctype] = printer_mapping;
-                localStorage.print_format_printer_map = JSON.stringify(saved_print_format_printer_map);
-                
-                dialog.hide();
-                
-                // Try printing again with the new settings
-                this._print_via_qz(doctype, this.doc.name, current_print_format, this.doc.letter_head, this.doc.language || frappe.boot.lang);
-            },
-            primary_action_label: __("Save")
-        });
-        
-        dialog.show();
-    });
-}
-attach_shortcuts() {
-		const ctrl_label = frappe.utils.is_mac() ? '⌘' : 'Ctrl';
-		this.$summary_container.find('.print-btn').attr("title", `${ctrl_label}+P`);
-		frappe.ui.keys.add_shortcut({
-			shortcut: "ctrl+p",
-			action: () => this.$summary_container.find('.print-btn').click(),
-			condition: () => this.$component.is(':visible') && this.$summary_container.find('.print-btn').is(":visible"),
-			description: __("Print Receipt"),
-			page: cur_page.page.page
-		});
-		this.$summary_container.find('.print-order-btn').attr("title", `${ctrl_label}+O`);
-		frappe.ui.keys.add_shortcut({
-			shortcut: "ctrl+o",
-			action: () => this.$summary_container.find('.print-order-btn').click(),
-			condition: () => this.$component.is(':visible') && this.$summary_container.find('.print-order-btn').is(":visible"),
-			description: __("Print-Order"),
-			page: cur_page.page.page
-		});
-		this.$summary_container.find('.new-btn').attr("title", `${ctrl_label}+Enter`);
-		frappe.ui.keys.on("ctrl+enter", () => {
-			const summary_is_visible = this.$component.is(":visible");
-			if (summary_is_visible && this.$summary_container.find('.new-btn').is(":visible")) {
-				this.$summary_container.find('.new-btn').click();
-			}
-		});
-		this.$summary_container.find('.edit-btn').attr("title", `${ctrl_label}+E`);
-		frappe.ui.keys.add_shortcut({
-			shortcut: "ctrl+e",
-			action: () => this.$summary_container.find('.edit-btn').click(),
-			condition: () => this.$component.is(':visible') && this.$summary_container.find('.edit-btn').is(":visible"),
-			description: __("Edit Receipt"),
-			page: cur_page.page.page
-		});
-	}
-
-	send_email() {
-		const frm = this.events.get_frm();
-		const recipients = this.email_dialog.get_values().email_id;
-		const content = this.email_dialog.get_values().content;
-		const doc = this.doc || frm.doc;
-		const print_format = frm.pos_print_format;
-
-		frappe.call({
-			method: "frappe.core.doctype.communication.email.make",
-			args: {
-				recipients: recipients,
-				subject: __(frm.meta.name) + ': ' + doc.name,
-				content: content ? content : __(frm.meta.name) + ': ' + doc.name,
-				doctype: doc.doctype,
-				name: doc.name,
-				send_email: 1,
-				print_format,
-				sender_full_name: frappe.user.full_name(),
-				_lang: doc.language
-			},
-			callback: r => {
-				if (!r.exc) {
-					frappe.utils.play_sound("email");
-					if (r.message["emails_not_sent_to"]) {
-						frappe.msgprint(__(
-							"Email not sent to {0} (unsubscribed / disabled)",
-							[ frappe.utils.escape_html(r.message["emails_not_sent_to"]) ]
-						));
-					} else {
-						frappe.show_alert({
-							message: __('Email sent successfully.'),
-							indicator: 'green'
-						});
-					}
-					this.email_dialog.hide();
-				} else {
-					frappe.msgprint(__("There were errors while sending email. Please try again."));
-				}
-			}
-		});
-	}
-
-	add_summary_btns(map) {
-		this.$summary_btns.html('');
-		map.forEach(m => {
-			if (m.condition) {
-				m.visible_btns.forEach(b => {
-					const class_name = b.split(' ')[0].toLowerCase();
-					const btn = __(b);
-					this.$summary_btns.append(
-						`<div class="summary-btn btn btn-default ${class_name}-btn">${btn}</div>`
-					);
+	open_past_order_summary(doc) {
+		// Navigate to past order summary
+		frappe.set_route('Form', 'POS Invoice', doc.name);
+		
+		// Alternative approach if the above doesn't work:
+		// You might need to trigger the past order summary view specifically
+		// This depends on how your POS system is structured
+		setTimeout(() => {
+			if (window.pos_past_order_summary) {
+				window.pos_past_order_summary.show(doc);
+			} else if (this.events.show_past_order_summary) {
+				this.events.show_past_order_summary(doc);
+			} else {
+				// Fallback - you may need to adjust this based on your POS structure
+				frappe.msgprint({
+					title: __('Order Saved'),
+					message: __('Partial payment saved. Order: {0}', [doc.name]),
+					indicator: 'green'
 				});
 			}
+		}, 500);
+	}
+
+	apply_split_payments_to_doc() {
+		const doc = this.events.get_frm().doc;
+		
+		// Clear existing payment amounts
+		doc.payments.forEach(payment => {
+			frappe.model.set_value(payment.doctype, payment.name, 'amount', 0);
 		});
-		this.$summary_btns.children().last().removeClass('mr-4');
-	}
 
-	toggle_summary_placeholder(show) {
-		if (show) {
-			this.$summary_wrapper.css('display', 'none');
-			this.$component.find('.no-summary-placeholder').css('display', 'flex');
-		} else {
-			this.$summary_wrapper.css('display', 'flex');
-			this.$component.find('.no-summary-placeholder').css('display', 'none');
-		}
-	}
-
-get_condition_btn_map(after_submission) {
-	if (after_submission)
-		return [{ condition: true, visible_btns: ['Print Receipt', 'New Order'] }];
-
-	// Check if current user has 'Waiter' role
-	const hasWaiterRole = frappe.user_roles.includes('Waiter');
-	
-	// Define button arrays based on user role
-	const draftButtons = hasWaiterRole 
-		? ['Print Receipt','Edit Order','Print-Order'] 
-		: ['Print Receipt','Edit Order','Print-Order','Split-Order'];
-
-	return [
-		{ condition: this.doc.docstatus === 0, visible_btns: draftButtons },
-		{ condition: !this.doc.is_return && this.doc.docstatus === 1, visible_btns: ['Print Receipt', 'Return']},
-		{ condition: this.doc.is_return && this.doc.docstatus === 1, visible_btns: ['Print Receipt']}
-	];
-}
-
-	load_summary_of(doc, after_submission=false) {
-		after_submission ?
-			this.$component.css('grid-column', 'span 10 / span 10') :
-			this.$component.css('grid-column', 'span 6 / span 6');
-
-		this.toggle_summary_placeholder(false);
-
-		this.doc = doc;
-
-		this.attach_document_info(doc);
-
-		this.attach_items_info(doc);
-
-		this.attach_totals_info(doc);
-
-		this.attach_payments_info(doc);
-
-		const condition_btns_map = this.get_condition_btn_map(after_submission);
-
-		this.add_summary_btns(condition_btns_map);
-		this.$summary_wrapper.css("width",after_submission ? "35%" : "60%")
-
-		if (after_submission && this.print_receipt_on_order_complete) {
-                this.print_receipt();
-                }
-	}
-
-	attach_document_info(doc) {
-		frappe.db.get_value('Customer', this.doc.customer, 'email_id').then(({ message }) => {
-			this.customer_email = message.email_id || '';
-			const upper_section_dom = this.get_upper_section_html(doc);
-			this.$upper_section.html(upper_section_dom);
+		// Group split payments by payment method and sum amounts
+		const grouped_payments = {};
+		this.split_payments.forEach(split_payment => {
+			if (!grouped_payments[split_payment.mode]) {
+				grouped_payments[split_payment.mode] = {
+					total_amount: 0,
+					details: []
+				};
+			}
+			grouped_payments[split_payment.mode].total_amount += split_payment.amount;
+			grouped_payments[split_payment.mode].details.push({
+				amount: split_payment.amount,
+				reference: split_payment.reference_number,
+				notes: split_payment.notes,
+				display_name: split_payment.display_name
+			});
 		});
-	}
 
-	attach_items_info(doc) {
-		this.$items_container.html('');
-		doc.items.forEach(item => {
-			const item_dom = this.get_item_html(doc, item);
-			this.$items_container.append(item_dom);
-			this.set_dynamic_rate_header_width();
-		});
-	}
-
-	set_dynamic_rate_header_width() {
-		const rate_cols = Array.from(this.$items_container.find(".item-rate-disc"));
-		this.$items_container.find(".item-rate-disc").css("width", "");
-		let max_width = rate_cols.reduce((max_width, elm) => {
-			if ($(elm).width() > max_width)
-				max_width = $(elm).width();
-			return max_width;
-		}, 0);
-
-		max_width += 1;
-		if (max_width == 1) max_width = "";
-
-		this.$items_container.find(".item-rate-disc").css("width", max_width);
-	}
-
-	attach_payments_info(doc) {
-		this.$payment_container.html('');
-		doc.payments.forEach(p => {
-			if (p.amount) {
-				const payment_dom = this.get_payment_html(doc, p);
-				this.$payment_container.append(payment_dom);
+		// Apply grouped amounts to payment records
+		Object.keys(grouped_payments).forEach(mode => {
+			const payment_record = doc.payments.find(p => 
+				p.mode_of_payment.replace(/ +/g, "_").toLowerCase() === mode
+			);
+			
+			if (payment_record) {
+				frappe.model.set_value(payment_record.doctype, payment_record.name, 'amount', grouped_payments[mode].total_amount);
+				
+				// Store split details in the payment record for reference
+				const split_details = JSON.stringify(grouped_payments[mode].details);
+				frappe.model.set_value(payment_record.doctype, payment_record.name, 'remarks', split_details);
 			}
 		});
-		if (doc.redeem_loyalty_points && doc.loyalty_amount) {
-			const payment_dom = this.get_payment_html(doc, {
-				mode_of_payment: 'Loyalty Points',
-				amount: doc.loyalty_amount,
-			});
-			this.$payment_container.append(payment_dom);
+
+		// Store overall split payment info in the invoice
+		this.store_split_payment_summary(doc);
+	}
+
+	store_split_payment_summary(doc) {
+		// Create a summary of split payments for audit and display
+		const split_summary = this.split_payments.map(payment => ({
+			method: payment.mode_of_payment,
+			display_name: payment.display_name,
+			amount: payment.amount,
+			reference: payment.reference_number,
+			notes: payment.notes
+		}));
+
+		// Store in remarks
+		const summary_text = split_summary.map(s => 
+			`${s.display_name}: ${format_currency(s.amount, doc.currency)}${s.reference ? ` (Ref: ${s.reference})` : ''}${s.notes ? ` - ${s.notes}` : ''}`
+		).join(' | ');
+
+		// Add to remarks
+		const existing_remarks = doc.remarks || '';
+		const split_remarks = `Split Payment: ${summary_text}`;
+		frappe.model.set_value(doc.doctype, doc.name, 'remarks', 
+			existing_remarks ? `${existing_remarks}\n${split_remarks}` : split_remarks);
+	}
+
+	show_payment_status() {
+		const doc = this.events.get_frm().doc;
+		const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
+		const paid_amount = doc.paid_amount;
+		const remaining = grand_total - paid_amount;
+		
+		// Remove existing status display
+		this.$component.find('.payment-status-partial').remove();
+		
+		if (remaining > 0) {
+			const status_html = `
+				<div class="payment-status-partial">
+					<strong>${__('Status: Partly Paid')}</strong><br>
+					${__('Paid')}: ${format_currency(paid_amount, doc.currency)}<br>
+					${__('Remaining')}: ${format_currency(remaining, doc.currency)}
+				</div>
+			`;
+			this.$split_container.prepend(status_html);
 		}
 	}
 
-	attach_totals_info(doc) {
-		this.$totals_container.html('');
+	clear_split_payments() {
+		this.split_payments = [];
+		this.render_split_payments_list();
+		this.update_split_summary();
+		
+		// Remove payment status display
+		this.$component.find('.payment-status-partial').remove();
+	}
 
-		const net_total_dom = this.get_net_total_html(doc);
-		const taxes_dom = this.get_taxes_html(doc);
-		const discount_dom = this.get_discount_html(doc);
-		const grand_total_dom = this.get_grand_total_html(doc);
-		this.$totals_container.append(net_total_dom);
-		this.$totals_container.append(taxes_dom);
-		this.$totals_container.append(discount_dom);
-		this.$totals_container.append(grand_total_dom);
+	// Handle regular (non-split) payment selection
+	handle_regular_payment_selection(mode_clicked, mode) {
+		const me = this;
+		const scrollLeft = mode_clicked.offset().left - me.$payment_modes.offset().left + me.$payment_modes.scrollLeft();
+		me.$payment_modes.animate({ scrollLeft });
+
+		// Hide all control fields and shortcuts
+		$(`.mode-of-payment-control`).css('display', 'none');
+		$(`.cash-shortcuts`).css('display', 'none');
+		me.$payment_modes.find(`.pay-amount`).css('display', 'inline');
+		me.$payment_modes.find(`.loyalty-amount-name`).css('display', 'none');
+
+		// Remove highlight from all mode-of-payments
+		$('.mode-of-payment').removeClass('border-primary');
+
+		if (mode_clicked.hasClass('border-primary')) {
+			mode_clicked.removeClass('border-primary');
+			me.selected_mode = '';
+		} else {
+			mode_clicked.addClass('border-primary');
+			mode_clicked.find('.mode-of-payment-control').css('display', 'flex');
+			mode_clicked.find('.cash-shortcuts').css('display', 'grid');
+			me.$payment_modes.find(`.${mode}-amount`).css('display', 'none');
+			me.$payment_modes.find(`.${mode}-name`).css('display', 'inline');
+
+			me.selected_mode = me[`${mode}_control`];
+			me.selected_mode && me.selected_mode.$input.get(0).focus();
+			
+			// Auto-setting is now disabled for both modes
+		}
+	}
+
+	// Handle split payment mode selection
+	handle_split_payment_selection(mode_clicked, mode) {
+		// Simply highlight the selected payment method for adding to split
+		$('.mode-of-payment').removeClass('payment-mode-split-active');
+		mode_clicked.addClass('payment-mode-split-active');
+		
+		// Show the control for this payment method
+		$(`.mode-of-payment-control`).css('display', 'none');
+		mode_clicked.find('.mode-of-payment-control').css('display', 'flex');
+		
+		this.selected_mode = this[`${mode}_control`];
+		this.selected_mode && this.selected_mode.$input.get(0).focus();
+	}
+
+	setup_listener_for_payments() {
+		frappe.realtime.on("process_phone_payment", (data) => {
+			const doc = this.events.get_frm().doc;
+			const { response, amount, success, failure_message } = data;
+			let message, title;
+
+			if (success) {
+				title = __("Payment Received");
+				const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
+				if (amount >= grand_total) {
+					frappe.dom.unfreeze();
+					message = __("Payment of {0} received successfully.", [format_currency(amount, doc.currency, 0)]);
+					this.events.submit_invoice();
+					cur_frm.reload_doc();
+
+				} else {
+					message = __("Payment of {0} received successfully. Waiting for other requests to complete...", [format_currency(amount, doc.currency, 0)]);
+				}
+			} else if (failure_message) {
+				message = failure_message;
+				title = __("Payment Failed");
+			}
+
+			frappe.msgprint({ "message": message, "title": title });
+		});
+	}
+
+	auto_set_remaining_amount() {
+		// Auto-setting is now disabled - this method is kept for compatibility
+		// but no longer automatically sets amounts
+		return;
+	}
+
+	attach_shortcuts() {
+		const ctrl_label = frappe.utils.is_mac() ? '⌘' : 'Ctrl';
+		this.$component.find('.submit-order-btn').attr("title", `${ctrl_label}+Enter`);
+		frappe.ui.keys.on("ctrl+enter", () => {
+			const payment_is_visible = this.$component.is(":visible");
+			const active_mode = this.$payment_modes.find(".border-primary");
+			if (payment_is_visible && active_mode.length && !this.is_split_mode) {
+				this.$component.find('.submit-order-btn').click();
+			}
+		});
+
+		frappe.ui.keys.add_shortcut({
+			shortcut: "tab",
+			action: () => {
+				const payment_is_visible = this.$component.is(":visible");
+				let active_mode = this.$payment_modes.find(".border-primary");
+				active_mode = active_mode.length ? active_mode.attr("data-mode") : undefined;
+
+				if (!active_mode) return;
+
+				const mode_of_payments = Array.from(this.$payment_modes.find(".mode-of-payment")).map(m => $(m).attr("data-mode"));
+				const mode_index = mode_of_payments.indexOf(active_mode);
+				const next_mode_index = (mode_index + 1) % mode_of_payments.length;
+				const next_mode_to_be_clicked = this.$payment_modes.find(`.mode-of-payment[data-mode="${mode_of_payments[next_mode_index]}"]`);
+
+				if (payment_is_visible && mode_index != next_mode_index) {
+					next_mode_to_be_clicked.click();
+				}
+			},
+			condition: () => this.$component.is(':visible') && this.$payment_modes.find(".border-primary").length,
+			description: __("Switch Between Payment Modes"),
+			ignore_inputs: true,
+			page: cur_page.page.page
+		});
+	}
+
+	toggle_numpad() {
+		// pass
+	}
+
+	render_payment_section() {
+		this.render_payment_mode_dom();
+		this.make_invoice_fields_control();
+		this.update_totals_section();
+		this.check_for_existing_payments(); // Check if we should auto-enable split mode
+		this.focus_on_default_mop();
+	}
+
+	after_render() {
+		const frm = this.events.get_frm();
+		frm.script_manager.trigger("after_payment_render", frm.doc.doctype, frm.doc.docname);
+	}
+
+	edit_cart() {
+		this.events.toggle_other_sections(false);
+		this.toggle_component(false);
+	}
+
+	checkout() {
+		this.events.toggle_other_sections(true);
+		this.toggle_component(true);
+
+		this.render_payment_section();
+		this.after_render();
+	}
+
+	toggle_remarks_control() {
+		if (this.$remarks.find('.frappe-control').length) {
+			this.$remarks.html('+ Add Remark');
+		} else {
+			this.$remarks.html('');
+			this[`remark_control`] = frappe.ui.form.make_control({
+				df: {
+					label: __('Remark'),
+					fieldtype: 'Data',
+					onchange: function() {}
+				},
+				parent: this.$totals_section.find(`.remarks`),
+				render_input: true,
+			});
+			this[`remark_control`].set_value('');
+		}
+	}
+
+	render_payment_mode_dom() {
+		const doc = this.events.get_frm().doc;
+		const payments = doc.payments;
+		const currency = doc.currency;
+
+		this.$payment_modes.html(`${
+			payments.map((p, i) => {
+				const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+				const payment_type = p.type;
+				const amount = p.amount > 0 ? format_currency(p.amount, currency) : '';
+
+				return (`
+					<div class="payment-mode-wrapper">
+						<div class="mode-of-payment" data-mode="${mode}" data-payment-type="${payment_type}">
+							${p.mode_of_payment}
+							<div class="${mode}-amount pay-amount">${amount}</div>
+							<div class="${mode} mode-of-payment-control"></div>
+						</div>
+					</div>
+				`);
+			}).join('')
+		}`);
+
+		payments.forEach(p => {
+			const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+			const me = this;
+			this[`${mode}_control`] = frappe.ui.form.make_control({
+				df: {
+					label: p.mode_of_payment,
+					fieldtype: 'Currency',
+					placeholder: __('Enter {0} amount.', [p.mode_of_payment]),
+					onchange: function() {
+						const current_value = frappe.model.get_value(p.doctype, p.name, 'amount');
+						if (current_value != this.value) {
+							frappe.model
+								.set_value(p.doctype, p.name, 'amount', flt(this.value))
+								.then(() => me.update_totals_section())
+
+							const formatted_currency = format_currency(this.value, currency);
+							me.$payment_modes.find(`.${mode}-amount`).html(formatted_currency);
+						}
+					}
+				},
+				parent: this.$payment_modes.find(`.${mode}.mode-of-payment-control`),
+				render_input: true,
+			});
+			this[`${mode}_control`].toggle_label(false);
+			this[`${mode}_control`].set_value(p.amount);
+		});
+
+		this.render_loyalty_points_payment_mode();
+		this.attach_cash_shortcuts(doc);
+	}
+
+	check_for_existing_payments() {
+		const doc = this.events.get_frm().doc;
+		
+		// Check if there are any existing payments with amounts > 0 OR if paid_amount > 0
+		const has_existing_payments = doc.payments.some(payment => payment.amount > 0) || doc.paid_amount > 0;
+		
+		if (has_existing_payments && !this.is_split_mode) {
+			// Automatically enable split payment mode
+			this.$component.find('#split-payment-checkbox').prop('checked', true);
+			this.toggle_split_payment_mode(true);
+			
+			frappe.show_alert({
+				message: __("Split payment mode enabled automatically due to existing payments"),
+				indicator: "blue"
+			});
+		}
+	}
+
+	focus_on_default_mop() {
+		const doc = this.events.get_frm().doc;
+		const payments = doc.payments;
+		
+		// Don't auto-focus in split mode
+		if (this.is_split_mode) return;
+		
+		payments.forEach(p => {
+			const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+			if (p.default) {
+				setTimeout(() => {
+					this.$payment_modes.find(`.${mode}.mode-of-payment-control`).parent().click();
+				}, 500);
+			}
+		});
+	}
+
+	attach_cash_shortcuts(doc) {
+		const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
+		const currency = doc.currency;
+
+		const shortcuts = this.get_cash_shortcuts(flt(grand_total));
+
+		this.$payment_modes.find('.cash-shortcuts').remove();
+		let shortcuts_html = shortcuts.map(s => {
+			return `<div class="shortcut" data-value="${s}">${format_currency(s, currency, 0)}</div>`;
+		}).join('');
+
+		this.$payment_modes.find('[data-payment-type="Cash"]').find('.mode-of-payment-control')
+			.after(`<div class="cash-shortcuts">${shortcuts_html}</div>`);
+	}
+
+	get_cash_shortcuts(grand_total) {
+		let steps = [1, 5, 10];
+		const digits = String(Math.round(grand_total)).length;
+
+		steps = steps.map(x => x * (10 ** (digits - 2)));
+
+		const get_nearest = (amount, x) => {
+			let nearest_x = Math.ceil((amount / x)) * x;
+			return nearest_x === amount ? nearest_x + x : nearest_x;
+		};
+
+		return steps.reduce((finalArr, x) => {
+			let nearest_x = get_nearest(grand_total, x);
+			nearest_x = finalArr.indexOf(nearest_x) != -1 ? nearest_x + x : nearest_x;
+			return [...finalArr, nearest_x];
+		}, []);
+	}
+
+	render_loyalty_points_payment_mode() {
+		const me = this;
+		const doc = this.events.get_frm().doc;
+		const { loyalty_program, loyalty_points, conversion_factor } = this.events.get_customer_details();
+
+		this.$payment_modes.find(`.mode-of-payment[data-mode="loyalty-amount"]`).parent().remove();
+
+		if (!loyalty_program) return;
+
+		let description, read_only, max_redeemable_amount;
+		if (!loyalty_points) {
+			description = __("You don't have enough points to redeem.");
+			read_only = true;
+		} else {
+			max_redeemable_amount = flt(flt(loyalty_points) * flt(conversion_factor), precision("loyalty_amount", doc));
+			description = __("You can redeem upto {0}.", [format_currency(max_redeemable_amount)]);
+			read_only = false;
+		}
+
+		const amount = doc.loyalty_amount > 0 ? format_currency(doc.loyalty_amount, doc.currency) : '';
+		this.$payment_modes.append(
+			`<div class="payment-mode-wrapper">
+				<div class="mode-of-payment loyalty-card" data-mode="loyalty-amount" data-payment-type="loyalty-amount">
+					Redeem Loyalty Points
+					<div class="loyalty-amount-amount pay-amount">${amount}</div>
+					<div class="loyalty-amount-name">${loyalty_program}</div>
+					<div class="loyalty-amount mode-of-payment-control"></div>
+				</div>
+			</div>`
+		);
+
+		this['loyalty-amount_control'] = frappe.ui.form.make_control({
+			df: {
+				label: __("Redeem Loyalty Points"),
+				fieldtype: 'Currency',
+				placeholder: __("Enter amount to be redeemed."),
+				options: 'company:currency',
+				read_only,
+				onchange: async function() {
+					if (!loyalty_points) return;
+
+					if (this.value > max_redeemable_amount) {
+						frappe.show_alert({
+							message: __("You cannot redeem more than {0}.", [format_currency(max_redeemable_amount)]),
+							indicator: "red"
+						});
+						frappe.utils.play_sound("submit");
+						me['loyalty-amount_control'].set_value(0);
+						return;
+					}
+					const redeem_loyalty_points = this.value > 0 ? 1 : 0;
+					await frappe.model.set_value(doc.doctype, doc.name, 'redeem_loyalty_points', redeem_loyalty_points);
+					frappe.model.set_value(doc.doctype, doc.name, 'loyalty_points', parseInt(this.value / conversion_factor));
+				},
+				description
+			},
+			parent: this.$payment_modes.find(`.loyalty-amount.mode-of-payment-control`),
+			render_input: true,
+		});
+		this['loyalty-amount_control'].toggle_label(false);
+	}
+
+	render_add_payment_method_dom() {
+		const docstatus = this.events.get_frm().doc.docstatus;
+		if (docstatus === 0)
+			this.$payment_modes.append(
+				`<div class="w-full pr-2">
+					<div class="add-mode-of-payment w-half text-grey mb-4 no-select pointer">+ Add Payment Method</div>
+				</div>`
+			);
+	}
+
+	update_totals_section(doc) {
+		if (!doc) doc = this.events.get_frm().doc;
+		const paid_amount = doc.paid_amount;
+		const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
+		const remaining = grand_total - doc.paid_amount;
+		const change = doc.change_amount || remaining <= 0 ? -1 * remaining : undefined;
+		const currency = doc.currency;
+		const label = change ? __('Change') : __('To Be Paid');
+
+		this.$totals.html(
+			`<div class="col">
+				<div class="total-label">${__('Grand Total')}</div>
+				<div class="value">${format_currency(grand_total, currency)}</div>
+			</div>
+			<div class="seperator-y"></div>
+			<div class="col">
+				<div class="total-label">${__('Paid Amount')}</div>
+				<div class="value">${format_currency(paid_amount, currency)}</div>
+			</div>
+			<div class="seperator-y"></div>
+			<div class="col">
+				<div class="total-label">${label}</div>
+				<div class="value">${format_currency(change || remaining, currency)}</div>
+			</div>`
+		);
 	}
 
 	toggle_component(show) {
 		show ? this.$component.css('display', 'flex') : this.$component.css('display', 'none');
-
 	}
 };
