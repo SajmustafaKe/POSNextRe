@@ -501,76 +501,65 @@ posnext.PointOfSale.Payment = class {
 		// Clear existing split payments
 		this.split_payments = [];
 		
+		console.log('Loading existing payments for doc:', doc.name);
+		console.log('Document payments:', doc.payments);
+		console.log('Document paid_amount:', doc.paid_amount);
+		
 		// Load existing payments that have amounts > 0
 		doc.payments.forEach((payment, index) => {
+			console.log(`Processing payment ${index}:`, payment);
+			
 			if (payment.amount > 0) {
 				const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
 				
-				// Check if this payment has split details in remarks
-				let split_details = [];
-				try {
-					// First check if payment.remarks contains JSON data
-					if (payment.remarks && payment.remarks.trim().startsWith('[')) {
-						split_details = JSON.parse(payment.remarks);
-					} else if (payment.remarks && payment.remarks.includes('Split Payment:')) {
-						// Handle case where remarks contains "Split Payment:" prefix
-						const split_part = payment.remarks.split('Split Payment:')[1];
-						if (split_part && split_part.trim().startsWith('[')) {
-							split_details = JSON.parse(split_part.trim());
-						}
-					}
-				} catch (e) {
-					console.log('Could not parse payment remarks as JSON:', e);
-				}
+				// Always treat as single payment entry for now to ensure it shows up
+				const split_id = `${mode}_existing_${index}`;
+				const existing_payment = {
+					id: split_id,
+					mode: mode,
+					mode_of_payment: payment.mode_of_payment,
+					display_name: payment.mode_of_payment,
+					amount: payment.amount,
+					type: payment.type,
+					reference_number: payment.reference_no || '',
+					notes: payment.remarks || '',
+					is_existing: true
+				};
 				
-				// If no valid split details found, treat as single payment
-				if (!split_details.length) {
-					split_details = [{
-						amount: payment.amount,
-						reference: '',
-						notes: '',
-						display_name: payment.mode_of_payment
-					}];
-				}
-				
-				// Add each split detail as separate payment
-				split_details.forEach((detail, detailIndex) => {
-					const split_id = `${mode}_existing_${index}_${detailIndex}`;
-					this.split_payments.push({
-						id: split_id,
-						mode: mode,
-						mode_of_payment: payment.mode_of_payment,
-						display_name: detail.display_name || payment.mode_of_payment,
-						amount: detail.amount || payment.amount, // Fallback to payment amount
-						type: payment.type,
-						reference_number: detail.reference || '',
-						notes: detail.notes || '',
-						is_existing: true // Mark as existing payment
-					});
-				});
+				this.split_payments.push(existing_payment);
+				console.log('Added existing payment:', existing_payment);
 			}
 		});
 		
-		// If no split payments were loaded but document has paid_amount > 0,
-		// it might be an older format - try to reconstruct from paid amounts
+		// Additional check - if no payments found but paid_amount > 0, 
+		// try to find any payment record with amount
 		if (this.split_payments.length === 0 && doc.paid_amount > 0) {
-			doc.payments.forEach((payment, index) => {
-				if (payment.amount > 0) {
-					const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-					const split_id = `${mode}_reconstructed_${index}`;
-					this.split_payments.push({
-						id: split_id,
-						mode: mode,
-						mode_of_payment: payment.mode_of_payment,
-						display_name: payment.mode_of_payment,
-						amount: payment.amount,
-						type: payment.type,
-						reference_number: '',
-						notes: 'Reconstructed from existing payment',
-						is_existing: true
-					});
-				}
-			});
+			console.log('No payments found but paid_amount > 0, checking alternative sources...');
+			
+			// Check if there are any payment entries in the sales invoice payments table
+			if (doc.payments && doc.payments.length > 0) {
+				doc.payments.forEach((payment, index) => {
+					console.log(`Checking payment entry ${index}:`, payment);
+					if (payment.amount && payment.amount > 0) {
+						const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+						const split_id = `${mode}_fallback_${index}`;
+						const fallback_payment = {
+							id: split_id,
+							mode: mode,
+							mode_of_payment: payment.mode_of_payment,
+							display_name: payment.mode_of_payment + ' (Recovered)',
+							amount: payment.amount,
+							type: payment.type || 'Cash',
+							reference_number: payment.reference_no || '',
+							notes: 'Recovered existing payment',
+							is_existing: true
+						};
+						
+						this.split_payments.push(fallback_payment);
+						console.log('Added fallback payment:', fallback_payment);
+					}
+				});
+			}
 		}
 		
 		// Renumber the loaded payments
@@ -581,8 +570,8 @@ posnext.PointOfSale.Payment = class {
 		this.update_split_summary();
 		this.show_payment_status();
 		
-		// Debug log
-		console.log('Loaded existing payments:', this.split_payments);
+		console.log('Final loaded split payments:', this.split_payments);
+		console.log('Split total:', this.get_split_total());
 	}
 
 	render_split_payment_modes() {
@@ -862,26 +851,35 @@ posnext.PointOfSale.Payment = class {
 	}
 
 	open_past_order_summary(doc) {
-		// Navigate to past order summary
-		frappe.set_route('Form', 'POS Invoice', doc.name);
-		
-		// Alternative approach if the above doesn't work:
-		// You might need to trigger the past order summary view specifically
-		// This depends on how your POS system is structured
-		setTimeout(() => {
-			if (window.pos_past_order_summary) {
-				window.pos_past_order_summary.show(doc);
-			} else if (this.events.show_past_order_summary) {
-				this.events.show_past_order_summary(doc);
+		// Navigate to POS past order list
+		try {
+			// Try to access the POS past order list component
+			if (this.events.toggle_recent_order_list) {
+				this.events.toggle_recent_order_list();
+			} else if (window.pos_past_order_list) {
+				window.pos_past_order_list.show();
 			} else {
-				// Fallback - you may need to adjust this based on your POS structure
-				frappe.msgprint({
-					title: __('Order Saved'),
-					message: __('Partial payment saved. Order: {0}', [doc.name]),
-					indicator: 'green'
-				});
+				// Fallback - trigger the past order list view
+				const pos_controller = this.events.pos_controller || window.pos_controller;
+				if (pos_controller && pos_controller.past_order_list) {
+					pos_controller.past_order_list.toggle_component(true);
+				} else {
+					// Last resort - you may need to adjust this path
+					frappe.require('assets/posnext/js/pos_past_order_list.js', () => {
+						if (window.pos_past_order_list) {
+							window.pos_past_order_list.show();
+						}
+					});
+				}
 			}
-		}, 500);
+		} catch (error) {
+			console.error('Error opening past order list:', error);
+			frappe.msgprint({
+				title: __('Order Saved'),
+				message: __('Partial payment saved. Order: {0}', [doc.name]),
+				indicator: 'green'
+			});
+		}
 	}
 
 	apply_split_payments_to_doc() {
@@ -1102,7 +1100,6 @@ posnext.PointOfSale.Payment = class {
 
 	render_payment_section() {
 		this.render_payment_mode_dom();
-		this.make_invoice_fields_control();
 		this.update_totals_section();
 		this.check_for_existing_payments(); // Check if we should auto-enable split mode
 		this.focus_on_default_mop();
