@@ -884,62 +884,35 @@ posnext.PointOfSale.Payment = class {
 
 	open_past_order_summary(doc) {
 		try {
-			// Get the POS controller from events
-			const pos_controller = this.events.pos_controller;
-			
-			if (pos_controller) {
-				// Method 1: Direct controller access
-				if (pos_controller.toggle_recent_order_list) {
-					pos_controller.toggle_recent_order_list(true);
-					return;
-				}
-				
-				// Method 2: Access recent order list component
-				if (pos_controller.recent_order_list) {
-					pos_controller.recent_order_list.toggle_component(true);
-					pos_controller.toggle_components(false); // Hide other components
-					return;
-				}
-			}
-			
-			// Method 3: Try to get controller from global scope or events
-			const controller = this.events.controller || 
-							   this.events.get_controller?.() || 
-							   window.pos_controller;
-			
-			if (controller && controller.toggle_recent_order_list) {
-				controller.toggle_recent_order_list(true);
+			// Method 1: Use existing toggle_recent_order event (already in cart events)
+			if (this.events.toggle_recent_order) {
+				this.events.toggle_recent_order();
 				return;
 			}
 			
-			// Method 4: Try through events system
+			// Method 2: Use existing toggle_recent_order_list if available
 			if (this.events.toggle_recent_order_list) {
-				this.events.toggle_recent_order_list();
+				this.events.toggle_recent_order_list(true);
 				return;
 			}
 			
-			// Method 5: Trigger through cart events (since cart has toggle_recent_order)
-			if (this.events.get_frm && this.events.get_frm().pos_controller) {
-				const frm_controller = this.events.get_frm().pos_controller;
-				if (frm_controller.toggle_recent_order_list) {
-					frm_controller.toggle_recent_order_list(true);
-					return;
-				}
+			// Method 3: Direct controller access
+			const pos_controller = this.events.pos_controller || this.events.controller;
+			if (pos_controller && pos_controller.toggle_recent_order_list) {
+				pos_controller.toggle_recent_order_list(true);
+				return;
 			}
 			
-			// Method 6: Try to access through the wrapper's parent components
-			const pos_app = this.wrapper.closest('.point-of-sale-app');
-			if (pos_app.length && window.pos_instance) {
-				if (window.pos_instance.toggle_recent_order_list) {
-					window.pos_instance.toggle_recent_order_list(true);
-					return;
-				}
+			// Method 4: Access via window controller
+			if (window.pos_controller && window.pos_controller.toggle_recent_order_list) {
+				window.pos_controller.toggle_recent_order_list(true);
+				return;
 			}
 			
-			// Fallback - show a success message with order info
+			// Success message with instruction to access Recent Orders
 			frappe.msgprint({
 				title: __('Partial Payment Saved'),
-				message: __('Partial payment saved successfully for order: {0}. Please access Recent Orders to view the order.', [doc.name]),
+				message: __('Partial payment saved successfully for order: {0}. The Recent Orders view will open automatically.', [doc.name]),
 				indicator: 'green'
 			});
 			
@@ -947,7 +920,7 @@ posnext.PointOfSale.Payment = class {
 			console.error('Error opening past order list:', error);
 			frappe.msgprint({
 				title: __('Order Saved'),
-				message: __('Partial payment saved successfully for order: {0}. Please access Recent Orders manually.', [doc.name]),
+				message: __('Partial payment saved successfully for order: {0}. Please click "Recent Orders" to view the saved order.', [doc.name]),
 				indicator: 'green'
 			});
 		}
