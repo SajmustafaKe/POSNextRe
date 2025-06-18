@@ -8,6 +8,10 @@ posnext.PointOfSale.Payment = class {
 		this.is_split_mode = false; // Track if we're in split payment mode
 		this.allow_overpayment = true; // Allow overpayment in split mode
 		this.auto_set_amount = false; // Disable auto-setting amount to grand total
+		
+		// Enhanced payment persistence for POSNext edit order flow
+		this.payment_backup_key = null; // Store backup key for this session
+		this.original_payment_data = null; // Store original payment data
 
 		this.init_component();
 	}
@@ -17,6 +21,112 @@ posnext.PointOfSale.Payment = class {
 		this.initialize_numpad();
 		this.bind_events();
 		this.attach_shortcuts();
+		
+		// Initialize payment backup system for POSNext edit order flow
+		this.initialize_payment_backup_system();
+	}
+
+	// Initialize payment backup system for handling POSNext edit order flow
+	initialize_payment_backup_system() {
+		const doc = this.events.get_frm().doc;
+		if (doc && doc.name) {
+			this.payment_backup_key = `pos_payments_backup_${doc.name}`;
+			
+			// Try to restore from backup first
+			this.restore_payments_from_backup();
+		}
+	}
+
+	// Backup payments to session storage for POSNext edit order persistence
+	backup_payments_to_session() {
+		if (!this.payment_backup_key) return;
+		
+		const doc = this.events.get_frm().doc;
+		if (!doc || !doc.name) return;
+		
+		const backup_data = {
+			invoice_name: doc.name,
+			backup_time: new Date().toISOString(),
+			payments: [],
+			split_payments: [...this.split_payments],
+			is_split_mode: this.is_split_mode,
+			paid_amount: doc.paid_amount || 0,
+			status: doc.status || 'Draft'
+		};
+		
+		// Backup current payments from document
+		if (doc.payments && Array.isArray(doc.payments)) {
+			doc.payments.forEach(payment => {
+				if (payment.amount && payment.amount > 0) {
+					backup_data.payments.push({
+						mode_of_payment: payment.mode_of_payment,
+						amount: payment.amount,
+						type: payment.type || 'Cash',
+						reference_no: payment.reference_no || '',
+						remarks: payment.remarks || ''
+					});
+				}
+			});
+		}
+		
+		// Store in memory (not sessionStorage due to Claude restrictions)
+		if (!window.pos_payment_backups) {
+			window.pos_payment_backups = {};
+		}
+		window.pos_payment_backups[this.payment_backup_key] = backup_data;
+		
+		console.log('💾 Backed up payments for:', doc.name, backup_data);
+	}
+
+	// Restore payments from backup
+	restore_payments_from_backup() {
+		if (!this.payment_backup_key) return false;
+		
+		// Check memory backup
+		if (window.pos_payment_backups && window.pos_payment_backups[this.payment_backup_key]) {
+			const backup_data = window.pos_payment_backups[this.payment_backup_key];
+			
+			console.log('🔄 Restoring payments from backup:', backup_data);
+			
+			// Restore split payments
+			if (backup_data.split_payments && backup_data.split_payments.length > 0) {
+				this.split_payments = [...backup_data.split_payments];
+				console.log('✅ Restored split payments:', this.split_payments);
+			}
+			
+			// Restore split mode state
+			if (backup_data.is_split_mode) {
+				this.is_split_mode = backup_data.is_split_mode;
+				console.log('✅ Restored split mode state:', this.is_split_mode);
+			}
+			
+			// Store original payment data for later use
+			if (backup_data.payments && backup_data.payments.length > 0) {
+				this.original_payment_data = backup_data.payments;
+				console.log('✅ Stored original payment data:', this.original_payment_data);
+			}
+			
+			// Show user notification
+			if (this.split_payments.length > 0 || this.original_payment_data) {
+				frappe.show_alert({
+					message: __("Payment data restored from previous session"),
+					indicator: "green"
+				});
+				return true;
+			}
+		}
+		
+		return false;
+	}
+
+	// Clear payment backup when invoice is completed
+	clear_payment_backup() {
+		if (!this.payment_backup_key) return;
+		
+		if (window.pos_payment_backups && window.pos_payment_backups[this.payment_backup_key]) {
+			delete window.pos_payment_backups[this.payment_backup_key];
+			console.log('🗑️ Cleared payment backup for:', this.payment_backup_key);
+		}
 	}
 
 	prepare_dom() {
@@ -452,6 +562,9 @@ posnext.PointOfSale.Payment = class {
 				}
 			}
 
+			// Clear payment backup when order is completed
+			me.clear_payment_backup();
+			
 			this.events.submit_invoice();
 		});
 
@@ -510,7 +623,7 @@ posnext.PointOfSale.Payment = class {
 			// First render the split payment modes
 			this.render_split_payment_modes();
 			
-			// Then load existing payments
+			// Then load existing payments (with backup support)
 			this.load_existing_payments();
 			
 			// If no payments were loaded but there are payments in the document, try to sync
@@ -525,6 +638,9 @@ posnext.PointOfSale.Payment = class {
 			this.render_payment_mode_dom(); // Restore original payment modes
 			console.log('Split mode disabled.');
 		}
+		
+		// Backup the current state
+		this.backup_payments_to_session();
 	}
 
 	// Enhanced debugging and payment detection for edited orders
@@ -543,14 +659,16 @@ posnext.PointOfSale.Payment = class {
 			modified: doc.modified
 		});
 		
-		// Check if this looks like an edited existing order
+		// Check if this looks like an edited existing order (ERPNext Bug Fix)
+		// ERPNext has a known issue where editing existing POS invoices clears payment data
+		// We need to detect both 'new-' prefixed AND existing invoice names that have been edited
 		const is_edited_order = (
-			doc.name.startsWith('new-') && 
-			(doc.creation || doc.modified || doc.status !== 'Draft')
+			(doc.name.startsWith('new-') && (doc.creation || doc.modified || doc.status !== 'Draft')) ||
+			(!doc.name.startsWith('new-') && doc.creation && doc.docstatus === 0 && !doc.__islocal)
 		);
 		
 		if (is_edited_order) {
-			console.log('🔍 This appears to be an EDITED existing order!');
+			console.log('🔍 This appears to be an EDITED existing order (possibly affected by ERPNext payment clearing bug)!');
 			console.log('Looking for payment indicators...');
 			
 			// For edited orders, be more aggressive in looking for payment signs
@@ -590,6 +708,16 @@ posnext.PointOfSale.Payment = class {
 			if (doc.creation || doc.modified) {
 				has_payment_indicators = true;
 				reasons.push('Has creation/modified date');
+			}
+			
+			// Check 6: ERPNext Bug Detection - existing invoice name with cleared payments
+			if (!doc.name.startsWith('new-') && doc.creation && doc.docstatus === 0) {
+				console.log('🐛 DETECTED: ERPNext payment clearing bug - existing invoice loaded for editing');
+				has_payment_indicators = true;
+				reasons.push('ERPNext payment clearing bug detected');
+				
+				// Try to fetch original payment data from server
+				this.fetch_original_payment_data(doc.name);
 			}
 			
 			console.log('Payment indicators found:', has_payment_indicators);
@@ -660,6 +788,47 @@ posnext.PointOfSale.Payment = class {
 		}
 	}
 
+	// New method to fetch original payment data for invoices affected by ERPNext payment clearing bug
+	fetch_original_payment_data(invoice_name) {
+		console.log('🔄 Fetching original payment data for:', invoice_name);
+		
+		// Fetch the original document from server to get payment data
+		frappe.db.get_doc('POS Invoice', invoice_name).then(original_doc => {
+			console.log('📄 Original document fetched:', original_doc);
+			
+			if (original_doc && original_doc.payments) {
+				let found_payments = false;
+				
+				original_doc.payments.forEach(payment => {
+					if (payment.amount && payment.amount > 0) {
+						found_payments = true;
+						console.log(`💰 Found original payment: ${payment.mode_of_payment} = ${payment.amount}`);
+					}
+				});
+				
+				if (found_payments) {
+					console.log('✅ Original payments detected - storing for restoration');
+					// Store original payment data for later restoration
+					this.original_payment_data = original_doc.payments;
+					
+					// Show user notification about detected payments
+					frappe.show_alert({
+						message: __("Original payments detected! Split payment mode will be enabled."),
+						indicator: "green"
+					});
+					
+					// Enable split mode and load original payments
+					if (!this.is_split_mode) {
+						this.$component.find('#split-payment-checkbox').prop('checked', true);
+						this.toggle_split_payment_mode(true);
+					}
+				}
+			}
+		}).catch(error => {
+			console.error('❌ Error fetching original payment data:', error);
+		});
+	}
+
 	// Enhanced load_existing_payments method for edited orders
 	load_existing_payments() {
 		const doc = this.events.get_frm().doc;
@@ -667,91 +836,121 @@ posnext.PointOfSale.Payment = class {
 		console.log('=== LOADING PAYMENTS FOR EDITED ORDER ===');
 		console.log('Document name:', doc.name);
 		console.log('Is edited order:', doc.name.startsWith('new-') && (doc.creation || doc.status !== 'Draft'));
+		console.log('Is ERPNext bug case:', !doc.name.startsWith('new-') && doc.creation && doc.docstatus === 0);
 		
 		// Clear existing split payments
 		this.split_payments = [];
 		
-		if (!doc.payments || !Array.isArray(doc.payments)) {
-			console.log('No payments array found');
-			return;
-		}
-		
-		// For edited orders, also check for historical payment data
-		// that might be stored in remarks or other fields
-		if (doc.name.startsWith('new-') && doc.remarks) {
-			console.log('Checking remarks for split payment history:', doc.remarks);
+		// First try to load from original payment data if available (ERPNext bug fix)
+		if (this.original_payment_data && Array.isArray(this.original_payment_data)) {
+			console.log('🔄 Loading from original payment data (ERPNext bug fix)');
 			
-			// Look for split payment summary in remarks
-			if (doc.remarks.includes('Split Payment:')) {
-				console.log('Found split payment history in remarks!');
-				this.parse_split_payment_from_remarks(doc.remarks);
-			}
-		}
-		
-		// Process current payments array
-		doc.payments.forEach((payment, index) => {
-			console.log(`Processing payment ${index}:`, {
-				mode: payment.mode_of_payment,
-				amount: payment.amount,
-				reference: payment.reference_no,
-				remarks: payment.remarks
+			this.original_payment_data.forEach((payment, index) => {
+				if (payment.amount && payment.amount > 0) {
+					const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+					
+					const existing_payment = {
+						id: `${mode}_original_${index}`,
+						mode: mode,
+						mode_of_payment: payment.mode_of_payment,
+						display_name: payment.mode_of_payment,
+						amount: payment.amount,
+						type: payment.type || 'Cash',
+						reference_number: payment.reference_no || '',
+						notes: payment.remarks || 'Restored from original',
+						is_existing: true
+					};
+					
+					this.split_payments.push(existing_payment);
+					console.log('✅ Restored original payment:', existing_payment);
+				}
 			});
+		}
+		
+		// If we still have no payments, try loading from current document
+		if (this.split_payments.length === 0) {
+			if (!doc.payments || !Array.isArray(doc.payments)) {
+				console.log('No payments array found');
+				return;
+			}
 			
-			if (payment.amount && payment.amount > 0) {
-				const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+			// For edited orders, also check for historical payment data
+			// that might be stored in remarks or other fields
+			if (doc.name.startsWith('new-') && doc.remarks) {
+				console.log('Checking remarks for split payment history:', doc.remarks);
 				
-				// Try to parse split details from payment remarks
-				let split_details = [];
-				if (payment.remarks) {
-					try {
-						split_details = JSON.parse(payment.remarks);
-						console.log('Parsed split details:', split_details);
-					} catch (e) {
-						// Not JSON, treat as single payment
+				// Look for split payment summary in remarks
+				if (doc.remarks.includes('Split Payment:')) {
+					console.log('Found split payment history in remarks!');
+					this.parse_split_payment_from_remarks(doc.remarks);
+				}
+			}
+			
+			// Process current payments array
+			doc.payments.forEach((payment, index) => {
+				console.log(`Processing payment ${index}:`, {
+					mode: payment.mode_of_payment,
+					amount: payment.amount,
+					reference: payment.reference_no,
+					remarks: payment.remarks
+				});
+				
+				if (payment.amount && payment.amount > 0) {
+					const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+					
+					// Try to parse split details from payment remarks
+					let split_details = [];
+					if (payment.remarks) {
+						try {
+							split_details = JSON.parse(payment.remarks);
+							console.log('Parsed split details:', split_details);
+						} catch (e) {
+							// Not JSON, treat as single payment
+							split_details = [{
+								amount: payment.amount,
+								reference: payment.reference_no || '',
+								notes: payment.remarks || '',
+								display_name: payment.mode_of_payment
+							}];
+						}
+					} else {
+						// No remarks, single payment
 						split_details = [{
 							amount: payment.amount,
 							reference: payment.reference_no || '',
-							notes: payment.remarks || '',
+							notes: '',
 							display_name: payment.mode_of_payment
 						}];
 					}
-				} else {
-					// No remarks, single payment
-					split_details = [{
-						amount: payment.amount,
-						reference: payment.reference_no || '',
-						notes: '',
-						display_name: payment.mode_of_payment
-					}];
+					
+					// Add each split detail as a separate entry
+					split_details.forEach((detail, detail_index) => {
+						if (detail.amount && detail.amount > 0) {
+							const split_id = `${mode}_existing_${index}_${detail_index}`;
+							const existing_payment = {
+								id: split_id,
+								mode: mode,
+								mode_of_payment: payment.mode_of_payment,
+								display_name: detail.display_name || payment.mode_of_payment,
+								amount: detail.amount,
+								type: payment.type || 'Cash',
+								reference_number: detail.reference || payment.reference_no || '',
+								notes: detail.notes || payment.remarks || '',
+								is_existing: true
+							};
+							
+							this.split_payments.push(existing_payment);
+							console.log('Added existing payment:', existing_payment);
+						}
+					});
 				}
-				
-				// Add each split detail as a separate entry
-				split_details.forEach((detail, detail_index) => {
-					if (detail.amount && detail.amount > 0) {
-						const split_id = `${mode}_existing_${index}_${detail_index}`;
-						const existing_payment = {
-							id: split_id,
-							mode: mode,
-							mode_of_payment: payment.mode_of_payment,
-							display_name: detail.display_name || payment.mode_of_payment,
-							amount: detail.amount,
-							type: payment.type || 'Cash',
-							reference_number: detail.reference || payment.reference_no || '',
-							notes: detail.notes || payment.remarks || '',
-							is_existing: true
-						};
-						
-						this.split_payments.push(existing_payment);
-						console.log('Added existing payment:', existing_payment);
-					}
-				});
+			});
+			
+			// If still no payments found but document suggests payments exist
+			if (this.split_payments.length === 0 && (doc.paid_amount > 0 || doc.status === 'Partly Paid')) {
+				console.log('Creating fallback payment from document state...');
+				this.create_fallback_payment_from_document(doc);
 			}
-		});
-		
-		// If still no payments found but document suggests payments exist
-		if (this.split_payments.length === 0 && (doc.paid_amount > 0 || doc.status === 'Partly Paid')) {
-			console.log('Creating fallback payment from document state...');
-			this.create_fallback_payment_from_document(doc);
 		}
 		
 		// Renumber and update display
@@ -761,6 +960,14 @@ posnext.PointOfSale.Payment = class {
 		this.show_payment_status();
 		
 		console.log('Final loaded split payments:', this.split_payments);
+		
+		// Show success message if payments were restored
+		if (this.split_payments.length > 0 && this.original_payment_data) {
+			frappe.show_alert({
+				message: __("Payments restored successfully! ({0} payment(s) found)", [this.split_payments.length]),
+				indicator: "green"
+			});
+		}
 	}
 
 	// Helper method to parse split payment data from remarks
@@ -973,6 +1180,9 @@ posnext.PointOfSale.Payment = class {
 
 		this.render_split_payments_list();
 		this.update_split_summary();
+		
+		// Backup after adding payment
+		this.backup_payments_to_session();
 	}
 
 	remove_split_payment(index) {
@@ -989,6 +1199,9 @@ posnext.PointOfSale.Payment = class {
 		this.renumber_same_payment_methods();
 		this.render_split_payments_list();
 		this.update_split_summary();
+		
+		// Backup after removing payment
+		this.backup_payments_to_session();
 	}
 
 	edit_split_payment(index) {
@@ -1039,6 +1252,9 @@ posnext.PointOfSale.Payment = class {
 
 			this.render_split_payments_list();
 			this.update_split_summary();
+			
+			// Backup after editing payment
+			this.backup_payments_to_session();
 		}, __('Edit Split Payment'), __('Update'));
 	}
 
@@ -1427,8 +1643,27 @@ posnext.PointOfSale.Payment = class {
 		this.render_payment_mode_dom();
 		this.update_totals_section();
 		
-		// Small delay to ensure DOM is ready before checking payments
+		// Enhanced payment section rendering for POSNext edit order flow
 		setTimeout(() => {
+			// First check if we have restored data
+			if (this.split_payments.length > 0 || this.original_payment_data) {
+				console.log('🔄 Processing restored payment data...');
+				
+				// If we have split payments already, enable split mode
+				if (this.split_payments.length > 0 && !this.is_split_mode) {
+					this.$component.find('#split-payment-checkbox').prop('checked', true);
+					this.toggle_split_payment_mode(true);
+					return; // Exit early since toggle_split_payment_mode will handle the rest
+				}
+				
+				// If we have original payment data but no split payments, process it
+				if (this.original_payment_data && this.split_payments.length === 0) {
+					this.process_original_payment_data();
+					return;
+				}
+			}
+			
+			// Standard payment detection if no restored data
 			this.check_for_existing_payments();
 			
 			// Additional check: if we enabled split mode, make sure payments are loaded
@@ -1438,6 +1673,47 @@ posnext.PointOfSale.Payment = class {
 		}, 100);
 		
 		this.focus_on_default_mop();
+	}
+
+	// Process original payment data into split payments
+	process_original_payment_data() {
+		if (!this.original_payment_data || !Array.isArray(this.original_payment_data)) return;
+		
+		console.log('🔄 Processing original payment data into split payments...');
+		
+		this.split_payments = [];
+		
+		this.original_payment_data.forEach((payment, index) => {
+			if (payment.amount && payment.amount > 0) {
+				const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+				
+				const split_payment = {
+					id: `${mode}_restored_${index}`,
+					mode: mode,
+					mode_of_payment: payment.mode_of_payment,
+					display_name: payment.mode_of_payment,
+					amount: payment.amount,
+					type: payment.type || 'Cash',
+					reference_number: payment.reference_no || '',
+					notes: payment.remarks || 'Restored from backup',
+					is_existing: true
+				};
+				
+				this.split_payments.push(split_payment);
+				console.log('✅ Created split payment from backup:', split_payment);
+			}
+		});
+		
+		if (this.split_payments.length > 0) {
+			// Enable split mode
+			this.$component.find('#split-payment-checkbox').prop('checked', true);
+			this.toggle_split_payment_mode(true);
+			
+			frappe.show_alert({
+				message: __("Payments restored from backup ({0} payment(s))", [this.split_payments.length]),
+				indicator: "green"
+			});
+		}
 	}
 
 	after_render() {
@@ -1454,8 +1730,40 @@ posnext.PointOfSale.Payment = class {
 		this.events.toggle_other_sections(true);
 		this.toggle_component(true);
 
+		// Enhanced checkout for POSNext edit order flow
+		this.handle_posnext_checkout_flow();
+		
 		this.render_payment_section();
 		this.after_render();
+	}
+
+	// Handle POSNext specific checkout flow with payment persistence
+	handle_posnext_checkout_flow() {
+		const doc = this.events.get_frm().doc;
+		
+		console.log('🛒 POSNext Checkout Flow Started');
+		console.log('Document:', doc.name, 'Status:', doc.status);
+		
+		// First, try to restore from backup
+		const restored = this.restore_payments_from_backup();
+		
+		if (restored) {
+			console.log('✅ Payment data restored from backup');
+			
+			// If we restored split mode, set the checkbox
+			if (this.is_split_mode) {
+				setTimeout(() => {
+					this.$component.find('#split-payment-checkbox').prop('checked', true);
+				}, 100);
+			}
+		} else {
+			console.log('🔍 No backup found, proceeding with normal detection');
+		}
+		
+		// Always backup current state for next time
+		setTimeout(() => {
+			this.backup_payments_to_session();
+		}, 500);
 	}
 
 	toggle_remarks_control() {
