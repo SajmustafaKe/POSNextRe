@@ -901,7 +901,7 @@ posnext.PointOfSale.Payment = class {
 				let total_amount = 0;
 				
 				original_doc.payments.forEach(payment => {
-					if (payment.amount && payment.amount > 0.01) { // FIXED: Use threshold
+					if (payment.amount && payment.amount > 0) { // Show any existing payment > 0
 						found_payments = true;
 						total_amount += payment.amount;
 						console.log(`💰 Found original payment: ${payment.mode_of_payment} = ${payment.amount}`);
@@ -949,7 +949,7 @@ posnext.PointOfSale.Payment = class {
 		
 		// Apply each payment amount to corresponding payment method
 		original_doc.payments.forEach(original_payment => {
-			if (original_payment.amount && original_payment.amount > 0.01) { // FIXED: Use threshold
+			if (original_payment.amount && original_payment.amount > 0) { // Show any existing payment > 0
 				// Find matching payment method in current document
 				const current_payment = current_doc.payments.find(p => 
 					p.mode_of_payment === original_payment.mode_of_payment
@@ -1018,7 +1018,7 @@ posnext.PointOfSale.Payment = class {
 			console.log('🔄 Loading from original payment data (ERPNext bug fix)');
 			
 			this.original_payment_data.forEach((payment, index) => {
-				if (payment.amount && payment.amount > 0.01) { // FIXED: Use threshold
+				if (payment.amount && payment.amount > 0) { // Show any existing payment > 0
 					const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
 					
 					const existing_payment = {
@@ -1058,7 +1058,7 @@ posnext.PointOfSale.Payment = class {
 				}
 			}
 			
-			// Process current payments array - FIXED: Only load meaningful payments
+			// Process current payments array - Show any existing payment > 0
 			doc.payments.forEach((payment, index) => {
 				console.log(`Processing payment ${index}:`, {
 					mode: payment.mode_of_payment,
@@ -1067,8 +1067,8 @@ posnext.PointOfSale.Payment = class {
 					remarks: payment.remarks
 				});
 				
-				// FIXED: Only process payments with meaningful amounts
-				if (payment.amount && payment.amount > 0.01) {
+				// Show any existing payment > 0 (not using threshold here for display)
+				if (payment.amount && payment.amount > 0) {
 					const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
 					
 					// Try to parse split details from payment remarks
@@ -1098,7 +1098,7 @@ posnext.PointOfSale.Payment = class {
 					
 					// Add each split detail as a separate entry
 					split_details.forEach((detail, detail_index) => {
-						if (detail.amount && detail.amount > 0.01) { // FIXED: Use threshold
+						if (detail.amount && detail.amount > 0) { // Show any existing payment > 0
 							const split_id = `${mode}_existing_${index}_${detail_index}`;
 							const existing_payment = {
 								id: split_id,
@@ -1113,14 +1113,11 @@ posnext.PointOfSale.Payment = class {
 							};
 							
 							this.split_payments.push(existing_payment);
-							console.log('Added existing meaningful payment:', existing_payment);
+							console.log('Added existing payment:', existing_payment);
 						}
 					});
 				}
 			});
-			
-			// FIXED: If no meaningful payments found, don't create fallback payments
-			// This fixes the issue where 0-amount payment records were triggering split mode
 		}
 		
 		// Renumber and update display
@@ -1156,7 +1153,7 @@ posnext.PointOfSale.Payment = class {
 					const [, display_name, amount_str, reference, notes] = parts;
 					const amount = parseFloat(amount_str.replace(/[^0-9.-]/g, ''));
 					
-					if (amount > 0.01) { // FIXED: Use threshold
+					if (amount > 0) { // Show any existing payment > 0
 						const mode = display_name.replace(/ +/g, "_").toLowerCase();
 						const split_payment = {
 							id: `remarks_${mode}_${index}`,
@@ -1213,10 +1210,10 @@ posnext.PointOfSale.Payment = class {
 		// Clear current split payments
 		this.split_payments = [];
 		
-		// Load from document payments - FIXED: Only meaningful payments
+		// Load from document payments - Show any existing payment > 0
 		if (doc.payments && Array.isArray(doc.payments)) {
 			doc.payments.forEach((payment, index) => {
-				if (payment.amount && payment.amount > 0.01) { // FIXED: Use threshold
+				if (payment.amount && payment.amount > 0) { // Show any existing payment > 0
 					const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
 					
 					const existing_payment = {
@@ -1232,7 +1229,7 @@ posnext.PointOfSale.Payment = class {
 					};
 					
 					this.split_payments.push(existing_payment);
-					console.log('Synced meaningful payment:', existing_payment);
+					console.log('Synced existing payment:', existing_payment);
 				}
 			});
 		}
@@ -1929,7 +1926,7 @@ posnext.PointOfSale.Payment = class {
 		let total_paid = 0;
 		
 		this.original_payment_data.forEach((payment, index) => {
-			if (payment.amount && payment.amount > 0.01) { // FIXED: Use threshold
+			if (payment.amount && payment.amount > 0) { // Show any existing payment > 0
 				const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
 				
 				const split_payment = {
