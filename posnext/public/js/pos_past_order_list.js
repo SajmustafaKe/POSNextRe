@@ -113,7 +113,7 @@ posnext.PointOfSale.PastOrderList = class {
 				doctype: "User Secret Key",
 				fields: ["name", "user_name"],
 				filters: [["user_name", "!=", ""]],  // Only get records with user_name
-				order_by: "creation desc"
+				order_by: "modified desc"
 			},
 			callback: (response) => {
 				if (response.message) {
