@@ -679,9 +679,9 @@ posnext.PointOfSale.PastOrderSummary = class {
 		
 		// Direct access to POSPastOrderList instance
 		setTimeout(() => {
-			if (posnext.PointOfSale.PastOrderList && 
-				posnext.PointOfSale.PastOrderList.refresh_list) {
-				posnext.PointOfSale.PastOrderList.refresh_list();
+			if (posnext.PointOfSale.PastOrderList.current_instance && 
+				posnext.PointOfSale.PastOrderList.refresh_list.current_instance) {
+				posnext.PointOfSale.PastOrderList.current_instance.refresh_list();
 			}
 		}, 300);
 		

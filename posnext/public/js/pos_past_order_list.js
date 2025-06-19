@@ -7,6 +7,7 @@ posnext.PointOfSale.PastOrderList = class {
 		this.selected_invoices = new Set(); // Track selected invoices
 		this.can_merge_invoices = this.check_merge_permission(); // Check if user can merge
 		this.user_list = []; // Store list of users from User Secret Key
+		posnext.PointOfSale.PastOrderList.current_instance = this;
 
 		this.init_component();
 	}
