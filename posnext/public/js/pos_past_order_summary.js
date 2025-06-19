@@ -675,6 +675,7 @@ posnext.PointOfSale.PastOrderSummary = class {
 	open_past_orders_list() {
 		if (this.events && this.events.show_recent_orders) {
 			this.events.show_recent_orders();
+            posnext.PointOfSale.PastOrderList.current_instance.refresh_list();
 		}
 		
 		// Direct access to POSPastOrderList instance
