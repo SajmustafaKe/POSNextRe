@@ -723,90 +723,24 @@ posnext.PointOfSale.PastOrderSummary = class {
 	}
 
 	// Enhanced version with comprehensive fallbacks
-open_past_orders_list() {
-    // Hide current summary
-    this.toggle_component(false);
-    this.$component.find('.no-summary-placeholder').css('display', 'flex');
-    this.$summary_wrapper.css('display', 'none');
-    
-    // Try Payment class methods first (highest priority)
-    if (this.events && this.events.open_recent_orders) {
-        console.log('✅ Using Payment class method: open_recent_orders');
-        this.events.open_recent_orders();
-        return;
-    }
-    
-    if (this.events && this.events.show_recent_orders) {
-        console.log('✅ Using Payment class method: show_recent_orders');
-        this.events.show_recent_orders();
-        return;
-    }
-    
-    // Try other common event methods
-    if (this.events && this.events.toggle_recent_order_list) {
-        console.log('✅ Using toggle_recent_order_list method');
-        this.events.toggle_recent_order_list(true);
-        return;
-    }
-    
-    // Try direct component access
-    console.log('🔍 Trying direct component access...');
-    const pos_controller = window.cur_pos || frappe.pages['point-of-sale'];
-    
-    if (pos_controller) {
-        if (pos_controller.recent_order_list && pos_controller.recent_order_list.toggle_component) {
-            console.log('✅ Found recent_order_list component');
-            pos_controller.recent_order_list.toggle_component(true);
-            return;
-        }
-        
-        if (pos_controller.past_order_list && pos_controller.past_order_list.toggle_component) {
-            console.log('✅ Found past_order_list component');
-            pos_controller.past_order_list.toggle_component(true);
-            return;
-        }
-        
-        if (pos_controller.order_list && pos_controller.order_list.toggle_component) {
-            console.log('✅ Found order_list component');
-            pos_controller.order_list.toggle_component(true);
-            return;
-        }
-    }
-    
-    // Try to find and click buttons
-    console.log('🔍 Looking for navigation buttons...');
-    setTimeout(() => {
-        const buttons = $(
-            '[data-action="toggle_recent_order_list"], ' +
-            '[data-action="open_recent_orders"], ' +
-            '.recent-orders-btn, .past-orders-btn, ' +
-            '.btn:contains("Recent Orders"), ' +
-            '.btn:contains("Past Orders"), ' +
-            '.btn:contains("Order List")'
-        );
-        
-        if (buttons.length > 0) {
-            console.log('✅ Found navigation button, clicking:', buttons[0]);
-            buttons.first().click();
-            return;
-        }
-        
-        // Emit custom events as last resort
-        console.log('📡 Emitting custom events...');
-        $(document).trigger('open_past_orders_list');
-        $(document).trigger('open_recent_orders');
-        $(document).trigger('show_recent_orders');
-        
-        // Show user message (same as Payment class)
-        frappe.msgprint({
-            title: __('Split Complete'),
-            message: __('Order split completed successfully. Please check Recent Orders to view the new invoices.'),
-            indicator: 'green'
-        });
-        
-    }, 500);
-}
-
+	open_past_orders_list() {
+		// Hide current summary
+		this.toggle_component(false);
+		this.$component.find('.no-summary-placeholder').css('display', 'flex');
+		this.$summary_wrapper.css('display', 'none');
+		
+		// Use show_recent_orders method (same pattern as Payment class)
+		if (this.events && this.events.show_recent_orders) {
+			this.events.show_recent_orders();
+		} else {
+			// Fallback message (same as Payment class pattern)
+			frappe.msgprint({
+				title: __('Split Complete'),
+				message: __('Order split completed successfully. Please check Recent Orders to view the new invoices.'),
+				indicator: 'green'
+			});
+		}
+	}
 	show_split_success(result) {
 		let message = `<div class="text-center">
 			<div class="mb-3">
