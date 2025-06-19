@@ -353,7 +353,7 @@ posnext.PointOfSale.PastOrderList = class {
 					if (response.message.new_invoice) {
 						setTimeout(() => {
 							this.events.open_invoice_data(response.message.new_invoice);
-						}, 10);
+						}, 1);
 					}
 				} else {
 					frappe.msgprint(__('Error merging invoices: {0}', [response.message.error || 'Unknown error']));
