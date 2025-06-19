@@ -179,18 +179,11 @@ posnext.PointOfSale.PastOrderSummary = class {
 		});
 
 		this.$summary_container.on('click', '.edit-btn', () => {
-	        const current_doc = this.doc;
-		    this.events.edit_order(this.doc.name);
-		     this.toggle_component(false);
-	    	if (!this.events.restore_summary_view) {
-		    this.events.restore_summary_view = () => {
-			if (current_doc) {
-			this.load_summary_of(current_doc);
-			this.toggle_component(true);
-			        }
-		        };
-	        }
-        });
+			this.events.edit_order(this.doc.name);
+			this.toggle_component(false);
+			this.$component.find('.no-summary-placeholder').css('display', 'flex');
+			this.$summary_wrapper.css('display', 'none');
+		});
 
 		this.$summary_container.on('click', '.delete-btn', () => {
 			this.events.delete_order(this.doc.name);
