@@ -659,10 +659,14 @@ posnext.PointOfSale.PastOrderSummary = class {
 						posnext.PointOfSale.PastOrderList.current_instance.refresh_list();
 					}
 					
-					// Open the first split invoice (same as merge functionality)
+					// Open the first split invoice using the PastOrderList events (same as merge functionality)
 					if (result.new_invoices && result.new_invoices.length > 0) {
 						setTimeout(() => {
-							this.events.open_invoice_data(result.new_invoices[0].name);
+							// Use the PastOrderList instance's events, not PastOrderSummary's events
+							if (posnext.PointOfSale.PastOrderList.current_instance && 
+								posnext.PointOfSale.PastOrderList.current_instance.events.open_invoice_data) {
+								posnext.PointOfSale.PastOrderList.current_instance.events.open_invoice_data(result.new_invoices[0].name);
+							}
 						}, 1000);
 					}
 					
@@ -683,79 +687,7 @@ posnext.PointOfSale.PastOrderSummary = class {
 		});
 	}
 
-	open_past_orders_list() {
-		if (this.events && this.events.show_recent_orders) {
-			this.events.show_recent_orders();
-		}
-		
-		// Direct access to POSPastOrderList instance
-		setTimeout(() => {
-			if (posnext.PointOfSale.PastOrderList.current_instance && 
-				posnext.PointOfSale.PastOrderList.current_instance.refresh_list) {
-				posnext.PointOfSale.PastOrderList.current_instance.refresh_list();
-			}
-		}, 300);
-		
-		setTimeout(() => {
-			this.toggle_component(true);
-			this.$component.find('.no-summary-placeholder').css('display', 'flex');
-			this.$summary_wrapper.css('display', 'none');
-			
-			const original_placeholder = this.$component.find('.no-summary-placeholder').html();
-			this.$component.find('.no-summary-placeholder').html(
-				`<div style="text-align: center;">
-					<div style="margin-bottom: 10px;">
-						<i class="fa fa-check-circle text-success" style="font-size: 24px;"></i>
-					</div>
-					<div style="font-weight: bold; color: #28a745;">Split completed successfully!</div>
-					<div style="margin-top: 8px; color: #6c757d;">Select an invoice to view details</div>
-				</div>`
-			);
-			
-			setTimeout(() => {
-				this.$component.find('.no-summary-placeholder').html(original_placeholder);
-			}, 5000);
-			
-		}, 800);
-	}
 
-	show_split_success(result) {
-		let message = `<div class="text-center">
-			<div class="mb-3">
-				<i class="fa fa-check-circle text-success" style="font-size: 48px;"></i>
-			</div>
-			<h4>Order Split Successfully!</h4>
-			<p class="mb-3">Created ${result.new_invoices.length} new invoice(s):</p>
-			<ul class="list-unstyled">`;
-
-		result.new_invoices.forEach(invoice => {
-			message += `<li><strong>${invoice.name}</strong> - ${format_currency(invoice.grand_total, this.doc.currency)}</li>`;
-		});
-
-		message += `</ul></div>`;
-
-		const success_dialog = new frappe.ui.Dialog({
-			title: __('Split Complete'),
-			fields: [
-				{
-					fieldtype: 'HTML',
-					fieldname: 'success_message',
-					options: message
-				}
-			],
-			primary_action: () => {
-				success_dialog.hide();
-				this.open_past_orders_list();
-			},
-			primary_action_label: __('View Orders'),
-			secondary_action: () => {
-				success_dialog.hide();
-			},
-			secondary_action_label: __('Close')
-		});
-
-		success_dialog.show();
-	}
 
 	print_order() {
 		const doctype = this.doc.doctype;
