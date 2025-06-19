@@ -4,7 +4,6 @@ posnext.PointOfSale.PastOrderSummary = class {
 		this.wrapper = wrapper;
 		this.pos_profile = pos_profile;
 		this.events = events;
-		//this.print_receipt_on_order_complete = settings.print_receipt_on_order_complete;
 		
 		this.init_component();
 	}
@@ -145,7 +144,6 @@ posnext.PointOfSale.PastOrderSummary = class {
 		if (!doc.taxes.length) return '';
 
 		let taxes_html = doc.taxes.map(t => {
-			// if tax rate is 0, don't print it.
 			const description = /[0-9]+/.test(t.description) ? t.description : ((t.rate != 0) ? `${t.description} @ ${t.rate}%`: t.description);
 			return `
 				<div class="tax-row">
@@ -193,13 +191,9 @@ posnext.PointOfSale.PastOrderSummary = class {
 		});
 
 		this.$summary_container.on('click', '.send-btn', () => {
-			console.log(this.pos_profile)
 			var field_names = this.pos_profile.custom_whatsapp_field_names.map(x => this.doc[x.field_names.toString()]);
-			console.log(field_names)
-			console.log(field_names.join(","))
 			var message = "https://wa.me/" +  this.doc.customer +"?text="
 			message += formatString(this.pos_profile.custom_whatsapp_message, field_names);
-			console.log(message)
 			
 			frappe.call({
 				method: "posnext.posnext.page.posnext.point_of_sale.generate_pdf_and_save",
@@ -258,14 +252,11 @@ posnext.PointOfSale.PastOrderSummary = class {
 		const letterhead = this.doc.letter_head || __("No Letterhead");
 		const lang_code = this.doc.language || frappe.boot.lang;
 		
-		// Check if QZ printing is enabled in Print Settings
 		frappe.db.get_value("Print Settings", "Print Settings", "enable_raw_printing")
 			.then(({ message }) => {
 				if (message && message.enable_raw_printing === "1") {
-					// Use QZ Tray for direct printing
 					this._print_via_qz(doctype, docname, print_format, letterhead, lang_code);
 				} else {
-					// Fallback to regular print dialog
 					frappe.utils.print(
 						doctype,
 						docname,
@@ -277,10 +268,7 @@ posnext.PointOfSale.PastOrderSummary = class {
 			});
 	}
 
-	// Enhanced frontend methods with invoice assignment capability
-	// Simplified split order functionality
 	split_order() {
-		// Basic validation
 		if (!this.doc || !this.doc.items || this.doc.items.length === 0) {
 			frappe.show_alert({
 				message: __("No items available to split."),
@@ -301,7 +289,6 @@ posnext.PointOfSale.PastOrderSummary = class {
 	}
 
 	show_simple_split_dialog() {
-		// Prepare items data
 		const items_data = this.doc.items.map((item, index) => ({
 			idx: index + 1,
 			item_code: item.item_code,
@@ -360,20 +347,17 @@ posnext.PointOfSale.PastOrderSummary = class {
 			secondary_action_label: __('Cancel')
 		});
 
-		// Store references
 		this.split_dialog = dialog;
 		this.split_items_data = items_data;
 
 		dialog.show();
 
-		// Bind events after dialog shows
 		setTimeout(() => {
 			this.bind_split_events(dialog);
 		}, 100);
 	}
 
 	get_split_table_html(items_data, invoice_count) {
-		// Generate invoice options
 		let invoice_options = '';
 		for (let i = 1; i <= invoice_count; i++) {
 			invoice_options += `<option value="${i}">Invoice ${i}</option>`;
@@ -467,14 +451,11 @@ posnext.PointOfSale.PastOrderSummary = class {
 			return;
 		}
 
-		// Update the table HTML
 		const new_html = this.get_split_table_html(items_data, invoice_count);
 		dialog.fields_dict.split_table.$wrapper.html(new_html);
 
-		// Restore previous selections
 		this.restore_selections(dialog, items_data);
 
-		// Re-bind events
 		setTimeout(() => {
 			this.bind_split_events(dialog);
 		}, 100);
@@ -486,16 +467,10 @@ posnext.PointOfSale.PastOrderSummary = class {
 		items_data.forEach((item, index) => {
 			const row = wrapper.find(`tr[data-index="${index}"]`);
 			
-			// Restore checkbox
 			row.find('.item-select').prop('checked', item.selected);
-			
-			// Restore quantity
 			row.find('.split-qty').val(item.split_qty);
-			
-			// Restore invoice selection
 			row.find('.invoice-select').val(item.invoice_number);
 			
-			// Update amount display
 			this.update_split_amount(index, item.split_qty, item.rate);
 		});
 
@@ -505,12 +480,10 @@ posnext.PointOfSale.PastOrderSummary = class {
 	bind_split_events(dialog) {
 		const wrapper = dialog.$wrapper;
 
-		// Select all functionality
 		wrapper.find('#select-all').on('change', (e) => {
 			const checked = $(e.target).is(':checked');
 			wrapper.find('.item-select').prop('checked', checked);
 			
-			// Update quantities
 			wrapper.find('.split-qty').each((i, input) => {
 				const index = $(input).data('index');
 				const max_qty = parseFloat($(input).attr('max'));
@@ -525,7 +498,6 @@ posnext.PointOfSale.PastOrderSummary = class {
 			this.update_summary();
 		});
 
-		// Individual item selection
 		wrapper.find('.item-select').on('change', (e) => {
 			const checkbox = $(e.target);
 			const index = checkbox.data('index');
@@ -535,13 +507,11 @@ posnext.PointOfSale.PastOrderSummary = class {
 			this.split_items_data[index].selected = checked;
 			
 			if (checked) {
-				// Set to max quantity when selected
 				const max_qty = parseFloat(qty_input.attr('max'));
 				qty_input.val(max_qty);
 				this.split_items_data[index].split_qty = max_qty;
 				this.update_split_amount(index, max_qty, this.split_items_data[index].rate);
 			} else {
-				// Clear quantity when deselected
 				qty_input.val(0);
 				this.split_items_data[index].split_qty = 0;
 				this.update_split_amount(index, 0, this.split_items_data[index].rate);
@@ -550,14 +520,12 @@ posnext.PointOfSale.PastOrderSummary = class {
 			this.update_summary();
 		});
 
-		// Quantity input changes
 		wrapper.find('.split-qty').on('input change', (e) => {
 			const input = $(e.target);
 			const index = input.data('index');
 			let qty = parseFloat(input.val()) || 0;
 			const max_qty = parseFloat(input.attr('max'));
 			
-			// Validate quantity
 			if (qty > max_qty) {
 				qty = max_qty;
 				input.val(qty);
@@ -567,11 +535,9 @@ posnext.PointOfSale.PastOrderSummary = class {
 				input.val(qty);
 			}
 			
-			// Update checkbox
 			const checkbox = wrapper.find(`.item-select[data-index="${index}"]`);
 			checkbox.prop('checked', qty > 0);
 			
-			// Update data
 			this.split_items_data[index].split_qty = qty;
 			this.split_items_data[index].selected = qty > 0;
 			
@@ -579,7 +545,6 @@ posnext.PointOfSale.PastOrderSummary = class {
 			this.update_summary();
 		});
 
-		// Invoice selection changes
 		wrapper.find('.invoice-select').on('change', (e) => {
 			const select = $(e.target);
 			const index = select.data('index');
@@ -604,7 +569,6 @@ posnext.PointOfSale.PastOrderSummary = class {
 	}
 
 	execute_simple_split(dialog, items_data) {
-		// Get selected items
 		const selected_items = items_data.filter(item => item.selected && item.split_qty > 0);
 		
 		if (selected_items.length === 0) {
@@ -615,7 +579,6 @@ posnext.PointOfSale.PastOrderSummary = class {
 			return;
 		}
 
-		// Group items by invoice number
 		const invoice_groups = {};
 		selected_items.forEach(item => {
 			const invoice_key = item.invoice_number.toString();
@@ -628,10 +591,8 @@ posnext.PointOfSale.PastOrderSummary = class {
 			});
 		});
 
-		// Calculate payment distribution based on split amounts
 		const payment_distribution = this.calculate_payment_distribution(selected_items, invoice_groups);
 
-		// Show confirmation
 		const invoice_count = Object.keys(invoice_groups).length;
 		const total_items = selected_items.length;
 		const total_amount = selected_items.reduce((sum, item) => sum + (item.split_qty * item.rate), 0);
@@ -645,14 +606,12 @@ posnext.PointOfSale.PastOrderSummary = class {
 		);
 	}
 
-	// Add new method to calculate payment distribution
 	calculate_payment_distribution(selected_items, invoice_groups) {
 		const total_split_amount = selected_items.reduce((sum, item) => sum + (item.split_qty * item.rate), 0);
 		const original_total_paid = this.doc.paid_amount || 0;
 		
 		const payment_distribution = {};
 		
-		// Calculate amount for each invoice group
 		Object.keys(invoice_groups).forEach(invoice_key => {
 			const group_items = invoice_groups[invoice_key];
 			const group_amount = group_items.reduce((sum, group_item) => {
@@ -660,7 +619,6 @@ posnext.PointOfSale.PastOrderSummary = class {
 				return sum + (group_item.split_qty * item_data.rate);
 			}, 0);
 			
-			// Calculate proportional payment
 			const payment_ratio = group_amount / total_split_amount;
 			const allocated_payment = original_total_paid * payment_ratio;
 			
@@ -682,7 +640,7 @@ posnext.PointOfSale.PastOrderSummary = class {
 			args: {
 				original_invoice: this.doc.name,
 				invoice_groups: invoice_groups,
-				payment_distribution: payment_distribution, // Add payment distribution
+				payment_distribution: payment_distribution,
 				distribute_evenly: false
 			},
 			callback: (r) => {
@@ -691,16 +649,8 @@ posnext.PointOfSale.PastOrderSummary = class {
 				if (!r.exc && r.message && r.message.success) {
 					const result = r.message;
 					
-					// Show success message
-					frappe.show_alert({
-						message: __(`Successfully created ${result.new_invoices.length} new invoice(s)!`),
-						indicator: 'green'
-					});
-
-					// Show simple result summary
 					this.show_split_success(result);
 
-					// Open past orders list instead of refreshing entire page
 					setTimeout(() => {
 						this.open_past_orders_list();
 					}, 2000);
@@ -722,21 +672,35 @@ posnext.PointOfSale.PastOrderSummary = class {
 		});
 	}
 
-	// Add new method to open past orders list
 	open_past_orders_list() {
-		// First show the recent orders list
 		if (this.events && this.events.show_recent_orders) {
 			this.events.show_recent_orders();
 		}
 		
-		// Then ensure PastOrderSummary is also visible with placeholder
 		setTimeout(() => {
-			// Show this component but with placeholder
+			if (this.events && this.events.refresh_recent_orders) {
+				this.events.refresh_recent_orders();
+			} else if (this.events && this.events.reload_recent_orders) {
+				this.events.reload_recent_orders();
+			} else {
+				const pos_controller = window.cur_pos || frappe.pages['point-of-sale'];
+				if (pos_controller && pos_controller.recent_order_list) {
+					if (pos_controller.recent_order_list.refresh) {
+						pos_controller.recent_order_list.refresh();
+					} else if (pos_controller.recent_order_list.load_orders) {
+						pos_controller.recent_order_list.load_orders();
+					} else if (pos_controller.recent_order_list.render_order_list) {
+						pos_controller.recent_order_list.render_order_list();
+					}
+				}
+			}
+		}, 300);
+		
+		setTimeout(() => {
 			this.toggle_component(true);
 			this.$component.find('.no-summary-placeholder').css('display', 'flex');
 			this.$summary_wrapper.css('display', 'none');
 			
-			// Add a helpful message for split results
 			const original_placeholder = this.$component.find('.no-summary-placeholder').html();
 			this.$component.find('.no-summary-placeholder').html(
 				`<div style="text-align: center;">
@@ -744,87 +708,62 @@ posnext.PointOfSale.PastOrderSummary = class {
 						<i class="fa fa-check-circle text-success" style="font-size: 24px;"></i>
 					</div>
 					<div style="font-weight: bold; color: #28a745;">Split completed successfully!</div>
-					<div style="margin-top: 8px; color: #6c757d;">Select an invoice from the list to view details</div>
+					<div style="margin-top: 8px; color: #6c757d;">Select an invoice to view details</div>
 				</div>`
 			);
 			
-			// Restore original placeholder after 5 seconds
 			setTimeout(() => {
 				this.$component.find('.no-summary-placeholder').html(original_placeholder);
 			}, 5000);
 			
-		}, 500);
+		}, 800);
 		
-		// Fallback if show_recent_orders doesn't exist
 		if (!this.events || !this.events.show_recent_orders) {
 			frappe.msgprint({
 				title: __('Split Complete'),
-				message: __('Order split completed successfully. Please check Recent Orders to view the new invoices.'),
+				message: __('Order split completed successfully.'),
 				indicator: 'green'
 			});
 		}
 	}
 
 	show_split_success(result) {
-    let message = `<div class="text-center">
-        <div class="mb-3">
-            <i class="fa fa-check-circle text-success" style="font-size: 48px;"></i>
-        </div>
-        <h4>Order Split Successfully!</h4>
-        <p class="mb-3">Created ${result.new_invoices.length} new invoice(s):</p>
-        <ul class="list-unstyled">`;
+		let message = `<div class="text-center">
+			<div class="mb-3">
+				<i class="fa fa-check-circle text-success" style="font-size: 48px;"></i>
+			</div>
+			<h4>Order Split Successfully!</h4>
+			<p class="mb-3">Created ${result.new_invoices.length} new invoice(s):</p>
+			<ul class="list-unstyled">`;
 
-    result.new_invoices.forEach(invoice => {
-        message += `<li><strong>${invoice.name}</strong> - ${format_currency(invoice.grand_total, this.doc.currency)}</li>`;
-    });
+		result.new_invoices.forEach(invoice => {
+			message += `<li><strong>${invoice.name}</strong> - ${format_currency(invoice.grand_total, this.doc.currency)}</li>`;
+		});
 
-    message += `</ul>
-        <div class="alert alert-info mt-3">
-            <i class="fa fa-info-circle"></i> Opening past orders list to view all invoices
-        </div>
-    </div>`;
+		message += `</ul></div>`;
 
-    const success_dialog = new frappe.ui.Dialog({
-        title: __('Split Complete'),
-        fields: [
-            {
-                fieldtype: 'HTML',
-                fieldname: 'success_message',
-                options: message
-            }
-        ],
-        primary_action: () => {
-            success_dialog.hide();
-            this.open_past_orders_list();
-            
-            // Auto-load the first split invoice after a short delay
-            setTimeout(() => {
-                if (result.new_invoices && result.new_invoices.length > 0) {
-                    const first_invoice_name = result.new_invoices[0].name;
-                    
-                    // Load and show the first split invoice
-                    frappe.get_doc('POS Invoice', first_invoice_name).then(doc => {
-                        this.load_summary_of(doc);
-                        this.toggle_component(true);
-                        
-                        // Show success message in summary
-                        frappe.show_alert({
-                            message: __("Loaded first split invoice: {0}", [first_invoice_name]),
-                            indicator: "green"
-                        });
-                    });
-                }
-            }, 1000);
-        },
-        primary_action_label: __('View Split Results'),
-        secondary_action: () => {
-            success_dialog.hide();
-        },
-        secondary_action_label: __('Close')
-    });
+		const success_dialog = new frappe.ui.Dialog({
+			title: __('Split Complete'),
+			fields: [
+				{
+					fieldtype: 'HTML',
+					fieldname: 'success_message',
+					options: message
+				}
+			],
+			primary_action: () => {
+				success_dialog.hide();
+				this.open_past_orders_list();
+			},
+			primary_action_label: __('View Orders'),
+			secondary_action: () => {
+				success_dialog.hide();
+			},
+			secondary_action_label: __('Close')
+		});
 
-    success_dialog.show();
-}
+		success_dialog.show();
+	}
 
 	print_order() {
 		const doctype = this.doc.doctype;
@@ -865,13 +804,11 @@ posnext.PointOfSale.PastOrderSummary = class {
 						.then(() => {
 							let config = qz.configs.create(printer_map.printer);
 							let data = [out.raw_commands];
-							console.log("Sending raw commands to QZ printer:", out.raw_commands);
 							return qz.print(config, data);
 						})
 						.then(frappe.ui.form.qz_success)
 						.catch((err) => {
 							frappe.ui.form.qz_fail(err);
-							console.error("QZ printing error:", err);
 							frappe.show_alert({
 								message: __("Failed to print: " + (err.message || err)),
 								indicator: 'red'
@@ -890,7 +827,6 @@ posnext.PointOfSale.PastOrderSummary = class {
 		};
 
 		const _get_raw_commands = (doctype, docname, print_format, lang_code, callback) => {
-			// Send all current items - let Python calculate what's new
 			const items_to_print = this.doc.items.map(item => ({
 				item_code: item.item_code,
 				item_name: item.item_name || item.item_code,
@@ -899,8 +835,6 @@ posnext.PointOfSale.PastOrderSummary = class {
 				rate: item.rate,
 				name: item.name
 			}));
-			
-			console.log("Items to print:", items_to_print);
 			
 			frappe.call({
 				method: "posnext.posnext.page.posnext.point_of_sale.print_captain_order",
@@ -911,15 +845,12 @@ posnext.PointOfSale.PastOrderSummary = class {
 					_lang: lang_code
 				},
 				callback: (r) => {
-					console.log("Print captain order response:", r.message);
 					if (!r.exc && r.message && r.message.success) {
-						// Check if there are actually new items to print
 						if (r.message.new_items_count === 0) {
 							callback({ message: "No new items to print" });
 							return;
 						}
 						
-						// Check if data is empty or has no items
 						if (!r.message.data || !r.message.data.items || r.message.data.items.length === 0) {
 							callback({ message: "No new items to print" });
 							return;
@@ -941,8 +872,7 @@ posnext.PointOfSale.PastOrderSummary = class {
 
 		const _render_print_format = (doc_data, print_format, callback) => {
 			if (!doc_data || !doc_data.items || !doc_data.items.length) {
-				console.log("Skipping render: doc_data has no items");
-				callback(""); // Return empty commands
+				callback("");
 				return;
 			}
 
@@ -974,21 +904,17 @@ posnext.PointOfSale.PastOrderSummary = class {
 							return;
 						}
 
-						console.log("Print format template:", template);
-						console.log("Items to render:", doc_data.items); // Debug log for items
 						try {
 							const context = { doc: doc_data };
 							const raw_commands = frappe.render_template(template, context);
-							console.log("Rendered raw commands:", raw_commands);
 							callback(raw_commands);
 						} catch (error) {
-							console.error("Template rendering error:", error);
 							frappe.show_alert({
 								message: __("Error rendering print format: " + (error.message || error)),
 								indicator: 'red'
 							});
 							frappe.utils.play_sound("error");
-							callback(""); // Return empty commands
+							callback("");
 						}
 					} else {
 						frappe.show_alert({
@@ -1110,7 +1036,6 @@ posnext.PointOfSale.PastOrderSummary = class {
 			});
 		};
 
-		// Main logic
 		if (!this.doc.items.length) {
 			frappe.show_alert({
 				message: __("No items in the invoice to print."),
@@ -1119,7 +1044,6 @@ posnext.PointOfSale.PastOrderSummary = class {
 			return frappe.utils.play_sound("error");
 		}
 
-		console.log("Print Order button clicked");
 		frappe.dom.freeze();
 		frappe.db.get_value("Print Settings", "Print Settings", "enable_raw_printing")
 			.then(({ message }) => {
@@ -1140,17 +1064,13 @@ posnext.PointOfSale.PastOrderSummary = class {
 			});
 	}
 
-	// Add these helper methods at the appropriate location in your class (not inside another method)
 	_print_via_qz(doctype, docname, print_format, letterhead, lang_code) {
-		// First check if we have a mapped printer for this print format
 		const print_format_printer_map = this._get_print_format_printer_map();
 		const mapped_printer = this._get_mapped_printer(print_format_printer_map, doctype, print_format);
 		
 		if (mapped_printer.length === 1) {
-			// Printer is already mapped in localStorage
 			this._print_with_mapped_printer(doctype, docname, print_format, letterhead, lang_code, mapped_printer[0]);
 		} else if (this._is_raw_printing(print_format)) {
-			// Printer not mapped but current format is raw printing
 			frappe.show_alert({
 				message: __("Printer mapping not set."),
 				subtitle: __("Please set a printer mapping for this print format in the Printer Settings"),
@@ -1158,14 +1078,12 @@ posnext.PointOfSale.PastOrderSummary = class {
 			}, 14);
 			this._printer_setting_dialog(doctype, print_format);
 		} else {
-			// Regular printing via dialog
 			this._render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code);
 		}
 	}
 
 	_print_with_mapped_printer(doctype, docname, print_format, letterhead, lang_code, printer_map) {
 		if (this._is_raw_printing(print_format)) {
-			// Get raw commands and send to printer
 			this._get_raw_commands(doctype, docname, print_format, lang_code, (out) => {
 				frappe.ui.form.qz_connect()
 					.then(() => {
@@ -1184,7 +1102,6 @@ posnext.PointOfSale.PastOrderSummary = class {
 				subtitle: __("Please remove the printer mapping in Printer Settings and try again."),
 				indicator: "info"
 			}, 14);
-			// Fallback to regular print
 			this._render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code);
 		}
 	}
@@ -1231,7 +1148,6 @@ posnext.PointOfSale.PastOrderSummary = class {
 	}
 
 	_render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code) {
-		// Fallback to regular print method
 		frappe.utils.print(
 			doctype,
 			docname,
@@ -1242,7 +1158,6 @@ posnext.PointOfSale.PastOrderSummary = class {
 	}
 
 	_printer_setting_dialog(doctype, current_print_format) {
-		// Dialog for Printer Settings similar to the one in print.js
 		let print_format_printer_map = this._get_print_format_printer_map();
 		let data = print_format_printer_map[doctype] || [];
 		
@@ -1310,7 +1225,6 @@ posnext.PointOfSale.PastOrderSummary = class {
 					
 					dialog.hide();
 					
-					// Try printing again with the new settings
 					this._print_via_qz(doctype, this.doc.name, current_print_format, this.doc.letter_head, this.doc.language || frappe.boot.lang);
 				},
 				primary_action_label: __("Save")
@@ -1427,10 +1341,8 @@ posnext.PointOfSale.PastOrderSummary = class {
 		if (after_submission )
 			return [{ condition: true, visible_btns: ['Print Receipt', 'New Order'] }];
 
-		// Check if current user has 'Waiter' role
 		const hasWaiterRole = frappe.user_roles.includes('Waiter');
 		
-		// Define button arrays based on user role
 		const draftButtons = hasWaiterRole 
 			? ['Print Receipt','Edit Order','Print-Order'] 
 			: ['Print Receipt','Edit Order','Print-Order','Split-Order'];
