@@ -159,10 +159,12 @@ posnext.PointOfSale.Payment = class {
 				
 				console.log(`💰 Applied backup totals - Paid: ${total_restored}, Outstanding: ${outstanding}, Status: ${status}`);
 				
-				// Force UI refresh
+				// Force UI refresh - DON'T call render_payment_mode_dom if in split mode
 				setTimeout(() => {
 					this.update_totals_section(current_doc);
-					this.render_payment_mode_dom();
+					if (!this.is_split_mode) {
+						this.render_payment_mode_dom();
+					}
 				}, 200);
 			}
 			
@@ -663,7 +665,11 @@ posnext.PointOfSale.Payment = class {
 			const is_cash_shortcuts_invisible = !this.$payment_modes.find('.cash-shortcuts').is(':visible');
 			this.attach_cash_shortcuts(frm.doc);
 			!is_cash_shortcuts_invisible && this.$payment_modes.find('.cash-shortcuts').css('display', 'grid');
-			this.render_payment_mode_dom();
+			
+			// DON'T call render_payment_mode_dom if in split mode as it will remove "Add to Split" buttons
+			if (!this.is_split_mode) {
+				this.render_payment_mode_dom();
+			}
 		});
 
 		frappe.ui.form.on('POS Invoice', 'loyalty_amount', (frm) => {
@@ -1017,10 +1023,12 @@ posnext.PointOfSale.Payment = class {
 			
 			console.log(`💰 Updated totals - Paid: ${total_paid}, Outstanding: ${outstanding}, Status: ${status}`);
 			
-			// Force UI refresh
+			// Force UI refresh - DON'T call render_payment_mode_dom if in split mode
 			setTimeout(() => {
 				this.update_totals_section(current_doc);
-				this.render_payment_mode_dom();
+				if (!this.is_split_mode) {
+					this.render_payment_mode_dom();
+				}
 			}, 200);
 		}
 	}
@@ -1848,7 +1856,10 @@ posnext.PointOfSale.Payment = class {
 	}
 
 	render_payment_section() {
-		this.render_payment_mode_dom();
+		// DON'T render payment mode DOM here if we're in split mode
+		if (!this.is_split_mode) {
+			this.render_payment_mode_dom();
+		}
 		this.update_totals_section();
 		
 		// Enhanced payment section rendering for POSNext edit order flow
@@ -1954,10 +1965,10 @@ posnext.PointOfSale.Payment = class {
 			this.$component.find('#split-payment-checkbox').prop('checked', true);
 			this.toggle_split_payment_mode(true);
 			
-			// Force UI refresh
+			// Force UI refresh - DON'T call render_payment_mode_dom since we're in split mode
 			setTimeout(() => {
 				this.update_totals_section(current_doc);
-				this.render_payment_mode_dom();
+				// Don't call render_payment_mode_dom here as it will override split mode buttons
 			}, 300);
 			
 			frappe.show_alert({
