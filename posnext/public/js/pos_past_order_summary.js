@@ -649,26 +649,41 @@ posnext.PointOfSale.PastOrderSummary = class {
 				if (!r.exc && r.message && r.message.success) {
 					const result = r.message;
 					
+					// Get the first invoice name immediately
+					const first_invoice_name = result.new_invoices && result.new_invoices.length > 0 ? 
+						result.new_invoices[0].name : null;
+					
+					// Run operations in parallel for speed
+					const operations = [];
+					
+					// 1. Show success alert (non-blocking)
 					frappe.show_alert({
 						message: __('Order split successfully. Created {0} new invoice(s)', [result.new_invoices.length]),
 						indicator: 'green'
 					});
 					
-					// Refresh the order list (same as merge functionality)
+					// 2. Refresh list and load invoice simultaneously
 					if (posnext.PointOfSale.PastOrderList.current_instance) {
-						posnext.PointOfSale.PastOrderList.current_instance.refresh_list();
+						operations.push(
+							posnext.PointOfSale.PastOrderList.current_instance.refresh_list()
+						);
 					}
 					
-					// Open the first split invoice using the PastOrderList events (same as merge functionality)
-					if (result.new_invoices && result.new_invoices.length > 0) {
-						setTimeout(() => {
-							// Use the PastOrderList instance's events, not PastOrderSummary's events
-							if (posnext.PointOfSale.PastOrderList.current_instance && 
-								posnext.PointOfSale.PastOrderList.current_instance.events.open_invoice_data) {
-								posnext.PointOfSale.PastOrderList.current_instance.events.open_invoice_data(result.new_invoices[0].name);
-							}
-						}, 1000);
+					// 3. Load first invoice immediately (no setTimeout delay)
+					if (first_invoice_name && posnext.PointOfSale.PastOrderList.current_instance?.events.open_invoice_data) {
+						operations.push(
+							frappe.db.get_doc('POS Invoice', first_invoice_name).then((doc) => {
+								// Direct call to load_summary_of for immediate loading
+								if (posnext.PointOfSale.PastOrderList.current_instance.events.reset_summary) {
+									posnext.PointOfSale.PastOrderList.current_instance.events.reset_summary();
+								}
+								this.load_summary_of(doc);
+							})
+						);
 					}
+					
+					// Execute all operations in parallel
+					Promise.all(operations).catch(console.error);
 					
 				} else {
 					frappe.show_alert({
