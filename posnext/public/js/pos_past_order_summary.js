@@ -14,6 +14,9 @@ posnext.PointOfSale.PastOrderSummary = class {
 		this.init_email_print_dialog();
 		this.bind_events();
 		this.attach_shortcuts();
+		
+		// Auto-load the most recent invoice
+		this.load_most_recent_invoice();
 	}
 
 	prepare_dom() {
@@ -45,6 +48,57 @@ posnext.PointOfSale.PastOrderSummary = class {
 		this.$totals_container = this.$summary_container.find('.totals-container');
 		this.$payment_container = this.$summary_container.find('.payments-container');
 		this.$summary_btns = this.$summary_container.find('.summary-btns');
+	}
+
+	load_most_recent_invoice() {
+		// Fetch the most recent invoice (created or modified)
+		frappe.call({
+			method: "frappe.client.get_list",
+			args: {
+				doctype: "POS Invoice", // or "Sales Invoice" depending on your setup
+				filters: {
+					// Add any additional filters you need, e.g.:
+					// pos_profile: this.pos_profile.name,
+					// owner: frappe.session.user, // if you want only current user's invoices
+				},
+				fields: ["name", "customer", "grand_total", "creation", "modified"],
+				order_by: "modified desc", // Order by last modified (creation and modified)
+				limit: 1
+			},
+			callback: (r) => {
+				if (r.message && r.message.length > 0) {
+					const recent_invoice_name = r.message[0].name;
+					// Fetch the full document
+					this.load_recent_invoice_details(recent_invoice_name);
+				} else {
+					// No invoices found, show placeholder
+					this.show_summary_placeholder();
+				}
+			}
+		});
+	}
+
+	load_recent_invoice_details(invoice_name) {
+		frappe.call({
+			method: "frappe.client.get",
+			args: {
+				doctype: "POS Invoice", // or "Sales Invoice"
+				name: invoice_name
+			},
+			callback: (r) => {
+				if (r.message) {
+					// Load the summary for this invoice
+					this.load_summary_of(r.message, false);
+				} else {
+					this.show_summary_placeholder();
+				}
+			}
+		});
+	}
+
+	show_summary_placeholder() {
+		this.$component.find('.no-summary-placeholder').css('display', 'flex');
+		this.$summary_wrapper.css('display', 'none');
 	}
 
 	init_email_print_dialog() {
