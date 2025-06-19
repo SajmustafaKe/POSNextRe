@@ -376,56 +376,6 @@ posnext.PointOfSale.ItemCart = class {
 		}
 	}
 
-	// Optimized secret key validation and invoice saving
-	async validate_secret_and_save(secret_key, invoice_name) {
-		const me = this;
-		const frm = me.events.get_frm();
-
-		try {
-			let result;
-			if (invoice_name && !frm.doc.__islocal) {
-				// Existing invoice - check edit permission
-				result = await frappe.call({
-					method: "posnext.posnext.page.posnext.point_of_sale.check_edit_permission",
-					args: { invoice_name, secret_key },
-					freeze: true,
-					freeze_message: "Validating..."
-				});
-
-				if (!result.message.can_edit) {
-					frappe.show_alert({
-						message: __(`Access denied. Only ${result.message.created_by_name} can edit this invoice.`),
-						indicator: 'red'
-					});
-					return false;
-				}
-			} else {
-				// New invoice - validate secret key
-				result = await frappe.call({
-					method: "posnext.posnext.page.posnext.point_of_sale.get_user_name_from_secret_key",
-					args: { secret_key },
-					freeze: true,
-					freeze_message: "Validating..."
-				});
-
-				if (!result.message) {
-					frappe.show_alert({ message: __("Invalid secret key"), indicator: 'red' });
-					return false;
-				}
-			}
-
-			// Set created_by_name and save
-			frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', result.message.created_by_name || result.message);
-			await frm.script_manager.trigger('created_by_name', frm.doc.doctype, frm.doc.name);
-			await me.events.save_draft_invoice();
-			
-			return true;
-		} catch (error) {
-			frappe.show_alert({ message: __("Validation failed"), indicator: 'red' });
-			return false;
-		}
-	}
-
 	bind_events() {
 		const me = this;
 		
@@ -491,43 +441,121 @@ posnext.PointOfSale.ItemCart = class {
 		});
 
 		// Optimized held button handler
-		this.$component.on('click', '.checkout-btn-held', async function() {
+		this.$component.on('click', '.checkout-btn-held', function() {
 			if ($(this).attr('style').indexOf('--blue-500') == -1) return;
 			if (!cur_frm.doc.items.length) {
 				frappe.throw("Cannot save empty invoice");
 				return;
 			}
 
-			const proceed_with_secret = async (mobile_number = null) => {
-				const secret_dialog = me.create_secret_dialog(async function(values) {
+			const show_secret_key_popup = (mobile_number = null) => {
+				const secret_dialog = me.create_secret_dialog(function(values) {
 					const frm = me.events.get_frm();
-					const success = await me.validate_secret_and_save(values['secret_key'], frm.doc.name);
+					const invoice_name = frm.doc.name;
 					
-					if (success) {
-						secret_dialog.hide();
-						// Minimal UI feedback - just proceed to display order list/summary
-						me.events.toggle_recent_order && me.events.toggle_recent_order();
+					// Check if invoice is an existing draft (has a name and is not a new doc)
+					if (invoice_name && !frm.doc.__islocal) {
+						// Validate secret key against invoice's created_by_name
+						frappe.call({
+							method: "posnext.posnext.page.posnext.point_of_sale.check_edit_permission",
+							args: {
+								invoice_name: invoice_name,
+								secret_key: values['secret_key']
+							},
+							freeze: true,
+							freeze_message: "Validating Secret Key...",
+							callback: function(r) {
+								if (r.message.can_edit) {
+									// Proceed with saving the invoice
+									frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', r.message.created_by_name);
+									frm.script_manager.trigger('created_by_name', frm.doc.doctype, frm.doc.name).then(() => {
+										frappe.run_serially([
+											() => me.events.save_draft_invoice(),
+											() => frappe.dom.unfreeze()
+										]);
+									});
+									secret_dialog.hide();
+								} else {
+									// Show error and keep invoice unchanged
+									frappe.show_alert({
+										message: __(`You did not create this invoice, hence you cannot edit it. Only the creator (${r.message.created_by_name}) can edit it.`),
+										indicator: 'red'
+									});
+									frappe.dom.unfreeze();
+									secret_dialog.hide();
+								}
+							},
+							error: (xhr, status, error) => {
+								frappe.dom.unfreeze();
+								frappe.show_alert({
+									message: __("Failed to validate secret key. Please try again or contact support."),
+									indicator: 'red'
+								});
+								secret_dialog.hide();
+							}
+						});
 					} else {
-						secret_dialog.hide();
+						// New invoice: validate secret key and proceed
+						frappe.call({
+							method: "posnext.posnext.page.posnext.point_of_sale.get_user_name_from_secret_key",
+							args: {
+								secret_key: values['secret_key']
+							},
+							freeze: true,
+							freeze_message: "Validating Secret Key...",
+							callback: function(r) {
+								if (r.message) {
+									frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', r.message);
+									frm.script_manager.trigger('created_by_name', frm.doc.doctype, frm.doc.name).then(() => {
+										frappe.run_serially([
+											() => me.events.save_draft_invoice(),
+											() => frappe.dom.unfreeze()
+										]);
+									});
+									secret_dialog.hide();
+								} else {
+									frappe.show_alert({
+										message: __("Invalid secret key"),
+										indicator: 'red'
+									});
+									frappe.dom.unfreeze();
+									secret_dialog.hide();
+								}
+							}
+						});
 					}
 				});
 				secret_dialog.show();
 			};
 
 			if (!cur_frm.doc.customer && me.mobile_number_based_customer) {
-				const mobile_dialog = me.create_mobile_dialog(async function(values) {
+				const mobile_dialog = me.create_mobile_dialog(function(values) {
 					if (values['mobile_number'].length !== me.settings.custom_mobile_number_length) {
 						frappe.throw("Mobile Number Length is " + me.settings.custom_mobile_number_length.toString());
 						return;
 					}
-					
-					try {
-						await me.create_customer_and_proceed(values['mobile_number']);
-						mobile_dialog.hide();
-						proceed_with_secret(values['mobile_number']);
-					} catch (error) {
-						mobile_dialog.hide();
-					}
+					frappe.call({
+						method: "posnext.posnext.page.posnext.point_of_sale.create_customer",
+						args: {
+							customer: values['mobile_number']
+						},
+						freeze: true,
+						freeze_message: "Creating Customer....",
+						callback: function() {
+							const frm = me.events.get_frm();
+							frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'customer', values['mobile_number']);
+							frm.script_manager.trigger('customer', frm.doc.doctype, frm.doc.name).then(() => {
+								frappe.run_serially([
+									() => me.fetch_customer_details(values['mobile_number']),
+									() => me.events.customer_details_updated(me.customer_info),
+									() => me.update_customer_section(),
+									() => frappe.dom.unfreeze(),
+									() => show_secret_key_popup(values['mobile_number'])
+								]);
+							});
+							mobile_dialog.hide();
+						}
+					});
 				});
 				mobile_dialog.show();
 			} else {
@@ -535,7 +563,7 @@ posnext.PointOfSale.ItemCart = class {
 					frappe.throw("Please select a customer before holding the invoice");
 					return;
 				}
-				proceed_with_secret();
+				show_secret_key_popup();
 			}
 		});
 
