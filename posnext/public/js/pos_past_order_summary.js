@@ -1330,7 +1330,7 @@ attach_shortcuts() {
 	}
 
 get_condition_btn_map(after_submission) {
-	if (after_submission)
+	if (after_submission )
 		return [{ condition: true, visible_btns: ['Print Receipt', 'New Order'] }];
 
 	// Check if current user has 'Waiter' role
@@ -1341,9 +1341,13 @@ get_condition_btn_map(after_submission) {
 		? ['Print Receipt','Edit Order','Print-Order'] 
 		: ['Print Receipt','Edit Order','Print-Order','Split-Order'];
 
+    const submitButtons = hasWaiterRole
+        ? ['Print Receipt'] 
+		: ['Print Receipt', 'Return'];
+
 	return [
 		{ condition: this.doc.docstatus === 0, visible_btns: draftButtons },
-		{ condition: !this.doc.is_return && this.doc.docstatus === 1, visible_btns: ['Print Receipt', 'Return']},
+		{ condition: !this.doc.is_return && this.doc.docstatus === 1, visible_btns: submitButtons},
 		{ condition: this.doc.is_return && this.doc.docstatus === 1, visible_btns: ['Print Receipt']}
 	];
 }
