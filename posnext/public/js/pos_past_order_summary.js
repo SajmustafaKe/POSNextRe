@@ -51,7 +51,7 @@ posnext.PointOfSale.PastOrderSummary = class {
 	}
 
 	load_most_recent_invoice() {
-		// Smart loading: prioritize recently modified invoices, fallback to recently created
+		// Fetch the most recent invoice (created or modified)
 		frappe.call({
 			method: "frappe.client.get_list",
 			args: {
@@ -62,39 +62,14 @@ posnext.PointOfSale.PastOrderSummary = class {
 					// owner: frappe.session.user, // if you want only current user's invoices
 				},
 				fields: ["name", "customer", "grand_total", "creation", "modified"],
-				order_by: "modified desc", // Get recent activity first
-				limit: 10 // Get multiple recent invoices to analyze
+				order_by: "modified desc", // Order by last modified (creation and modified)
+				limit: 1
 			},
 			callback: (r) => {
 				if (r.message && r.message.length > 0) {
-					const invoices = r.message;
-					let target_invoice = null;
-
-					// First, look for invoices that were actually modified after creation
-					// (modified time is significantly different from creation time)
-					const recently_modified = invoices.filter(inv => {
-						const creation_time = new Date(inv.creation).getTime();
-						const modified_time = new Date(inv.modified).getTime();
-						// Consider modified if there's more than 5 seconds difference
-						// (to account for initial save operations)
-						return (modified_time - creation_time) > 5000;
-					});
-
-					if (recently_modified.length > 0) {
-						// Use the most recently modified invoice that was actually edited
-						target_invoice = recently_modified[0];
-						console.log("Loading recently modified invoice:", target_invoice.name);
-					} else {
-						// No recently modified invoices, find the most recently created
-						const most_recent_created = invoices.reduce((latest, current) => {
-							return new Date(current.creation) > new Date(latest.creation) ? current : latest;
-						});
-						target_invoice = most_recent_created;
-						console.log("Loading most recently created invoice:", target_invoice.name);
-					}
-
+					const recent_invoice_name = r.message[0].name;
 					// Fetch the full document
-					this.load_recent_invoice_details(target_invoice.name);
+					this.load_recent_invoice_details(recent_invoice_name);
 				} else {
 					// No invoices found, show placeholder
 					this.show_summary_placeholder();
