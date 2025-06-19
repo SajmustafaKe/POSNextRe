@@ -649,11 +649,22 @@ posnext.PointOfSale.PastOrderSummary = class {
 				if (!r.exc && r.message && r.message.success) {
 					const result = r.message;
 					
-					this.show_split_success(result);
-
-					setTimeout(() => {
-						this.open_past_orders_list();
-					}, 2000);
+					frappe.show_alert({
+						message: __('Order split successfully. Created {0} new invoice(s)', [result.new_invoices.length]),
+						indicator: 'green'
+					});
+					
+					// Refresh the order list (same as merge functionality)
+					if (posnext.PointOfSale.PastOrderList.current_instance) {
+						posnext.PointOfSale.PastOrderList.current_instance.refresh_list();
+					}
+					
+					// Open the first split invoice (same as merge functionality)
+					if (result.new_invoices && result.new_invoices.length > 0) {
+						setTimeout(() => {
+							this.events.open_invoice_data(result.new_invoices[0].name);
+						}, 1000);
+					}
 					
 				} else {
 					frappe.show_alert({
@@ -675,13 +686,12 @@ posnext.PointOfSale.PastOrderSummary = class {
 	open_past_orders_list() {
 		if (this.events && this.events.show_recent_orders) {
 			this.events.show_recent_orders();
-            posnext.PointOfSale.PastOrderList.current_instance.refresh_list();
 		}
 		
 		// Direct access to POSPastOrderList instance
 		setTimeout(() => {
 			if (posnext.PointOfSale.PastOrderList.current_instance && 
-				posnext.PointOfSale.PastOrderList.refresh_list.current_instance) {
+				posnext.PointOfSale.PastOrderList.current_instance.refresh_list) {
 				posnext.PointOfSale.PastOrderList.current_instance.refresh_list();
 			}
 		}, 300);
