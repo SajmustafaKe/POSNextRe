@@ -1041,7 +1041,6 @@ def merge_invoices(invoice_names, customer):
         return {
             "success": True, 
             "new_invoice": merged_invoice.name,
-            "merged_invoice_data": merged_doc.as_dict(),
             "message": success_message,
             "print_logs_transferred": print_logs_transferred,
             "print_logs_errors": len(print_logs_errors)
