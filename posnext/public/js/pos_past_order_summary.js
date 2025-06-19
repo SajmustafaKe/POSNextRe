@@ -722,18 +722,41 @@ posnext.PointOfSale.PastOrderSummary = class {
 		});
 	}
 
-	// Enhanced version with comprehensive fallbacks
+	// Add new method to open past orders list
 	open_past_orders_list() {
-		// Hide current summary
-		this.toggle_component(false);
-		this.$component.find('.no-summary-placeholder').css('display', 'flex');
-		this.$summary_wrapper.css('display', 'none');
-		
-		// Use show_recent_orders method (same pattern as Payment class)
+		// First show the recent orders list
 		if (this.events && this.events.show_recent_orders) {
 			this.events.show_recent_orders();
-		} else {
-			// Fallback message (same as Payment class pattern)
+		}
+		
+		// Then ensure PastOrderSummary is also visible with placeholder
+		setTimeout(() => {
+			// Show this component but with placeholder
+			this.toggle_component(true);
+			this.$component.find('.no-summary-placeholder').css('display', 'flex');
+			this.$summary_wrapper.css('display', 'none');
+			
+			// Add a helpful message for split results
+			const original_placeholder = this.$component.find('.no-summary-placeholder').html();
+			this.$component.find('.no-summary-placeholder').html(
+				`<div style="text-align: center;">
+					<div style="margin-bottom: 10px;">
+						<i class="fa fa-check-circle text-success" style="font-size: 24px;"></i>
+					</div>
+					<div style="font-weight: bold; color: #28a745;">Split completed successfully!</div>
+					<div style="margin-top: 8px; color: #6c757d;">Select an invoice from the list to view details</div>
+				</div>`
+			);
+			
+			// Restore original placeholder after 5 seconds
+			setTimeout(() => {
+				this.$component.find('.no-summary-placeholder').html(original_placeholder);
+			}, 5000);
+			
+		}, 500);
+		
+		// Fallback if show_recent_orders doesn't exist
+		if (!this.events || !this.events.show_recent_orders) {
 			frappe.msgprint({
 				title: __('Split Complete'),
 				message: __('Order split completed successfully. Please check Recent Orders to view the new invoices.'),
@@ -741,47 +764,67 @@ posnext.PointOfSale.PastOrderSummary = class {
 			});
 		}
 	}
+
 	show_split_success(result) {
-		let message = `<div class="text-center">
-			<div class="mb-3">
-				<i class="fa fa-check-circle text-success" style="font-size: 48px;"></i>
-			</div>
-			<h4>Order Split Successfully!</h4>
-			<p class="mb-3">Created ${result.new_invoices.length} new invoice(s):</p>
-			<ul class="list-unstyled">`;
+    let message = `<div class="text-center">
+        <div class="mb-3">
+            <i class="fa fa-check-circle text-success" style="font-size: 48px;"></i>
+        </div>
+        <h4>Order Split Successfully!</h4>
+        <p class="mb-3">Created ${result.new_invoices.length} new invoice(s):</p>
+        <ul class="list-unstyled">`;
 
-		result.new_invoices.forEach(invoice => {
-			message += `<li><strong>${invoice.name}</strong> - ${format_currency(invoice.grand_total, this.doc.currency)}</li>`;
-		});
+    result.new_invoices.forEach(invoice => {
+        message += `<li><strong>${invoice.name}</strong> - ${format_currency(invoice.grand_total, this.doc.currency)}</li>`;
+    });
 
-		message += `</ul>
-			<div class="alert alert-info mt-3">
-				<i class="fa fa-info-circle"></i> Opening past orders list to view all invoices
-			</div>
-		</div>`;
+    message += `</ul>
+        <div class="alert alert-info mt-3">
+            <i class="fa fa-info-circle"></i> Opening past orders list to view all invoices
+        </div>
+    </div>`;
 
-		const success_dialog = new frappe.ui.Dialog({
-			title: __('Split Complete'),
-			fields: [
-				{
-					fieldtype: 'HTML',
-					fieldname: 'success_message',
-					options: message
-				}
-			],
-			primary_action: () => {
-				success_dialog.hide();
-				this.open_past_orders_list();
-			},
-			primary_action_label: __('View Past Orders'),
-			secondary_action: () => {
-				success_dialog.hide();
-			},
-			secondary_action_label: __('Close')
-		});
+    const success_dialog = new frappe.ui.Dialog({
+        title: __('Split Complete'),
+        fields: [
+            {
+                fieldtype: 'HTML',
+                fieldname: 'success_message',
+                options: message
+            }
+        ],
+        primary_action: () => {
+            success_dialog.hide();
+            this.open_past_orders_list();
+            
+            // Auto-load the first split invoice after a short delay
+            setTimeout(() => {
+                if (result.new_invoices && result.new_invoices.length > 0) {
+                    const first_invoice_name = result.new_invoices[0].name;
+                    
+                    // Load and show the first split invoice
+                    frappe.get_doc('POS Invoice', first_invoice_name).then(doc => {
+                        this.load_summary_of(doc);
+                        this.toggle_component(true);
+                        
+                        // Show success message in summary
+                        frappe.show_alert({
+                            message: __("Loaded first split invoice: {0}", [first_invoice_name]),
+                            indicator: "green"
+                        });
+                    });
+                }
+            }, 1000);
+        },
+        primary_action_label: __('View Split Results'),
+        secondary_action: () => {
+            success_dialog.hide();
+        },
+        secondary_action_label: __('Close')
+    });
 
-		success_dialog.show();
-	}
+    success_dialog.show();
+}
 
 	print_order() {
 		const doctype = this.doc.doctype;
