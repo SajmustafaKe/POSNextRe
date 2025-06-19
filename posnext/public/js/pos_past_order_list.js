@@ -345,16 +345,33 @@ posnext.PointOfSale.PastOrderList = class {
 						indicator: 'green'
 					});
 					
-					// Clear selections and refresh list
+					// Clear selections immediately
 					this.selected_invoices.clear();
-					this.refresh_list();
+					this.update_merge_section();
 					
-					// Optionally open the new merged invoice
-					if (response.message.new_invoice) {
-						setTimeout(() => {
+					// If backend returns full invoice data, use it directly for instant loading
+					if (response.message.merged_invoice_data) {
+						// Reset summary state immediately
+						if (this.events.reset_summary) {
+							this.events.reset_summary();
+						}
+						
+						// Load summary immediately with the data we already have
+						if (posnext.PointOfSale.PastOrderSummary && posnext.PointOfSale.PastOrderSummary.current_instance) {
+							posnext.PointOfSale.PastOrderSummary.current_instance.load_summary_of(response.message.merged_invoice_data);
+						}
+					} else {
+						// Fallback: load by name (still faster than before)
+						if (response.message.new_invoice) {
 							this.events.open_invoice_data(response.message.new_invoice);
-						}, 1000);
+						}
 					}
+					
+					// Refresh list in background (non-blocking)
+					setTimeout(() => {
+						this.refresh_list();
+					}, 100);
+					
 				} else {
 					frappe.msgprint(__('Error merging invoices: {0}', [response.message.error || 'Unknown error']));
 				}
