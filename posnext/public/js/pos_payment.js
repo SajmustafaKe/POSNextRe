@@ -90,37 +90,50 @@ posnext.PointOfSale.Payment = class {
 			console.log('🔄 Restoring payments from backup:', backup_data);
 			
 			let total_restored = 0;
+			let has_actual_amounts = false;  // Track if there are actual payment amounts
 			
 			// Restore split payments
 			if (backup_data.split_payments && backup_data.split_payments.length > 0) {
-				this.split_payments = [...backup_data.split_payments];
+				// Filter out payments with 0 amounts
+				const valid_split_payments = backup_data.split_payments.filter(p => p.amount && p.amount > 0);
 				
-				// Calculate total from split payments
-				total_restored = this.split_payments.reduce((sum, payment) => sum + payment.amount, 0);
-				
-				console.log('✅ Restored split payments:', this.split_payments);
+				if (valid_split_payments.length > 0) {
+					this.split_payments = [...valid_split_payments];
+					has_actual_amounts = true;
+					
+					// Calculate total from split payments
+					total_restored = this.split_payments.reduce((sum, payment) => sum + payment.amount, 0);
+					
+					console.log('✅ Restored split payments:', this.split_payments);
+				}
 			}
 			
-			// Restore split mode state
-			if (backup_data.is_split_mode) {
+			// Restore split mode state only if there are actual payment amounts
+			if (backup_data.is_split_mode && has_actual_amounts) {
 				this.is_split_mode = backup_data.is_split_mode;
 				console.log('✅ Restored split mode state:', this.is_split_mode);
 			}
 			
 			// Store original payment data for later use
 			if (backup_data.payments && backup_data.payments.length > 0) {
-				this.original_payment_data = backup_data.payments;
+				// Filter original payments to only include those with amounts > 0
+				const valid_original_payments = backup_data.payments.filter(p => p.amount && p.amount > 0);
 				
-				// If no split payments but have original payments, calculate total from original
-				if (total_restored === 0) {
-					total_restored = backup_data.payments.reduce((sum, payment) => sum + payment.amount, 0);
+				if (valid_original_payments.length > 0) {
+					this.original_payment_data = valid_original_payments;
+					has_actual_amounts = true;
+					
+					// If no split payments but have original payments, calculate total from original
+					if (total_restored === 0) {
+						total_restored = valid_original_payments.reduce((sum, payment) => sum + payment.amount, 0);
+					}
+					
+					console.log('✅ Stored original payment data:', this.original_payment_data);
 				}
-				
-				console.log('✅ Stored original payment data:', this.original_payment_data);
 			}
 			
-			// Apply payments to document if we have payment data
-			if (total_restored > 0) {
+			// FIXED: Apply payments to document only if we have actual payment amounts > 0
+			if (has_actual_amounts && total_restored > 0) {
 				// Update document paid amount
 				frappe.model.set_value(current_doc.doctype, current_doc.name, 'paid_amount', total_restored);
 				
@@ -141,17 +154,19 @@ posnext.PointOfSale.Payment = class {
 				// Apply individual payment amounts to payment records
 				if (backup_data.payments) {
 					backup_data.payments.forEach(backup_payment => {
-						const current_payment = current_doc.payments.find(p => 
-							p.mode_of_payment === backup_payment.mode_of_payment
-						);
-						
-						if (current_payment) {
-							frappe.model.set_value(current_payment.doctype, current_payment.name, 'amount', backup_payment.amount);
-							if (backup_payment.reference_no) {
-								frappe.model.set_value(current_payment.doctype, current_payment.name, 'reference_no', backup_payment.reference_no);
-							}
-							if (backup_payment.remarks) {
-								frappe.model.set_value(current_payment.doctype, current_payment.name, 'remarks', backup_payment.remarks);
+						if (backup_payment.amount && backup_payment.amount > 0) {  // Only apply payments with amounts > 0
+							const current_payment = current_doc.payments.find(p => 
+								p.mode_of_payment === backup_payment.mode_of_payment
+							);
+							
+							if (current_payment) {
+								frappe.model.set_value(current_payment.doctype, current_payment.name, 'amount', backup_payment.amount);
+								if (backup_payment.reference_no) {
+									frappe.model.set_value(current_payment.doctype, current_payment.name, 'reference_no', backup_payment.reference_no);
+								}
+								if (backup_payment.remarks) {
+									frappe.model.set_value(current_payment.doctype, current_payment.name, 'remarks', backup_payment.remarks);
+								}
 							}
 						}
 					});
@@ -166,15 +181,19 @@ posnext.PointOfSale.Payment = class {
 						this.render_payment_mode_dom();
 					}
 				}, 200);
-			}
-			
-			// Show user notification
-			if (this.split_payments.length > 0 || this.original_payment_data) {
+				
+				// Show user notification
 				frappe.show_alert({
 					message: __("Payment data restored from previous session (Total: {0})", [format_currency(total_restored, current_doc.currency)]),
 					indicator: "green"
 				});
 				return true;
+			} else {
+				console.log('📝 Backup found but no payment amounts > 0 - staying in normal mode');
+				// Clear empty data
+				this.split_payments = [];
+				this.original_payment_data = null;
+				this.is_split_mode = false;
 			}
 		}
 		
@@ -803,6 +822,7 @@ posnext.PointOfSale.Payment = class {
 			
 			// For edited orders, be more aggressive in looking for payment signs
 			let has_payment_indicators = false;
+			let total_payment_amount = 0;  // Track actual payment amounts
 			let reasons = [];
 			
 			// Check 1: Any payment amounts > 0
@@ -810,6 +830,7 @@ posnext.PointOfSale.Payment = class {
 				doc.payments.forEach(payment => {
 					if (payment.amount && payment.amount > 0) {
 						has_payment_indicators = true;
+						total_payment_amount += payment.amount;
 						reasons.push(`Payment: ${payment.mode_of_payment} = ${payment.amount}`);
 					}
 				});
@@ -818,6 +839,9 @@ posnext.PointOfSale.Payment = class {
 			// Check 2: Paid amount > 0
 			if (doc.paid_amount && doc.paid_amount > 0) {
 				has_payment_indicators = true;
+				if (total_payment_amount === 0) {
+					total_payment_amount = doc.paid_amount;
+				}
 				reasons.push(`Paid amount: ${doc.paid_amount}`);
 			}
 			
@@ -829,37 +853,48 @@ posnext.PointOfSale.Payment = class {
 			
 			// Check 4: Outstanding amount calculation
 			if (doc.outstanding_amount && doc.grand_total && doc.outstanding_amount < doc.grand_total) {
-				has_payment_indicators = true;
 				const paid = doc.grand_total - doc.outstanding_amount;
-				reasons.push(`Outstanding suggests payment: ${paid}`);
+				if (paid > 0) {  // Only count if there's actually a paid amount
+					has_payment_indicators = true;
+					if (total_payment_amount === 0) {
+						total_payment_amount = paid;
+					}
+					reasons.push(`Outstanding suggests payment: ${paid}`);
+				}
 			}
 			
-			// Check 5: Creation/modification date suggests it's not truly new
-			if (doc.creation || doc.modified) {
-				has_payment_indicators = true;
-				reasons.push('Has creation/modified date');
-			}
-			
-			// Check 6: ERPNext Bug Detection - existing invoice name with cleared payments
+			// Check 5: ERPNext Bug Detection - existing invoice name with cleared payments
+			// BUT only enable split mode if there are actual payment amounts or strong indicators
 			if (!doc.name.startsWith('new-') && doc.creation && doc.docstatus === 0) {
 				console.log('🐛 DETECTED: ERPNext payment clearing bug - existing invoice loaded for editing');
-				has_payment_indicators = true;
 				reasons.push('ERPNext payment clearing bug detected');
 				
 				// Try to fetch original payment data from server
 				this.fetch_original_payment_data(doc.name);
+				
+				// Only set has_payment_indicators if we have actual payment amounts
+				// Don't auto-enable split mode just because it's an edited order
 			}
 			
 			console.log('Payment indicators found:', has_payment_indicators);
+			console.log('Total payment amount:', total_payment_amount);
 			console.log('Reasons:', reasons);
 			
-			if (has_payment_indicators && !this.is_split_mode) {
-				console.log('🎯 Enabling split mode for edited order');
+			// FIXED: Only enable split mode if there are actual payment amounts > 0
+			if (has_payment_indicators && total_payment_amount > 0 && !this.is_split_mode) {
+				console.log('🎯 Enabling split mode for edited order with actual payments');
 				this.$component.find('#split-payment-checkbox').prop('checked', true);
 				this.toggle_split_payment_mode(true);
 				
 				frappe.show_alert({
 					message: __("Split payment mode enabled for edited order: {0}", [reasons.join(', ')]),
+					indicator: "blue"
+				});
+				return;
+			} else if (has_payment_indicators && total_payment_amount === 0) {
+				console.log('📝 Edited order detected but no payment amounts found - keeping normal mode');
+				frappe.show_alert({
+					message: __("Edited order detected. You can enable split payment mode manually if needed."),
 					indicator: "blue"
 				});
 				return;
@@ -906,7 +941,8 @@ posnext.PointOfSale.Payment = class {
 		
 		console.log(`Has existing payments: ${has_existing_payments}, Total: ${total_existing_amount}`);
 		
-		if (has_existing_payments && !this.is_split_mode) {
+		// FIXED: Only enable split mode automatically if there are actual payment amounts > 0
+		if (has_existing_payments && total_existing_amount > 0 && !this.is_split_mode) {
 			// Automatically enable split payment mode
 			this.$component.find('#split-payment-checkbox').prop('checked', true);
 			this.toggle_split_payment_mode(true);
@@ -915,6 +951,9 @@ posnext.PointOfSale.Payment = class {
 				message: __("Split payment mode enabled automatically (Found payments: {0})", [format_currency(total_existing_amount, doc.currency)]),
 				indicator: "blue"
 			});
+		} else if (doc.payments && doc.payments.length > 0 && total_existing_amount === 0) {
+			console.log('📝 Payment methods available but no amounts - staying in normal mode');
+			// Don't show any alert here, just proceed normally
 		}
 	}
 
@@ -1903,9 +1942,11 @@ posnext.PointOfSale.Payment = class {
 		const current_doc = this.events.get_frm().doc;
 		this.split_payments = [];
 		let total_paid = 0;
+		let has_actual_payments = false;  // Track if there are actual payment amounts
 		
 		this.original_payment_data.forEach((payment, index) => {
-			if (payment.amount && payment.amount > 0) {
+			if (payment.amount && payment.amount > 0) {  // Only process payments with amounts > 0
+				has_actual_payments = true;
 				const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
 				
 				const split_payment = {
@@ -1941,7 +1982,8 @@ posnext.PointOfSale.Payment = class {
 			}
 		});
 		
-		if (this.split_payments.length > 0) {
+		// FIXED: Only enable split mode and update document if there are actual payment amounts
+		if (has_actual_payments && this.split_payments.length > 0 && total_paid > 0) {
 			// Update document totals
 			frappe.model.set_value(current_doc.doctype, current_doc.name, 'paid_amount', total_paid);
 			
@@ -1975,6 +2017,11 @@ posnext.PointOfSale.Payment = class {
 				message: __("Payments restored from backup ({0} payment(s), Total: {1})", [this.split_payments.length, format_currency(total_paid, current_doc.currency)]),
 				indicator: "green"
 			});
+		} else {
+			console.log('📝 Original payment data found but no payment amounts > 0 - staying in normal mode');
+			// Clear any empty payment data
+			this.split_payments = [];
+			this.original_payment_data = null;
 		}
 	}
 
