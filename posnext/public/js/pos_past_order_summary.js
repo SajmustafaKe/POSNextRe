@@ -682,8 +682,10 @@ posnext.PointOfSale.PastOrderSummary = class {
 						);
 					}
 					
-					// Execute all operations in parallel
-					Promise.all(operations).catch(console.error);
+					// Execute all operations in parallel - silent error handling
+					Promise.all(operations).catch(() => {
+						// Silent error handling - operations will continue even if some fail
+					});
 					
 				} else {
 					frappe.show_alert({
@@ -701,8 +703,6 @@ posnext.PointOfSale.PastOrderSummary = class {
 			}
 		});
 	}
-
-
 
 	print_order() {
 		const doctype = this.doc.doctype;
