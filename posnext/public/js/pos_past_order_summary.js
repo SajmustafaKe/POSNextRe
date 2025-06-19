@@ -677,22 +677,11 @@ posnext.PointOfSale.PastOrderSummary = class {
 			this.events.show_recent_orders();
 		}
 		
+		// Direct access to POSPastOrderList instance
 		setTimeout(() => {
-			if (this.events && this.events.refresh_recent_orders) {
-				this.events.refresh_recent_orders();
-			} else if (this.events && this.events.reload_recent_orders) {
-				this.events.reload_recent_orders();
-			} else {
-				const pos_controller = window.cur_pos || frappe.pages['point-of-sale'];
-				if (pos_controller && pos_controller.recent_order_list) {
-					if (pos_controller.recent_order_list.refresh) {
-						pos_controller.recent_order_list.refresh();
-					} else if (pos_controller.recent_order_list.load_orders) {
-						pos_controller.recent_order_list.load_orders();
-					} else if (pos_controller.recent_order_list.render_order_list) {
-						pos_controller.recent_order_list.render_order_list();
-					}
-				}
+			if (posnext.PointOfSale.PastOrderList && 
+				posnext.PointOfSale.PastOrderList.refresh_list) {
+				posnext.PointOfSale.PastOrderList.refresh_list();
 			}
 		}, 300);
 		
@@ -717,14 +706,6 @@ posnext.PointOfSale.PastOrderSummary = class {
 			}, 5000);
 			
 		}, 800);
-		
-		if (!this.events || !this.events.show_recent_orders) {
-			frappe.msgprint({
-				title: __('Split Complete'),
-				message: __('Order split completed successfully.'),
-				indicator: 'green'
-			});
-		}
 	}
 
 	show_split_success(result) {
