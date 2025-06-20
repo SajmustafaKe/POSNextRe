@@ -51,10 +51,11 @@ posnext.PointOfSale.Payment = class {
 			split_payments: [...this.split_payments],
 			is_split_mode: this.is_split_mode,
 			paid_amount: doc.paid_amount || 0,
-			status: doc.status || 'Draft'
+			status: doc.status || 'Draft',
+			document_version: doc.modified || doc.creation // Track document version
 		};
 		
-		// Backup current payments from document
+		// Backup current payments from document (including partial payments)
 		if (doc.payments && Array.isArray(doc.payments)) {
 			doc.payments.forEach(payment => {
 				if (payment.amount && payment.amount > 0) {
@@ -168,6 +169,24 @@ posnext.PointOfSale.Payment = class {
 		}
 		
 		return false;
+	}
+
+	// Helper method for backup restoration
+	restore_from_backup_if_needed() {
+		// Check memory backup
+		if (window.pos_payment_backups && window.pos_payment_backups[this.payment_backup_key]) {
+			const backup_data = window.pos_payment_backups[this.payment_backup_key];
+			
+			// Restore split payments from backup
+			if (backup_data.split_payments && backup_data.split_payments.length > 0) {
+				this.split_payments = [...backup_data.split_payments];
+			}
+			
+			// Restore split mode state
+			if (backup_data.is_split_mode) {
+				this.is_split_mode = backup_data.is_split_mode;
+			}
+		}
 	}
 
 	// Clear payment backup when invoice is completed
@@ -814,55 +833,57 @@ posnext.PointOfSale.Payment = class {
 	check_for_existing_payments() {
 		const doc = this.events.get_frm().doc;
 		
-		// Check if this looks like an edited existing order (ERPNext Bug Fix)
-		// ERPNext has a known issue where editing existing POS invoices clears payment data
-		// We need to detect both 'new-' prefixed AND existing invoice names that have been edited
+		// Enhanced payment detection that prioritizes current document state
+		let has_existing_payments = false;
+		let total_existing_amount = 0;
+		let payment_source = '';
+		
+		// Check 1: Current document payments (highest priority)
+		if (doc.payments && Array.isArray(doc.payments)) {
+			doc.payments.forEach(payment => {
+				if (payment.amount && payment.amount > 0) {
+					has_existing_payments = true;
+					total_existing_amount += payment.amount;
+					payment_source = 'document payments';
+				}
+			});
+		}
+		
+		// Check 2: Document paid_amount field (if no payments found above)
+		if (!has_existing_payments && doc.paid_amount && doc.paid_amount > 0) {
+			has_existing_payments = true;
+			total_existing_amount = doc.paid_amount;
+			payment_source = 'paid amount field';
+		}
+		
+		// Check 3: Document status suggests payment
+		if (!has_existing_payments && doc.status && ['Partly Paid', 'Paid'].includes(doc.status)) {
+			has_existing_payments = true;
+			// Try to calculate from outstanding amount
+			if (doc.outstanding_amount && doc.grand_total) {
+				total_existing_amount = doc.grand_total - doc.outstanding_amount;
+				payment_source = 'calculated from outstanding';
+			}
+		}
+		
+		// Check 4: Check if this looks like an edited existing order (ERPNext Bug Fix)
 		const is_edited_order = (
 			(doc.name.startsWith('new-') && (doc.creation || doc.modified || doc.status !== 'Draft')) ||
 			(!doc.name.startsWith('new-') && doc.creation && doc.docstatus === 0 && !doc.__islocal)
 		);
 		
-		if (is_edited_order) {
+		if (is_edited_order && !has_existing_payments) {
 			// For edited orders, be more aggressive in looking for payment signs
 			let has_payment_indicators = false;
 			let reasons = [];
 			
-			// Check 1: Any payment amounts > 0
-			if (doc.payments && Array.isArray(doc.payments)) {
-				doc.payments.forEach(payment => {
-					if (payment.amount && payment.amount > 0) {
-						has_payment_indicators = true;
-						reasons.push(`Payment: ${payment.mode_of_payment} = ${payment.amount}`);
-					}
-				});
-			}
-			
-			// Check 2: Paid amount > 0
-			if (doc.paid_amount && doc.paid_amount > 0) {
-				has_payment_indicators = true;
-				reasons.push(`Paid amount: ${doc.paid_amount}`);
-			}
-			
-			// Check 3: Status indicates payment
-			if (doc.status && ['Partly Paid', 'Paid'].includes(doc.status)) {
-				has_payment_indicators = true;
-				reasons.push(`Status: ${doc.status}`);
-			}
-			
-			// Check 4: Outstanding amount calculation
-			if (doc.outstanding_amount && doc.grand_total && doc.outstanding_amount < doc.grand_total) {
-				has_payment_indicators = true;
-				const paid = doc.grand_total - doc.outstanding_amount;
-				reasons.push(`Outstanding suggests payment: ${paid}`);
-			}
-			
-			// Check 5: Creation/modification date suggests it's not truly new
+			// Check creation/modification date suggests it's not truly new
 			if (doc.creation || doc.modified) {
 				has_payment_indicators = true;
 				reasons.push('Has creation/modified date');
 			}
 			
-			// Check 6: ERPNext Bug Detection - existing invoice name with cleared payments
+			// ERPNext Bug Detection - existing invoice name with cleared payments
 			if (!doc.name.startsWith('new-') && doc.creation && doc.docstatus === 0) {
 				has_payment_indicators = true;
 				reasons.push('ERPNext payment clearing bug detected');
@@ -883,53 +904,34 @@ posnext.PointOfSale.Payment = class {
 			}
 		}
 		
-		// Standard check for existing payments
-		let has_existing_payments = false;
-		let total_existing_amount = 0;
-		
-		// Check 1: payments array for amounts > 0
-		if (doc.payments && Array.isArray(doc.payments)) {
-			doc.payments.forEach(payment => {
-				if (payment.amount && payment.amount > 0) {
-					has_existing_payments = true;
-					total_existing_amount += payment.amount;
-				}
-			});
-		}
-		
-		// Check 2: paid_amount field (fallback check)
-		if (!has_existing_payments && doc.paid_amount && doc.paid_amount > 0) {
-			has_existing_payments = true;
-			total_existing_amount = doc.paid_amount;
-		}
-		
-		// Check 3: payment controls (last resort)
-		if (!has_existing_payments && doc.payments) {
-			doc.payments.forEach(payment => {
-				const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-				const control = this[`${mode}_control`];
-				if (control && control.get_value() > 0) {
-					has_existing_payments = true;
-					total_existing_amount += control.get_value();
-				}
-			});
-		}
-		
 		if (has_existing_payments && !this.is_split_mode) {
 			// Automatically enable split payment mode
 			this.$component.find('#split-payment-checkbox').prop('checked', true);
 			this.toggle_split_payment_mode(true);
 			
 			frappe.show_alert({
-				message: __("Split payment mode enabled automatically (Found payments: {0})", [format_currency(total_existing_amount, doc.currency)]),
+				message: __("Split payment mode enabled (Found: {0} from {1})", [
+					format_currency(total_existing_amount, doc.currency), 
+					payment_source
+				]),
 				indicator: "blue"
 			});
 		}
 	}
 
-	// New method to fetch original payment data for invoices affected by ERPNext payment clearing bug
+	// Modified method to avoid overriding current partial payments
 	fetch_original_payment_data(invoice_name) {
-		// Fetch the original document from server to get payment data
+		// DON'T fetch original data if current document already has payments
+		const current_doc = this.events.get_frm().doc;
+		const has_current_payments = current_doc.payments && 
+			current_doc.payments.some(p => p.amount && p.amount > 0);
+		
+		if (has_current_payments) {
+			// Current document already has payments, don't override with original
+			return;
+		}
+		
+		// Only fetch original data if no current payments exist
 		frappe.db.get_doc('POS Invoice', invoice_name).then(original_doc => {
 			if (original_doc && original_doc.payments) {
 				let found_payments = false;
@@ -1037,8 +1039,66 @@ posnext.PointOfSale.Payment = class {
 		// Clear existing split payments
 		this.split_payments = [];
 		
-		// First try to load from original payment data if available (ERPNext bug fix)
-		if (this.original_payment_data && Array.isArray(this.original_payment_data)) {
+		// PRIORITY 1: Load from current document payments (most up-to-date)
+		if (doc.payments && Array.isArray(doc.payments)) {
+			doc.payments.forEach((payment, index) => {
+				if (payment.amount && payment.amount > 0) {
+					const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+					
+					// Check if this payment has split details in remarks
+					let split_details = [];
+					if (payment.remarks) {
+						try {
+							split_details = JSON.parse(payment.remarks);
+						} catch (e) {
+							// If not JSON, treat as single payment
+							split_details = [{
+								amount: payment.amount,
+								reference: payment.reference_no || '',
+								notes: payment.remarks || '',
+								display_name: payment.mode_of_payment
+							}];
+						}
+					}
+					
+					// If no split details, create single payment entry
+					if (split_details.length === 0) {
+						split_details = [{
+							amount: payment.amount,
+							reference: payment.reference_no || '',
+							notes: '',
+							display_name: payment.mode_of_payment
+						}];
+					}
+					
+					// Add each split detail as separate payment
+					split_details.forEach((detail, detailIndex) => {
+						const existing_payment = {
+							id: `${mode}_current_${index}_${detailIndex}`,
+							mode: mode,
+							mode_of_payment: payment.mode_of_payment,
+							display_name: detail.display_name || payment.mode_of_payment,
+							amount: detail.amount || payment.amount,
+							type: payment.type || 'Cash',
+							reference_number: detail.reference || payment.reference_no || '',
+							notes: detail.notes || '',
+							is_existing: true
+						};
+						
+						this.split_payments.push(existing_payment);
+					});
+				}
+			});
+		}
+		
+		// PRIORITY 2: Only use backup if no current payments found
+		if (this.split_payments.length === 0) {
+			// Try backup restoration
+			this.restore_from_backup_if_needed();
+		}
+		
+		// PRIORITY 3: Only use original payment data if no other payments found
+		if (this.split_payments.length === 0 && this.original_payment_data && Array.isArray(this.original_payment_data)) {
 			this.original_payment_data.forEach((payment, index) => {
 				if (payment.amount && payment.amount > 0) {
 					const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
@@ -1051,7 +1111,7 @@ posnext.PointOfSale.Payment = class {
 						amount: payment.amount,
 						type: payment.type || 'Cash',
 						reference_number: payment.reference_no || '',
-						notes: payment.remarks || 'Restored from original',
+						notes: payment.remarks || 'From original',
 						is_existing: true
 					};
 					
@@ -1060,34 +1120,9 @@ posnext.PointOfSale.Payment = class {
 			});
 		}
 		
-		// If we still have no payments, try loading from current document
-		if (this.split_payments.length === 0) {
-			if (doc.payments && Array.isArray(doc.payments)) {
-				doc.payments.forEach((payment, index) => {
-					if (payment.amount && payment.amount > 0) {
-						const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-						
-						const existing_payment = {
-							id: `${mode}_existing_${index}`,
-							mode: mode,
-							mode_of_payment: payment.mode_of_payment,
-							display_name: payment.mode_of_payment,
-							amount: payment.amount,
-							type: payment.type || 'Cash',
-							reference_number: payment.reference_no || '',
-							notes: payment.remarks || '',
-							is_existing: true
-						};
-						
-						this.split_payments.push(existing_payment);
-					}
-				});
-			}
-			
-			// If still no payments found but document suggests payments exist
-			if (this.split_payments.length === 0 && (doc.paid_amount > 0 || doc.status === 'Partly Paid')) {
-				this.create_fallback_payment_from_document(doc);
-			}
+		// If still no payments found but document suggests payments exist
+		if (this.split_payments.length === 0 && (doc.paid_amount > 0 || doc.status === 'Partly Paid')) {
+			this.create_fallback_payment_from_document(doc);
 		}
 		
 		// Renumber and update display
@@ -1101,7 +1136,7 @@ posnext.PointOfSale.Payment = class {
 		setTimeout(() => {
 			me.ensure_add_to_split_buttons_enabled();
 			
-			// Show user that they can still add more payments
+			// Show appropriate message based on what was loaded
 			if (this.split_payments.length > 0) {
 				const total_existing = this.get_split_total();
 				const grand_total = doc.grand_total || doc.rounded_total || 0;
@@ -1109,8 +1144,18 @@ posnext.PointOfSale.Payment = class {
 				
 				if (remaining > 0) {
 					frappe.show_alert({
-						message: __("Existing payments loaded. You can add more payments for the remaining amount: {0}", [format_currency(remaining, doc.currency)]),
+						message: __("Existing payments loaded ({0}). You can add more for remaining: {1}", [
+							format_currency(total_existing, doc.currency),
+							format_currency(remaining, doc.currency)
+						]),
 						indicator: "blue"
+					});
+				} else {
+					frappe.show_alert({
+						message: __("Existing payments loaded ({0}). Invoice fully paid.", [
+							format_currency(total_existing, doc.currency)
+						]),
+						indicator: "green"
 					});
 				}
 			}
