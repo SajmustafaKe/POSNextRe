@@ -1455,7 +1455,11 @@ def get_default_payment_mode(pos_profile):
         if pos_profile:
             pos_doc = frappe.get_doc("POS Profile", pos_profile)
             if pos_doc.payments:
-                return pos_doc.payments[0]
+                payment_method = pos_doc.payments[0]
+                return {
+                    "mode_of_payment": payment_method.mode_of_payment,
+                    "default_account": payment_method.default_account
+                }
         
         # Fallback to any available mode of payment
         mode_of_payment = frappe.get_all("Mode of Payment", 
