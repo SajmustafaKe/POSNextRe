@@ -1,45 +1,4 @@
-// Force complete reset of payment UI - use this when switching invoices
-	force_reset_payment_ui() {
-		console.log('Force resetting payment UI');
-		
-		// Clear all split payment data
-		this.split_payments = [];
-		this.original_payment_data = null;
-		this.is_split_mode = false;
-		
-		// Reset all flags
-		this._payment_detection_done = false;
-		this._payments_loaded_for_invoice = null;
-		
-		// Reset UI elements
-		if (this.$component) {
-			this.$component.find('#split-payment-checkbox').prop('checked', false);
-			this.$component.find('.payment-status-partial').remove();
-		}
-		
-		if (this.$split_container) {
-			this.$split_container.hide();
-		}
-		
-		if (this.$split_list) {
-			this.$split_list.html(`<div class="text-muted text-center">${__('No split payments added yet')}</div>`);
-		}
-		
-		// Reset split summary
-		if (this.$component) {
-			this.$component.find('.split-total-amount').text('0.00');
-			this.$component.find('.split-remaining-amount').text('0.00');
-			this.$component.find('.split-change').hide();
-		}
-		
-		// Force re-render of payment modes
-		const doc = this.events.get_frm().doc;
-		if (doc && doc.payments) {
-			this.render_payment_mode_dom();
-		}
-		
-		console.log('Payment UI force reset complete');
-	}/* eslint-disable no-unused-vars */
+/* eslint-disable no-unused-vars */
 frappe.provide('posnext.PointOfSale');
 posnext.PointOfSale.Payment = class {
 	constructor({ events, wrapper }) {
@@ -65,42 +24,6 @@ posnext.PointOfSale.Payment = class {
 		
 		// Initialize payment backup system for POSNext edit order flow
 		this.initialize_payment_backup_system();
-		
-		// Add document change listener to clear data when invoice changes
-		this.setup_document_change_listener();
-	}
-
-	// Setup listener for document changes to clear payment data
-	setup_document_change_listener() {
-		const me = this;
-		
-		// Listen for form document changes
-		frappe.ui.form.on('POS Invoice', 'refresh', function(frm) {
-			if (me.events && me.events.get_frm && me.events.get_frm().doc) {
-				const current_doc = me.events.get_frm().doc;
-				
-				// Check if invoice has changed
-				if (me._current_invoice_name && me._current_invoice_name !== current_doc.name) {
-					console.log('Invoice changed from', me._current_invoice_name, 'to', current_doc.name);
-					me.clear_invoice_switch_data();
-					me._current_invoice_name = current_doc.name;
-				}
-			}
-		});
-		
-		// Also listen for when new documents are loaded
-		frappe.ui.form.on('POS Invoice', 'onload', function(frm) {
-			if (me.events && me.events.get_frm && me.events.get_frm().doc) {
-				const current_doc = me.events.get_frm().doc;
-				
-				// Check if invoice has changed
-				if (me._current_invoice_name && me._current_invoice_name !== current_doc.name) {
-					console.log('Invoice loaded, changed from', me._current_invoice_name, 'to', current_doc.name);
-					me.clear_invoice_switch_data();
-					me._current_invoice_name = current_doc.name;
-				}
-			}
-		});
 	}
 
 	// Initialize payment backup system for handling POSNext edit order flow
@@ -123,8 +46,6 @@ posnext.PointOfSale.Payment = class {
 
 	// Clear data when switching between invoices
 	clear_invoice_switch_data() {
-		console.log('Clearing invoice switch data for invoice:', this._current_invoice_name);
-		
 		// Clear split payments from previous invoice
 		this.split_payments = [];
 		
@@ -139,42 +60,13 @@ posnext.PointOfSale.Payment = class {
 		this.is_split_mode = false;
 		
 		// Clear any payment status displays
-		if (this.$component) {
-			this.$component.find('.payment-status-partial').remove();
-		}
+		this.$component && this.$component.find('.payment-status-partial').remove();
 		
-		// Hide split container and reset checkbox
-		if (this.$split_container) {
-			this.$split_container.hide();
-		}
+		// Hide split container
+		this.$split_container && this.$split_container.hide();
 		
-		if (this.$component) {
-			this.$component.find('#split-payment-checkbox').prop('checked', false);
-		}
-		
-		// Clear split payments list display
-		if (this.$split_list) {
-			this.$split_list.html(`<div class="text-muted text-center">${__('No split payments added yet')}</div>`);
-		}
-		
-		// Reset split summary
-		if (this.$component) {
-			this.$component.find('.split-total-amount').text('0.00');
-			this.$component.find('.split-remaining-amount').text('0.00');
-			this.$component.find('.split-change').hide();
-		}
-		
-		// Force UI refresh to regular payment mode
-		setTimeout(() => {
-			if (this.events && this.events.get_frm && this.events.get_frm().doc) {
-				const doc = this.events.get_frm().doc;
-				if (doc.payments) {
-					this.render_payment_mode_dom();
-				}
-			}
-		}, 100);
-		
-		console.log('Invoice switch data cleared successfully');
+		// Update checkbox state
+		this.$component && this.$component.find('#split-payment-checkbox').prop('checked', false);
 	}
 
 	// Backup payments to session storage for POSNext edit order persistence
@@ -2074,16 +1966,6 @@ posnext.PointOfSale.Payment = class {
 	}
 
 	render_payment_section() {
-		const doc = this.events.get_frm().doc;
-		
-		// FIRST: Check if invoice has changed and clear data if needed
-		if (this._current_invoice_name && this._current_invoice_name !== doc.name) {
-			console.log('Invoice changed during render_payment_section from', this._current_invoice_name, 'to', doc.name);
-			this.clear_invoice_switch_data();
-			this._current_invoice_name = doc.name;
-			this.payment_backup_key = `pos_payments_backup_${doc.name}`;
-		}
-		
 		// DON'T render payment mode DOM here if we're in split mode
 		if (!this.is_split_mode) {
 			this.render_payment_mode_dom();
@@ -2092,43 +1974,39 @@ posnext.PointOfSale.Payment = class {
 		
 		// Enhanced payment section rendering for POSNext edit order flow
 		setTimeout(() => {
-			// Check if we're already in split mode with payments loaded for THIS invoice
-			if (this.is_split_mode && this.split_payments.length > 0 && this._payments_loaded_for_invoice === doc.name) {
-				// Already loaded for this specific invoice, don't do anything more
-				console.log('Payments already loaded for current invoice:', doc.name);
+			// Check if we're already in split mode with payments loaded
+			if (this.is_split_mode && this.split_payments.length > 0) {
+				// Already loaded, don't do anything more
 				return;
 			}
 			
-			// Only do payment detection/restoration if we haven't already done it for THIS invoice
-			if (this._payment_detection_done && this._payments_loaded_for_invoice === doc.name) {
-				console.log('Payment detection already done for current invoice:', doc.name);
-				return;
-			}
-			
-			this._payment_detection_done = true; // Flag to prevent duplicate detection
-			
-			// First check if we have restored data
-			if (this.split_payments.length > 0 || this.original_payment_data) {
-				// If we have split payments already, enable split mode
-				if (this.split_payments.length > 0 && !this.is_split_mode) {
-					this.$component.find('#split-payment-checkbox').prop('checked', true);
-					this.toggle_split_payment_mode(true);
-					return; // Exit early since toggle_split_payment_mode will handle the rest
+			// Only do payment detection/restoration if we haven't already done it
+			if (!this._payment_detection_done) {
+				this._payment_detection_done = true; // Flag to prevent duplicate detection
+				
+				// First check if we have restored data
+				if (this.split_payments.length > 0 || this.original_payment_data) {
+					// If we have split payments already, enable split mode
+					if (this.split_payments.length > 0 && !this.is_split_mode) {
+						this.$component.find('#split-payment-checkbox').prop('checked', true);
+						this.toggle_split_payment_mode(true);
+						return; // Exit early since toggle_split_payment_mode will handle the rest
+					}
+					
+					// If we have original payment data but no split payments, process it
+					if (this.original_payment_data && this.split_payments.length === 0) {
+						this.process_original_payment_data();
+						return;
+					}
 				}
 				
-				// If we have original payment data but no split payments, process it
-				if (this.original_payment_data && this.split_payments.length === 0) {
-					this.process_original_payment_data();
-					return;
+				// Standard payment detection if no restored data
+				this.check_for_existing_payments();
+				
+				// Additional check: if we enabled split mode, make sure payments are loaded
+				if (this.is_split_mode && this.split_payments.length === 0) {
+					this.sync_document_payments_to_split();
 				}
-			}
-			
-			// Standard payment detection if no restored data
-			this.check_for_existing_payments();
-			
-			// Additional check: if we enabled split mode, make sure payments are loaded
-			if (this.is_split_mode && this.split_payments.length === 0) {
-				this.sync_document_payments_to_split();
 			}
 		}, 100);
 		
@@ -2229,22 +2107,17 @@ posnext.PointOfSale.Payment = class {
 	}
 
 	checkout() {
-		const doc = this.events.get_frm().doc;
-		
 		this.events.toggle_other_sections(true);
 		this.toggle_component(true);
 
-		// CRITICAL: Check if we're switching invoices and clear data FIRST
-		if (this._current_invoice_name && this._current_invoice_name !== doc.name) {
-			console.log('Invoice switch detected in checkout from', this._current_invoice_name, 'to', doc.name);
-			this.force_reset_payment_ui(); // Use force reset instead of just clearing
-		}
-		
-		// Set current invoice name
-		this._current_invoice_name = doc.name;
-		
 		// Enhanced checkout for POSNext edit order flow
 		this.handle_posnext_checkout_flow();
+		
+		// Check if we're switching invoices and reset if needed
+		const doc = this.events.get_frm().doc;
+		if (this._current_invoice_name && this._current_invoice_name !== doc.name) {
+			this.clear_invoice_switch_data();
+		}
 		
 		// Reset payment detection flag for current invoice
 		this._payment_detection_done = false;
@@ -2488,13 +2361,6 @@ posnext.PointOfSale.Payment = class {
 	}
 
 	toggle_component(show) {
-		if (show) {
-			this.$component.css('display', 'flex');
-		} else {
-			this.$component.css('display', 'none');
-			
-			// When hiding the component, don't clear data since user might return
-			// Data will be cleared only when switching invoices
-		}
+		show ? this.$component.css('display', 'flex') : this.$component.css('display', 'none');
 	}
 };
