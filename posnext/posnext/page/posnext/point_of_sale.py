@@ -1051,7 +1051,6 @@ def merge_invoices(invoice_names, customer):
         frappe.log_error(f"Error merging invoices: {str(e)}")
         return {"success": False, "error": str(e)}
 # Simplified version of the split_pos_invoice function
-
 @frappe.whitelist()
 def split_pos_invoice(original_invoice, invoice_groups, payment_distribution=None, distribute_evenly=False):
     """
@@ -1119,13 +1118,41 @@ def split_pos_invoice(original_invoice, invoice_groups, payment_distribution=Non
 
 def calculate_sequential_payment_distribution(original_doc, invoice_groups):
     """
-    Calculate sequential payment distribution - fill first invoice, then second, etc.
+    Calculate sequential payment distribution - fill original first, then new invoices
     """
     payment_distribution = {}
     remaining_payment = flt(original_doc.paid_amount)
     
-    # First, create temporary invoices to calculate their totals
+    # Calculate totals for all invoices (including what will remain in original)
     invoice_totals = {}
+    
+    # Calculate what remains in original after splits
+    original_remaining_total = 0
+    split_totals = {}
+    
+    # First, calculate total quantities being split per item
+    for invoice_num, items in invoice_groups.items():
+        for item in items:
+            item_code = item['item_code']
+            split_qty = flt(item['split_qty'])
+            
+            if item_code in split_totals:
+                split_totals[item_code] += split_qty
+            else:
+                split_totals[item_code] = split_qty
+    
+    # Calculate remaining amount in original invoice
+    for original_item in original_doc.items:
+        if original_item.item_code in split_totals:
+            total_split = split_totals[original_item.item_code]
+            remaining_qty = flt(original_item.qty) - total_split
+            if remaining_qty > 0:
+                original_remaining_total += flt(remaining_qty * original_item.rate)
+        else:
+            # Item not being split, remains fully in original
+            original_remaining_total += flt(original_item.qty * original_item.rate)
+    
+    # Calculate totals for new invoices
     for invoice_num, items in invoice_groups.items():
         if items:
             temp_total = 0
@@ -1139,10 +1166,23 @@ def calculate_sequential_payment_distribution(original_doc, invoice_groups):
             
             invoice_totals[invoice_num] = temp_total
     
-    # Sort invoice numbers to ensure consistent order
+    # Sequential distribution: Original first, then new invoices in order
+    # 1. First, allocate to original invoice
+    if remaining_payment >= original_remaining_total:
+        # Original invoice is fully paid, remaining goes to new invoices
+        original_payment = original_remaining_total
+        remaining_payment -= original_remaining_total
+    else:
+        # Original invoice takes all remaining payment
+        original_payment = remaining_payment
+        remaining_payment = 0
+    
+    # Store original payment allocation (will be handled in update function)
+    payment_distribution['original'] = {'payment_amount': original_payment}
+    
+    # 2. Then allocate remaining to new invoices in order
     sorted_invoice_nums = sorted(invoice_groups.keys())
     
-    # Distribute payments sequentially
     for invoice_num in sorted_invoice_nums:
         if invoice_num in invoice_totals:
             invoice_total = invoice_totals[invoice_num]
@@ -1397,33 +1437,27 @@ def update_original_invoice_with_payments(original_doc, invoice_groups, payment_
         original_doc.outstanding_amount = 0
         
     elif payment_distribution:
-        # Calculate total allocated payments to new invoices
-        total_allocated = sum(
-            flt(payment_info.get('payment_amount', 0)) 
-            for payment_info in payment_distribution.values()
-        )
-        
-        # Remaining payment should stay with original
-        remaining_payment = flt(original_doc.paid_amount - total_allocated)
+        # Get the payment allocated to original invoice
+        original_payment_allocation = payment_distribution.get('original', {}).get('payment_amount', 0)
+        original_payment_allocation = flt(original_payment_allocation)
         
         # Ensure we keep at least one payment method for POS requirement
-        if remaining_payment > 0 and original_doc.payments:
-            # Adjust payment amounts to match remaining payment
+        if original_payment_allocation > 0 and original_doc.payments:
+            # Adjust payment amounts to match allocated payment
             total_original_payments = sum(payment.amount for payment in original_doc.payments)
             
             if total_original_payments > 0:
                 for payment in original_doc.payments:
-                    # Calculate proportional reduction
-                    payment_ratio = remaining_payment / total_original_payments
+                    # Calculate proportional amount
+                    payment_ratio = original_payment_allocation / total_original_payments
                     payment.amount = flt(payment.amount * payment_ratio)
                     payment.base_amount = flt(payment.amount * original_doc.conversion_rate)
-        elif remaining_payment <= 0 and original_doc.payments:
+        elif original_payment_allocation <= 0 and original_doc.payments:
             # Keep first payment method with 0 amount to satisfy POS requirement
             first_payment = original_doc.payments[0]
             original_doc.payments = [first_payment]
             first_payment.amount = 0
             first_payment.base_amount = 0
-            remaining_payment = 0
         elif not original_doc.payments:
             # Create a minimal payment entry if none exists
             default_mode = get_default_payment_mode(original_doc.pos_profile)
@@ -1431,11 +1465,11 @@ def update_original_invoice_with_payments(original_doc, invoice_groups, payment_
                 new_payment = original_doc.append('payments')
                 new_payment.mode_of_payment = default_mode['mode_of_payment']
                 new_payment.account = default_mode['default_account']
-                new_payment.amount = max(0, remaining_payment)
+                new_payment.amount = max(0, original_payment_allocation)
                 new_payment.base_amount = flt(new_payment.amount * original_doc.conversion_rate)
         
         # Update totals
-        original_doc.paid_amount = max(0, remaining_payment)
+        original_doc.paid_amount = max(0, original_payment_allocation)
         original_doc.outstanding_amount = flt(original_doc.grand_total - original_doc.paid_amount)
         
     elif original_doc.payments and original_doc.grand_total > 0:
