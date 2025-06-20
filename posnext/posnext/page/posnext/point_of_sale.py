@@ -1336,32 +1336,57 @@ def create_new_invoice_with_payments(original_doc, split_items, invoice_number, 
                 new_payment.type = payment_info_item['type']
             if payment_info_item.get('default'):
                 new_payment.default = payment_info_item['default']
-    else:
-        # No payments allocated - create default payment method with 0 amount
+    
+    # ALWAYS ensure at least one payment method exists (POS requirement)
+    if not new_doc.payments:
+        # Create a payment method with 0 amount
+        payment_method_to_use = None
+        
+        # Try to get from original invoice first
         if original_doc.payments:
-            # Use first payment method from original as template
             original_payment = original_doc.payments[0]
+            payment_method_to_use = {
+                'mode_of_payment': original_payment.mode_of_payment,
+                'account': original_payment.account
+            }
+        else:
+            # Try to get from POS profile
+            if new_doc.pos_profile:
+                try:
+                    pos_doc = frappe.get_doc("POS Profile", new_doc.pos_profile)
+                    if pos_doc.payments:
+                        payment_method_to_use = {
+                            'mode_of_payment': pos_doc.payments[0].mode_of_payment,
+                            'account': pos_doc.payments[0].default_account
+                        }
+                except:
+                    pass
+            
+            # Fallback to any available mode of payment
+            if not payment_method_to_use:
+                try:
+                    mode_of_payment = frappe.get_all("Mode of Payment", 
+                                                    filters={"enabled": 1}, 
+                                                    fields=["name"], 
+                                                    limit=1)
+                    if mode_of_payment:
+                        account = frappe.get_value("Mode of Payment Account", 
+                                                 {"parent": mode_of_payment[0].name}, 
+                                                 "default_account")
+                        payment_method_to_use = {
+                            'mode_of_payment': mode_of_payment[0].name,
+                            'account': account
+                        }
+                except:
+                    pass
+        
+        # Create the payment entry
+        if payment_method_to_use:
             new_payment = new_doc.append('payments')
-            
-            payment_copy_fields = [
-                'mode_of_payment', 'account', 'type', 'default'
-            ]
-            
-            for field in payment_copy_fields:
-                if hasattr(original_payment, field):
-                    new_payment.set(field, original_payment.get(field))
-            
+            new_payment.mode_of_payment = payment_method_to_use['mode_of_payment']
+            new_payment.account = payment_method_to_use['account']
             new_payment.amount = 0
             new_payment.base_amount = 0
-        else:
-            # Create default payment method
-            default_mode = get_default_payment_mode(new_doc.pos_profile)
-            if default_mode:
-                new_payment = new_doc.append('payments')
-                new_payment.mode_of_payment = default_mode['mode_of_payment']
-                new_payment.account = default_mode['default_account']
-                new_payment.amount = 0
-                new_payment.base_amount = 0
     
     # Update payment totals
     new_doc.paid_amount = total_allocated
@@ -1430,13 +1455,47 @@ def update_original_invoice_with_payments(original_doc, invoice_groups, payment_
                 new_payment.type = payment_info['type']
             if payment_info.get('default'):
                 new_payment.default = payment_info['default']
-    elif original_doc.grand_total > 0:
-        # Create minimal payment entry if none allocated but invoice has value
-        default_mode = get_default_payment_mode(original_doc.pos_profile)
-        if default_mode:
+    
+    # ALWAYS ensure at least one payment method exists (POS requirement)
+    if not original_doc.payments:
+        # Create a payment method with 0 amount using first available method
+        payment_method_to_use = None
+        
+        # Try to get from POS profile first
+        if original_doc.pos_profile:
+            try:
+                pos_doc = frappe.get_doc("POS Profile", original_doc.pos_profile)
+                if pos_doc.payments:
+                    payment_method_to_use = {
+                        'mode_of_payment': pos_doc.payments[0].mode_of_payment,
+                        'account': pos_doc.payments[0].default_account
+                    }
+            except:
+                pass
+        
+        # Fallback to any available mode of payment
+        if not payment_method_to_use:
+            try:
+                mode_of_payment = frappe.get_all("Mode of Payment", 
+                                                filters={"enabled": 1}, 
+                                                fields=["name"], 
+                                                limit=1)
+                if mode_of_payment:
+                    account = frappe.get_value("Mode of Payment Account", 
+                                             {"parent": mode_of_payment[0].name}, 
+                                             "default_account")
+                    payment_method_to_use = {
+                        'mode_of_payment': mode_of_payment[0].name,
+                        'account': account
+                    }
+            except:
+                pass
+        
+        # Create the payment entry
+        if payment_method_to_use:
             new_payment = original_doc.append('payments')
-            new_payment.mode_of_payment = default_mode['mode_of_payment']
-            new_payment.account = default_mode['default_account']
+            new_payment.mode_of_payment = payment_method_to_use['mode_of_payment']
+            new_payment.account = payment_method_to_use['account']
             new_payment.amount = 0
             new_payment.base_amount = 0
     
