@@ -1271,44 +1271,65 @@ def create_new_invoice_with_payments(original_doc, split_items, invoice_number, 
     new_doc.run_method("calculate_taxes_and_totals")
     
     # Add payments based on allocated amount
-    if payment_info and payment_info.get('payment_amount') and original_doc.payments:
-        allocated_payment = flt(payment_info['payment_amount'])
+    allocated_payment = flt(payment_info.get('payment_amount', 0)) if payment_info else 0
+    
+    if allocated_payment > 0 and original_doc.payments:
+        # Copy payment methods from original invoice
+        remaining_allocation = allocated_payment
         
-        if allocated_payment > 0:
-            # Copy payment methods from original invoice
-            remaining_allocation = allocated_payment
+        for original_payment in original_doc.payments:
+            if original_payment.amount > 0 and remaining_allocation > 0:
+                # Allocate up to the payment method's original amount or remaining allocation
+                payment_amount = min(original_payment.amount, remaining_allocation)
+                
+                new_payment = new_doc.append('payments')
+                
+                # Copy payment fields
+                payment_copy_fields = [
+                    'mode_of_payment', 'account', 'type', 'default'
+                ]
+                
+                for field in payment_copy_fields:
+                    if hasattr(original_payment, field):
+                        new_payment.set(field, original_payment.get(field))
+                
+                new_payment.amount = payment_amount
+                new_payment.base_amount = flt(payment_amount * new_doc.conversion_rate)
+                
+                remaining_allocation -= payment_amount
+                
+                if remaining_allocation <= 0:
+                    break
+    
+    # Ensure at least one payment mode exists (POS requirement)
+    if not new_doc.payments:
+        # Create default payment mode
+        default_mode = get_default_payment_mode(new_doc.pos_profile)
+        if default_mode:
+            new_payment = new_doc.append('payments')
+            new_payment.mode_of_payment = default_mode['mode_of_payment']
+            new_payment.account = default_mode['default_account']
+            new_payment.amount = allocated_payment
+            new_payment.base_amount = flt(allocated_payment * new_doc.conversion_rate)
+        elif original_doc.payments:
+            # Fallback: copy first payment mode from original
+            new_payment = new_doc.append('payments')
+            original_payment = original_doc.payments[0]
             
-            for original_payment in original_doc.payments:
-                if original_payment.amount > 0 and remaining_allocation > 0:
-                    # Allocate up to the payment method's original amount or remaining allocation
-                    payment_amount = min(original_payment.amount, remaining_allocation)
-                    
-                    new_payment = new_doc.append('payments')
-                    
-                    # Copy payment fields
-                    payment_copy_fields = [
-                        'mode_of_payment', 'account', 'type', 'default'
-                    ]
-                    
-                    for field in payment_copy_fields:
-                        if hasattr(original_payment, field):
-                            new_payment.set(field, original_payment.get(field))
-                    
-                    new_payment.amount = payment_amount
-                    new_payment.base_amount = flt(payment_amount * new_doc.conversion_rate)
-                    
-                    remaining_allocation -= payment_amount
-                    
-                    if remaining_allocation <= 0:
-                        break
-        
-        # Update paid amount
-        new_doc.paid_amount = allocated_payment
-        new_doc.outstanding_amount = flt(new_doc.grand_total - allocated_payment)
-    else:
-        # No payment allocation - create outstanding invoice
-        new_doc.paid_amount = 0
-        new_doc.outstanding_amount = new_doc.grand_total
+            payment_copy_fields = [
+                'mode_of_payment', 'account', 'type', 'default'
+            ]
+            
+            for field in payment_copy_fields:
+                if hasattr(original_payment, field):
+                    new_payment.set(field, original_payment.get(field))
+            
+            new_payment.amount = allocated_payment
+            new_payment.base_amount = flt(allocated_payment * new_doc.conversion_rate)
+    
+    # Update paid amount
+    new_doc.paid_amount = allocated_payment
+    new_doc.outstanding_amount = flt(new_doc.grand_total - allocated_payment)
     
     # Save the new invoice
     new_doc.insert()
@@ -1353,8 +1374,29 @@ def update_original_invoice_with_payments(original_doc, invoice_groups, payment_
     # Recalculate totals
     original_doc.run_method("calculate_taxes_and_totals")
     
-    # Calculate remaining payment for original invoice
-    if payment_distribution:
+    # Handle edge case where all items are removed
+    if original_doc.grand_total == 0:
+        # If no amount left, set minimal payment to satisfy POS requirement
+        if original_doc.payments:
+            # Keep one payment method with 0 amount
+            first_payment = original_doc.payments[0]
+            original_doc.payments = [first_payment]
+            first_payment.amount = 0
+            first_payment.base_amount = 0
+        else:
+            # Create a minimal payment entry if none exists
+            default_mode = get_default_payment_mode(original_doc.pos_profile)
+            if default_mode:
+                new_payment = original_doc.append('payments')
+                new_payment.mode_of_payment = default_mode['mode_of_payment']
+                new_payment.account = default_mode['default_account']
+                new_payment.amount = 0
+                new_payment.base_amount = 0
+        
+        original_doc.paid_amount = 0
+        original_doc.outstanding_amount = 0
+        
+    elif payment_distribution:
         # Calculate total allocated payments to new invoices
         total_allocated = sum(
             flt(payment_info.get('payment_amount', 0)) 
@@ -1364,7 +1406,7 @@ def update_original_invoice_with_payments(original_doc, invoice_groups, payment_
         # Remaining payment should stay with original
         remaining_payment = flt(original_doc.paid_amount - total_allocated)
         
-        # Update payment amounts
+        # Ensure we keep at least one payment method for POS requirement
         if remaining_payment > 0 and original_doc.payments:
             # Adjust payment amounts to match remaining payment
             total_original_payments = sum(payment.amount for payment in original_doc.payments)
@@ -1375,10 +1417,22 @@ def update_original_invoice_with_payments(original_doc, invoice_groups, payment_
                     payment_ratio = remaining_payment / total_original_payments
                     payment.amount = flt(payment.amount * payment_ratio)
                     payment.base_amount = flt(payment.amount * original_doc.conversion_rate)
-        elif remaining_payment <= 0:
-            # Remove all payments if no amount left
-            original_doc.payments = []
+        elif remaining_payment <= 0 and original_doc.payments:
+            # Keep first payment method with 0 amount to satisfy POS requirement
+            first_payment = original_doc.payments[0]
+            original_doc.payments = [first_payment]
+            first_payment.amount = 0
+            first_payment.base_amount = 0
             remaining_payment = 0
+        elif not original_doc.payments:
+            # Create a minimal payment entry if none exists
+            default_mode = get_default_payment_mode(original_doc.pos_profile)
+            if default_mode:
+                new_payment = original_doc.append('payments')
+                new_payment.mode_of_payment = default_mode['mode_of_payment']
+                new_payment.account = default_mode['default_account']
+                new_payment.amount = max(0, remaining_payment)
+                new_payment.base_amount = flt(new_payment.amount * original_doc.conversion_rate)
         
         # Update totals
         original_doc.paid_amount = max(0, remaining_payment)
@@ -1400,16 +1454,50 @@ def update_original_invoice_with_payments(original_doc, invoice_groups, payment_
         
         original_doc.outstanding_amount = flt(original_doc.grand_total - original_doc.paid_amount)
         
-    elif original_doc.grand_total == 0:
-        # Remove payments if no amount left
-        original_doc.payments = []
+    elif not original_doc.payments and original_doc.grand_total > 0:
+        # Create outstanding invoice with default payment method
+        default_mode = get_default_payment_mode(original_doc.pos_profile)
+        if default_mode:
+            new_payment = original_doc.append('payments')
+            new_payment.mode_of_payment = default_mode['mode_of_payment']
+            new_payment.account = default_mode['default_account']
+            new_payment.amount = 0
+            new_payment.base_amount = 0
+        
         original_doc.paid_amount = 0
-        original_doc.outstanding_amount = 0
+        original_doc.outstanding_amount = original_doc.grand_total
     
     # Save updated original
     original_doc.save()
     
     return original_doc
+
+def get_default_payment_mode(pos_profile):
+    """Get default payment mode from POS profile"""
+    try:
+        if pos_profile:
+            pos_doc = frappe.get_doc("POS Profile", pos_profile)
+            if pos_doc.payments:
+                return pos_doc.payments[0]
+        
+        # Fallback to any available mode of payment
+        mode_of_payment = frappe.get_all("Mode of Payment", 
+                                        filters={"enabled": 1}, 
+                                        fields=["name"], 
+                                        limit=1)
+        if mode_of_payment:
+            # Get default account for this mode of payment
+            account = frappe.get_value("Mode of Payment Account", 
+                                     {"parent": mode_of_payment[0].name}, 
+                                     "default_account")
+            return {
+                "mode_of_payment": mode_of_payment[0].name,
+                "default_account": account
+            }
+    except Exception:
+        pass
+    
+    return None
 # Add these functions to your existing posnext/posnext/page/posnext/point-of-sale.py file
 
 # Split Payment Backend Functions
