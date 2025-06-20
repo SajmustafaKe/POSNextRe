@@ -86,6 +86,24 @@ posnext.PointOfSale.Payment = class {
 			const backup_data = window.pos_payment_backups[this.payment_backup_key];
 			const current_doc = this.events.get_frm().doc;
 			
+			// Check if backup is stale compared to current document
+			const backup_version = backup_data.document_version;
+			const current_version = current_doc.modified || current_doc.creation;
+			
+			if (backup_version && current_version && backup_version !== current_version) {
+				// Document has been modified since backup, don't restore stale data
+				return false;
+			}
+			
+			// Check if current document already has payments (higher priority)
+			const has_current_payments = current_doc.payments && 
+				current_doc.payments.some(p => p.amount && p.amount > 0);
+				
+			if (has_current_payments) {
+				// Current document has payments, don't override with backup
+				return false;
+			}
+			
 			let total_restored = 0;
 			
 			// Restore split payments
@@ -111,8 +129,9 @@ posnext.PointOfSale.Payment = class {
 				}
 			}
 			
-			// Apply payments to document if we have payment data
+			// Only apply if we actually have payment data to restore
 			if (total_restored > 0) {
+				// Apply payments to document if we have payment data
 				// Update document paid amount
 				frappe.model.set_value(current_doc.doctype, current_doc.name, 'paid_amount', total_restored);
 				
@@ -156,12 +175,10 @@ posnext.PointOfSale.Payment = class {
 						this.render_payment_mode_dom();
 					}
 				}, 200);
-			}
-			
-			// Show user notification
-			if (this.split_payments.length > 0 || this.original_payment_data) {
+				
+				// Show user notification only if we actually restored something significant
 				frappe.show_alert({
-					message: __("Payment data restored from previous session (Total: {0})", [format_currency(total_restored, current_doc.currency)]),
+					message: __("Payment data restored from backup: {0}", [format_currency(total_restored, current_doc.currency)]),
 					indicator: "green"
 				});
 				return true;
@@ -176,10 +193,36 @@ posnext.PointOfSale.Payment = class {
 		// Check memory backup
 		if (window.pos_payment_backups && window.pos_payment_backups[this.payment_backup_key]) {
 			const backup_data = window.pos_payment_backups[this.payment_backup_key];
+			const current_doc = this.events.get_frm().doc;
+			
+			// Check if backup is stale (document has been modified since backup)
+			const backup_version = backup_data.document_version;
+			const current_version = current_doc.modified || current_doc.creation;
+			
+			if (backup_version && current_version && backup_version !== current_version) {
+				// Backup is stale, don't use it
+				return false;
+			}
+			
+			// Check if current document already has more recent payments
+			const current_paid_amount = current_doc.paid_amount || 0;
+			const backup_paid_amount = backup_data.paid_amount || 0;
+			
+			if (current_paid_amount > backup_paid_amount) {
+				// Current document has more recent payment data, don't override
+				return false;
+			}
 			
 			// Restore split payments from backup
 			if (backup_data.split_payments && backup_data.split_payments.length > 0) {
 				this.split_payments = [...backup_data.split_payments];
+				
+				// Mark backup payments as existing
+				this.split_payments.forEach(payment => {
+					payment.is_existing = true;
+				});
+				
+				return true;
 			}
 			
 			// Restore split mode state
@@ -187,6 +230,8 @@ posnext.PointOfSale.Payment = class {
 				this.is_split_mode = backup_data.is_split_mode;
 			}
 		}
+		
+		return false;
 	}
 
 	// Clear payment backup when invoice is completed
@@ -1038,6 +1083,8 @@ posnext.PointOfSale.Payment = class {
 		
 		// Clear existing split payments
 		this.split_payments = [];
+		let payment_source = '';
+		let total_loaded = 0;
 		
 		// PRIORITY 1: Load from current document payments (most up-to-date)
 		if (doc.payments && Array.isArray(doc.payments)) {
@@ -1050,14 +1097,16 @@ posnext.PointOfSale.Payment = class {
 					if (payment.remarks) {
 						try {
 							split_details = JSON.parse(payment.remarks);
+							// If it's valid JSON array, use it
+							if (Array.isArray(split_details)) {
+								payment_source = 'document split payments';
+							} else {
+								// Reset if not array
+								split_details = [];
+							}
 						} catch (e) {
 							// If not JSON, treat as single payment
-							split_details = [{
-								amount: payment.amount,
-								reference: payment.reference_no || '',
-								notes: payment.remarks || '',
-								display_name: payment.mode_of_payment
-							}];
+							split_details = [];
 						}
 					}
 					
@@ -1066,9 +1115,10 @@ posnext.PointOfSale.Payment = class {
 						split_details = [{
 							amount: payment.amount,
 							reference: payment.reference_no || '',
-							notes: '',
+							notes: payment.remarks || '',
 							display_name: payment.mode_of_payment
 						}];
+						payment_source = payment_source || 'document payments';
 					}
 					
 					// Add each split detail as separate payment
@@ -1086,6 +1136,7 @@ posnext.PointOfSale.Payment = class {
 						};
 						
 						this.split_payments.push(existing_payment);
+						total_loaded += existing_payment.amount;
 					});
 				}
 			});
@@ -1094,7 +1145,11 @@ posnext.PointOfSale.Payment = class {
 		// PRIORITY 2: Only use backup if no current payments found
 		if (this.split_payments.length === 0) {
 			// Try backup restoration
-			this.restore_from_backup_if_needed();
+			const backup_loaded = this.restore_from_backup_if_needed();
+			if (backup_loaded) {
+				payment_source = 'memory backup';
+				total_loaded = this.get_split_total();
+			}
 		}
 		
 		// PRIORITY 3: Only use original payment data if no other payments found
@@ -1116,13 +1171,22 @@ posnext.PointOfSale.Payment = class {
 					};
 					
 					this.split_payments.push(existing_payment);
+					total_loaded += existing_payment.amount;
 				}
 			});
+			
+			if (this.split_payments.length > 0) {
+				payment_source = 'original invoice data';
+			}
 		}
 		
 		// If still no payments found but document suggests payments exist
 		if (this.split_payments.length === 0 && (doc.paid_amount > 0 || doc.status === 'Partly Paid')) {
 			this.create_fallback_payment_from_document(doc);
+			if (this.split_payments.length > 0) {
+				payment_source = 'auto-detected from document state';
+				total_loaded = this.get_split_total();
+			}
 		}
 		
 		// Renumber and update display
@@ -1136,24 +1200,26 @@ posnext.PointOfSale.Payment = class {
 		setTimeout(() => {
 			me.ensure_add_to_split_buttons_enabled();
 			
-			// Show appropriate message based on what was loaded
+			// Show SINGLE appropriate message based on what was loaded
 			if (this.split_payments.length > 0) {
-				const total_existing = this.get_split_total();
 				const grand_total = doc.grand_total || doc.rounded_total || 0;
-				const remaining = grand_total - total_existing;
+				const remaining = grand_total - total_loaded;
 				
+				// Show only ONE consolidated message
 				if (remaining > 0) {
 					frappe.show_alert({
-						message: __("Existing payments loaded ({0}). You can add more for remaining: {1}", [
-							format_currency(total_existing, doc.currency),
+						message: __("Payments loaded from {0}: {1}. Remaining: {2}", [
+							payment_source,
+							format_currency(total_loaded, doc.currency),
 							format_currency(remaining, doc.currency)
 						]),
 						indicator: "blue"
 					});
 				} else {
 					frappe.show_alert({
-						message: __("Existing payments loaded ({0}). Invoice fully paid.", [
-							format_currency(total_existing, doc.currency)
+						message: __("Payments loaded from {0}: {1}. Invoice fully paid.", [
+							payment_source,
+							format_currency(total_loaded, doc.currency)
 						]),
 						indicator: "green"
 					});
@@ -1161,12 +1227,10 @@ posnext.PointOfSale.Payment = class {
 			}
 		}, 200);
 		
-		// Show success message if payments were restored
-		if (this.split_payments.length > 0 && this.original_payment_data) {
-			frappe.show_alert({
-				message: __("Payments restored successfully! ({0} payment(s) found)", [this.split_payments.length]),
-				indicator: "green"
-			});
+		// Clear the backup after successful loading to prevent duplicate restoration
+		if (payment_source === 'document split payments' || payment_source === 'document payments') {
+			// Update backup with current state to prevent stale backup restoration
+			this.backup_payments_to_session();
 		}
 	}
 
@@ -1596,6 +1660,9 @@ posnext.PointOfSale.Payment = class {
 		
 		// Save the document
 		this.events.get_frm().save().then(() => {
+			// Clear the stale backup after successful save
+			this.clear_payment_backup();
+			
 			frappe.show_alert({
 				message: __("Partial payment saved successfully"),
 				indicator: "green"
@@ -1867,6 +1934,12 @@ posnext.PointOfSale.Payment = class {
 		
 		// Enhanced payment section rendering for POSNext edit order flow
 		setTimeout(() => {
+			// Check if we're already in split mode with payments loaded
+			if (this.is_split_mode && this.split_payments.length > 0) {
+				// Already loaded, don't do anything more
+				return;
+			}
+			
 			// First check if we have restored data
 			if (this.split_payments.length > 0 || this.original_payment_data) {
 				// If we have split payments already, enable split mode
@@ -1887,7 +1960,7 @@ posnext.PointOfSale.Payment = class {
 			this.check_for_existing_payments();
 			
 			// Additional check: if we enabled split mode, make sure payments are loaded
-			if (this.is_split_mode) {
+			if (this.is_split_mode && this.split_payments.length === 0) {
 				this.sync_document_payments_to_split();
 			}
 		}, 100);
