@@ -1087,16 +1087,16 @@ def split_pos_invoice(original_invoice, invoice_groups, payment_distribution=Non
         if not payment_distribution:
             payment_distribution = calculate_sequential_payment_distribution(original_doc, invoice_groups)
         
-        # Create new invoices with proper payment distribution
+        # Update original invoice first (this consumes its allocated payment)
+        update_original_invoice_with_payments(original_doc, invoice_groups, payment_distribution)
+        
+        # Create new invoices with their allocated payments
         new_invoices = []
         for invoice_num, items in invoice_groups.items():
             if items:  # Only create if there are items
                 payment_info = payment_distribution.get(invoice_num) if payment_distribution else None
                 new_invoice = create_new_invoice_with_payments(original_doc, items, invoice_num, payment_info)
                 new_invoices.append(new_invoice)
-        
-        # Update original invoice with remaining payments
-        update_original_invoice_with_payments(original_doc, invoice_groups, payment_distribution)
         
         return {
             "success": True,
@@ -1310,52 +1310,19 @@ def create_new_invoice_with_payments(original_doc, split_items, invoice_number, 
     # Calculate totals first
     new_doc.run_method("calculate_taxes_and_totals")
     
-    # Add payments based on allocated amount
+    # Get allocated payment amount for this invoice
     allocated_payment = flt(payment_info.get('payment_amount', 0)) if payment_info else 0
     
-    if allocated_payment > 0 and original_doc.payments:
-        # Copy payment methods from original invoice
-        remaining_allocation = allocated_payment
-        
-        for original_payment in original_doc.payments:
-            if original_payment.amount > 0 and remaining_allocation > 0:
-                # Allocate up to the payment method's original amount or remaining allocation
-                payment_amount = min(original_payment.amount, remaining_allocation)
-                
-                new_payment = new_doc.append('payments')
-                
-                # Copy payment fields
-                payment_copy_fields = [
-                    'mode_of_payment', 'account', 'type', 'default'
-                ]
-                
-                for field in payment_copy_fields:
-                    if hasattr(original_payment, field):
-                        new_payment.set(field, original_payment.get(field))
-                
-                new_payment.amount = payment_amount
-                new_payment.base_amount = flt(payment_amount * new_doc.conversion_rate)
-                
-                remaining_allocation -= payment_amount
-                
-                if remaining_allocation <= 0:
-                    break
-    
-    # Ensure at least one payment mode exists (POS requirement)
-    if not new_doc.payments:
-        # Create default payment mode
-        default_mode = get_default_payment_mode(new_doc.pos_profile)
-        if default_mode:
-            new_payment = new_doc.append('payments')
-            new_payment.mode_of_payment = default_mode['mode_of_payment']
-            new_payment.account = default_mode['default_account']
-            new_payment.amount = allocated_payment
-            new_payment.base_amount = flt(allocated_payment * new_doc.conversion_rate)
-        elif original_doc.payments:
-            # Fallback: copy first payment mode from original
-            new_payment = new_doc.append('payments')
+    # Create payment methods based on allocation
+    if allocated_payment > 0:
+        # Use original payment methods structure but with allocated amounts
+        if original_doc.payments:
+            # Get first available payment mode from original as template
             original_payment = original_doc.payments[0]
             
+            new_payment = new_doc.append('payments')
+            
+            # Copy payment fields
             payment_copy_fields = [
                 'mode_of_payment', 'account', 'type', 'default'
             ]
@@ -1366,8 +1333,43 @@ def create_new_invoice_with_payments(original_doc, split_items, invoice_number, 
             
             new_payment.amount = allocated_payment
             new_payment.base_amount = flt(allocated_payment * new_doc.conversion_rate)
+        else:
+            # Create default payment method
+            default_mode = get_default_payment_mode(new_doc.pos_profile)
+            if default_mode:
+                new_payment = new_doc.append('payments')
+                new_payment.mode_of_payment = default_mode['mode_of_payment']
+                new_payment.account = default_mode['default_account']
+                new_payment.amount = allocated_payment
+                new_payment.base_amount = flt(allocated_payment * new_doc.conversion_rate)
+    else:
+        # No payment allocated - create outstanding invoice with default payment method
+        if original_doc.payments:
+            # Copy first payment mode with 0 amount
+            original_payment = original_doc.payments[0]
+            new_payment = new_doc.append('payments')
+            
+            payment_copy_fields = [
+                'mode_of_payment', 'account', 'type', 'default'
+            ]
+            
+            for field in payment_copy_fields:
+                if hasattr(original_payment, field):
+                    new_payment.set(field, original_payment.get(field))
+            
+            new_payment.amount = 0
+            new_payment.base_amount = 0
+        else:
+            # Create default payment method
+            default_mode = get_default_payment_mode(new_doc.pos_profile)
+            if default_mode:
+                new_payment = new_doc.append('payments')
+                new_payment.mode_of_payment = default_mode['mode_of_payment']
+                new_payment.account = default_mode['default_account']
+                new_payment.amount = 0
+                new_payment.base_amount = 0
     
-    # Update paid amount
+    # Update paid amount and outstanding
     new_doc.paid_amount = allocated_payment
     new_doc.outstanding_amount = flt(new_doc.grand_total - allocated_payment)
     
