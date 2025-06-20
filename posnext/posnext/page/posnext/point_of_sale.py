@@ -1055,7 +1055,7 @@ def merge_invoices(invoice_names, customer):
 @frappe.whitelist()
 def split_pos_invoice(original_invoice, invoice_groups, payment_distribution=None, distribute_evenly=False):
     """
-    Split a POS Invoice into multiple invoices with proper payment distribution
+    Split a POS Invoice into multiple invoices with proper sequential payment distribution
     
     Args:
         original_invoice: Name of the original invoice
@@ -1083,6 +1083,10 @@ def split_pos_invoice(original_invoice, invoice_groups, payment_distribution=Non
         
         # Validate split items
         validate_split_items(original_doc, invoice_groups)
+        
+        # Calculate sequential payment distribution if not provided
+        if not payment_distribution:
+            payment_distribution = calculate_sequential_payment_distribution(original_doc, invoice_groups)
         
         # Create new invoices with proper payment distribution
         new_invoices = []
@@ -1112,6 +1116,50 @@ def split_pos_invoice(original_invoice, invoice_groups, payment_distribution=Non
     except Exception as e:
         frappe.log_error(f"Error in split_pos_invoice: {str(e)}")
         frappe.throw(f"Failed to split invoice: {str(e)}")
+
+def calculate_sequential_payment_distribution(original_doc, invoice_groups):
+    """
+    Calculate sequential payment distribution - fill first invoice, then second, etc.
+    """
+    payment_distribution = {}
+    remaining_payment = flt(original_doc.paid_amount)
+    
+    # First, create temporary invoices to calculate their totals
+    invoice_totals = {}
+    for invoice_num, items in invoice_groups.items():
+        if items:
+            temp_total = 0
+            split_items_map = {item['item_code']: item for item in items}
+            
+            for original_item in original_doc.items:
+                if original_item.item_code in split_items_map:
+                    split_data = split_items_map[original_item.item_code]
+                    split_qty = flt(split_data['split_qty'])
+                    temp_total += flt(split_qty * original_item.rate)
+            
+            invoice_totals[invoice_num] = temp_total
+    
+    # Sort invoice numbers to ensure consistent order
+    sorted_invoice_nums = sorted(invoice_groups.keys())
+    
+    # Distribute payments sequentially
+    for invoice_num in sorted_invoice_nums:
+        if invoice_num in invoice_totals:
+            invoice_total = invoice_totals[invoice_num]
+            
+            if remaining_payment >= invoice_total:
+                # Fully pay this invoice
+                payment_distribution[invoice_num] = {'payment_amount': invoice_total}
+                remaining_payment -= invoice_total
+            elif remaining_payment > 0:
+                # Partially pay this invoice with remaining amount
+                payment_distribution[invoice_num] = {'payment_amount': remaining_payment}
+                remaining_payment = 0
+            else:
+                # No payment left for this invoice
+                payment_distribution[invoice_num] = {'payment_amount': 0}
+    
+    return payment_distribution
 
 def validate_split_items(original_doc, invoice_groups):
     """Basic validation of split items"""
@@ -1146,7 +1194,7 @@ def validate_split_items(original_doc, invoice_groups):
             frappe.throw(f"Total split quantity for {item_code} ({total_split}) exceeds available quantity ({original_items[item_code]})")
 
 def create_new_invoice_with_payments(original_doc, split_items, invoice_number, payment_info):
-    """Create a new invoice with split items and proportional payments"""
+    """Create a new invoice with split items and allocated payments"""
     
     # Create new document
     new_doc = frappe.new_doc("POS Invoice")
@@ -1222,18 +1270,19 @@ def create_new_invoice_with_payments(original_doc, split_items, invoice_number, 
     # Calculate totals first
     new_doc.run_method("calculate_taxes_and_totals")
     
-    # Add payments based on payment distribution
+    # Add payments based on allocated amount
     if payment_info and payment_info.get('payment_amount') and original_doc.payments:
         allocated_payment = flt(payment_info['payment_amount'])
         
-        # Distribute payments proportionally from original
-        for original_payment in original_doc.payments:
-            if original_payment.amount > 0:
-                # Calculate proportional payment
-                payment_ratio = allocated_payment / original_doc.paid_amount if original_doc.paid_amount > 0 else 0
-                new_payment_amount = flt(original_payment.amount * payment_ratio)
-                
-                if new_payment_amount > 0:
+        if allocated_payment > 0:
+            # Copy payment methods from original invoice
+            remaining_allocation = allocated_payment
+            
+            for original_payment in original_doc.payments:
+                if original_payment.amount > 0 and remaining_allocation > 0:
+                    # Allocate up to the payment method's original amount or remaining allocation
+                    payment_amount = min(original_payment.amount, remaining_allocation)
+                    
                     new_payment = new_doc.append('payments')
                     
                     # Copy payment fields
@@ -1245,13 +1294,17 @@ def create_new_invoice_with_payments(original_doc, split_items, invoice_number, 
                         if hasattr(original_payment, field):
                             new_payment.set(field, original_payment.get(field))
                     
-                    new_payment.amount = new_payment_amount
-                    new_payment.base_amount = flt(new_payment_amount * new_doc.conversion_rate)
+                    new_payment.amount = payment_amount
+                    new_payment.base_amount = flt(payment_amount * new_doc.conversion_rate)
+                    
+                    remaining_allocation -= payment_amount
+                    
+                    if remaining_allocation <= 0:
+                        break
         
         # Update paid amount
         new_doc.paid_amount = allocated_payment
         new_doc.outstanding_amount = flt(new_doc.grand_total - allocated_payment)
-        
     else:
         # No payment allocation - create outstanding invoice
         new_doc.paid_amount = 0
@@ -1300,9 +1353,9 @@ def update_original_invoice_with_payments(original_doc, invoice_groups, payment_
     # Recalculate totals
     original_doc.run_method("calculate_taxes_and_totals")
     
-    # Adjust payments based on remaining amount after splits
+    # Calculate remaining payment for original invoice
     if payment_distribution:
-        # Calculate total allocated payments
+        # Calculate total allocated payments to new invoices
         total_allocated = sum(
             flt(payment_info.get('payment_amount', 0)) 
             for payment_info in payment_distribution.values()
@@ -1311,23 +1364,41 @@ def update_original_invoice_with_payments(original_doc, invoice_groups, payment_
         # Remaining payment should stay with original
         remaining_payment = flt(original_doc.paid_amount - total_allocated)
         
+        # Update payment amounts
         if remaining_payment > 0 and original_doc.payments:
-            # Adjust payment amounts proportionally
-            for payment in original_doc.payments:
-                if original_doc.paid_amount > 0:
-                    payment_ratio = remaining_payment / original_doc.paid_amount
+            # Adjust payment amounts to match remaining payment
+            total_original_payments = sum(payment.amount for payment in original_doc.payments)
+            
+            if total_original_payments > 0:
+                for payment in original_doc.payments:
+                    # Calculate proportional reduction
+                    payment_ratio = remaining_payment / total_original_payments
                     payment.amount = flt(payment.amount * payment_ratio)
                     payment.base_amount = flt(payment.amount * original_doc.conversion_rate)
+        elif remaining_payment <= 0:
+            # Remove all payments if no amount left
+            original_doc.payments = []
+            remaining_payment = 0
         
         # Update totals
-        original_doc.paid_amount = remaining_payment
-        original_doc.outstanding_amount = flt(original_doc.grand_total - remaining_payment)
+        original_doc.paid_amount = max(0, remaining_payment)
+        original_doc.outstanding_amount = flt(original_doc.grand_total - original_doc.paid_amount)
         
     elif original_doc.payments and original_doc.grand_total > 0:
-        # If no payment distribution provided, set payment amount to match new grand total
-        original_doc.payments[0].amount = original_doc.grand_total
-        original_doc.paid_amount = original_doc.grand_total
-        original_doc.outstanding_amount = 0
+        # If no payment distribution provided, keep original payment structure
+        # but adjust amounts proportionally to new grand total
+        original_paid_amount = original_doc.paid_amount
+        
+        if original_paid_amount > 0:
+            payment_ratio = min(1.0, original_doc.grand_total / original_paid_amount)
+            
+            for payment in original_doc.payments:
+                payment.amount = flt(payment.amount * payment_ratio)
+                payment.base_amount = flt(payment.amount * original_doc.conversion_rate)
+            
+            original_doc.paid_amount = flt(original_doc.paid_amount * payment_ratio)
+        
+        original_doc.outstanding_amount = flt(original_doc.grand_total - original_doc.paid_amount)
         
     elif original_doc.grand_total == 0:
         # Remove payments if no amount left
@@ -1339,7 +1410,6 @@ def update_original_invoice_with_payments(original_doc, invoice_groups, payment_
     original_doc.save()
     
     return original_doc
-
 # Add these functions to your existing posnext/posnext/page/posnext/point-of-sale.py file
 
 # Split Payment Backend Functions
