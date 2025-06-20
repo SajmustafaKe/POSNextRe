@@ -32,8 +32,8 @@ posnext.PointOfSale.Payment = class {
 		if (doc && doc.name) {
 			this.payment_backup_key = `pos_payments_backup_${doc.name}`;
 			
-			// Try to restore from backup first
-			this.restore_payments_from_backup();
+			// DON'T restore from backup here - let load_existing_payments handle it
+			// This prevents duplicate restoration
 		}
 	}
 
@@ -763,7 +763,7 @@ posnext.PointOfSale.Payment = class {
 			// First render the split payment modes
 			this.render_split_payment_modes();
 			
-			// Then load existing payments (with backup support)
+			// Then load existing payments (with backup support) - this handles all restoration logic
 			this.load_existing_payments();
 			
 			// If no payments were loaded but there are payments in the document, try to sync
@@ -843,8 +843,10 @@ posnext.PointOfSale.Payment = class {
 			this.attach_cash_shortcuts(doc);
 		}
 		
-		// Backup the current state
-		this.backup_payments_to_session();
+		// Backup the current state (but don't do it immediately to avoid conflicts)
+		setTimeout(() => {
+			this.backup_payments_to_session();
+		}, 300);
 	}
 
 	// FIXED: New method to ensure "Add to Split" buttons are enabled
@@ -1940,28 +1942,33 @@ posnext.PointOfSale.Payment = class {
 				return;
 			}
 			
-			// First check if we have restored data
-			if (this.split_payments.length > 0 || this.original_payment_data) {
-				// If we have split payments already, enable split mode
-				if (this.split_payments.length > 0 && !this.is_split_mode) {
-					this.$component.find('#split-payment-checkbox').prop('checked', true);
-					this.toggle_split_payment_mode(true);
-					return; // Exit early since toggle_split_payment_mode will handle the rest
+			// Only do payment detection/restoration if we haven't already done it
+			if (!this._payment_detection_done) {
+				this._payment_detection_done = true; // Flag to prevent duplicate detection
+				
+				// First check if we have restored data
+				if (this.split_payments.length > 0 || this.original_payment_data) {
+					// If we have split payments already, enable split mode
+					if (this.split_payments.length > 0 && !this.is_split_mode) {
+						this.$component.find('#split-payment-checkbox').prop('checked', true);
+						this.toggle_split_payment_mode(true);
+						return; // Exit early since toggle_split_payment_mode will handle the rest
+					}
+					
+					// If we have original payment data but no split payments, process it
+					if (this.original_payment_data && this.split_payments.length === 0) {
+						this.process_original_payment_data();
+						return;
+					}
 				}
 				
-				// If we have original payment data but no split payments, process it
-				if (this.original_payment_data && this.split_payments.length === 0) {
-					this.process_original_payment_data();
-					return;
+				// Standard payment detection if no restored data
+				this.check_for_existing_payments();
+				
+				// Additional check: if we enabled split mode, make sure payments are loaded
+				if (this.is_split_mode && this.split_payments.length === 0) {
+					this.sync_document_payments_to_split();
 				}
-			}
-			
-			// Standard payment detection if no restored data
-			this.check_for_existing_payments();
-			
-			// Additional check: if we enabled split mode, make sure payments are loaded
-			if (this.is_split_mode && this.split_payments.length === 0) {
-				this.sync_document_payments_to_split();
 			}
 		}, 100);
 		
@@ -2055,6 +2062,10 @@ posnext.PointOfSale.Payment = class {
 	edit_cart() {
 		this.events.toggle_other_sections(false);
 		this.toggle_component(false);
+		
+		// Reset flags when editing cart so payments can be reloaded properly
+		this._payment_detection_done = false;
+		this._payments_loaded_for_invoice = null;
 	}
 
 	checkout() {
@@ -2064,6 +2075,9 @@ posnext.PointOfSale.Payment = class {
 		// Enhanced checkout for POSNext edit order flow
 		this.handle_posnext_checkout_flow();
 		
+		// Reset payment detection flag
+		this._payment_detection_done = false;
+		
 		this.render_payment_section();
 		this.after_render();
 	}
@@ -2072,22 +2086,13 @@ posnext.PointOfSale.Payment = class {
 	handle_posnext_checkout_flow() {
 		const doc = this.events.get_frm().doc;
 		
-		// First, try to restore from backup
-		const restored = this.restore_payments_from_backup();
+		// DON'T restore from backup here since load_existing_payments will handle it
+		// This prevents duplicate restoration messages
 		
-		if (restored) {
-			// If we restored split mode, set the checkbox
-			if (this.is_split_mode) {
-				setTimeout(() => {
-					this.$component.find('#split-payment-checkbox').prop('checked', true);
-				}, 100);
-			}
-		}
-		
-		// Always backup current state for next time
+		// Always backup current state for next time (after loading is complete)
 		setTimeout(() => {
 			this.backup_payments_to_session();
-		}, 500);
+		}, 1000); // Longer delay to ensure all loading is complete
 	}
 
 	toggle_remarks_control() {
