@@ -30,11 +30,43 @@ posnext.PointOfSale.Payment = class {
 	initialize_payment_backup_system() {
 		const doc = this.events.get_frm().doc;
 		if (doc && doc.name) {
+			// Check if we're switching to a different invoice
+			if (this._current_invoice_name && this._current_invoice_name !== doc.name) {
+				// Switching invoices - clear all previous data
+				this.clear_invoice_switch_data();
+			}
+			
+			this._current_invoice_name = doc.name;
 			this.payment_backup_key = `pos_payments_backup_${doc.name}`;
 			
 			// DON'T restore from backup here - let load_existing_payments handle it
 			// This prevents duplicate restoration
 		}
+	}
+
+	// Clear data when switching between invoices
+	clear_invoice_switch_data() {
+		// Clear split payments from previous invoice
+		this.split_payments = [];
+		
+		// Clear payment restoration flags
+		this._payment_detection_done = false;
+		this._payments_loaded_for_invoice = null;
+		
+		// Clear original payment data
+		this.original_payment_data = null;
+		
+		// Reset split mode
+		this.is_split_mode = false;
+		
+		// Clear any payment status displays
+		this.$component && this.$component.find('.payment-status-partial').remove();
+		
+		// Hide split container
+		this.$split_container && this.$split_container.hide();
+		
+		// Update checkbox state
+		this.$component && this.$component.find('#split-payment-checkbox').prop('checked', false);
 	}
 
 	// Backup payments to session storage for POSNext edit order persistence
@@ -194,6 +226,12 @@ posnext.PointOfSale.Payment = class {
 		if (window.pos_payment_backups && window.pos_payment_backups[this.payment_backup_key]) {
 			const backup_data = window.pos_payment_backups[this.payment_backup_key];
 			const current_doc = this.events.get_frm().doc;
+			
+			// IMPORTANT: Only restore backup if it's for the current invoice
+			if (backup_data.invoice_name !== current_doc.name) {
+				// Backup is for a different invoice, don't restore
+				return false;
+			}
 			
 			// Check if backup is stale (document has been modified since backup)
 			const backup_version = backup_data.document_version;
@@ -2065,7 +2103,7 @@ posnext.PointOfSale.Payment = class {
 		
 		// Reset flags when editing cart so payments can be reloaded properly
 		this._payment_detection_done = false;
-		this._payments_loaded_for_invoice = null;
+		// DON'T reset _payments_loaded_for_invoice here since we might return to payment screen
 	}
 
 	checkout() {
@@ -2075,7 +2113,13 @@ posnext.PointOfSale.Payment = class {
 		// Enhanced checkout for POSNext edit order flow
 		this.handle_posnext_checkout_flow();
 		
-		// Reset payment detection flag
+		// Check if we're switching invoices and reset if needed
+		const doc = this.events.get_frm().doc;
+		if (this._current_invoice_name && this._current_invoice_name !== doc.name) {
+			this.clear_invoice_switch_data();
+		}
+		
+		// Reset payment detection flag for current invoice
 		this._payment_detection_done = false;
 		
 		this.render_payment_section();
