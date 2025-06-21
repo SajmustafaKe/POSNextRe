@@ -653,7 +653,10 @@ make_cart_totals_section() {
 async handle_successful_hold(invoice_name, creator_name) {
     console.log('Handling successful hold:', invoice_name, creator_name);
     try {
-        await this.events.toggle_recent_order(); // Navigate to PastOrderList
+        // FIXED: Instead of toggle_recent_order(), explicitly show the order list
+        // Call the controller's toggle_recent_order_list with true to force show
+        await this.events.show_recent_order_list(); // New method needed in Controller
+        
         if (posnext.PointOfSale.PastOrderList.current_instance) {
             const pastOrderList = posnext.PointOfSale.PastOrderList.current_instance;
             await pastOrderList.set_filter_and_refresh_with_held_invoice(creator_name, invoice_name);

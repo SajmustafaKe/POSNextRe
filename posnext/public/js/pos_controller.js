@@ -232,11 +232,14 @@ find_available_opening_entry() {
 		frappe.set_route("Form", this.frm.doc.doctype, this.frm.doc.name);
 	}
 
-	toggle_recent_order() {
-		const show = this.recent_order_list.$component.is(':hidden');
-		
-		this.toggle_recent_order_list(show);
-	}
+show_recent_order_list() {
+    return this.toggle_recent_order_list(true); // Force show=true
+}
+
+toggle_recent_order() {
+    const show = this.recent_order_list.$component.is(':hidden');
+    return this.toggle_recent_order_list(show);
+}
 
 save_draft_invoice() {
     if (!this.$components_wrapper.is(":visible")) {
@@ -412,42 +415,47 @@ save_draft_invoice() {
 		// }
 	}
 
-	init_item_cart() {
-		this.cart = new posnext.PointOfSale.ItemCart({
-			wrapper: this.$components_wrapper,
-			settings: this.settings,
-			events: {
-				get_frm: () => this.frm,
+// UPDATE: In Controller.js init_item_cart method, add the new event
 
-				cart_item_clicked: (item) => {
-					console.log("ITEEEEEEEM")
-					console.log(item)
+init_item_cart() {
+    this.cart = new posnext.PointOfSale.ItemCart({
+        wrapper: this.$components_wrapper,
+        settings: this.settings,
+        events: {
+            get_frm: () => this.frm,
 
-					const item_row = this.get_item_from_frm(item);
+            cart_item_clicked: (item) => {
+                console.log("ITEEEEEEEM")
+                console.log(item)
 
-					if(selected_item && selected_item['name'] == item['name']){
-						selected_item = null
-					} else {
-						selected_item = item_row
-					}
-					this.item_details.toggle_item_details_section(item_row);
-				},
+                const item_row = this.get_item_from_frm(item);
 
-				numpad_event: (value, action) => this.update_item_field(value, action),
+                if(selected_item && selected_item['name'] == item['name']){
+                    selected_item = null
+                } else {
+                    selected_item = item_row
+                }
+                this.item_details.toggle_item_details_section(item_row);
+            },
 
-				checkout: () => this.save_and_checkout(),
+            numpad_event: (value, action) => this.update_item_field(value, action),
 
-				edit_cart: () => this.payment.edit_cart(),
-				save_draft_invoice: () => this.save_draft_invoice(),
-				toggle_recent_order: () => this.toggle_recent_order(),
-				customer_details_updated: (details) => {
-					this.customer_details = details;
-					// will add/remove LP payment method
-					this.payment.render_loyalty_points_payment_mode();
-				}
-			}
-		})
-	}
+            checkout: () => this.save_and_checkout(),
+
+            edit_cart: () => this.payment.edit_cart(),
+            save_draft_invoice: () => this.save_draft_invoice(),
+            toggle_recent_order: () => this.toggle_recent_order(),
+            // ADD THIS NEW EVENT:
+            show_recent_order_list: () => this.show_recent_order_list(),
+            
+            customer_details_updated: (details) => {
+                this.customer_details = details;
+                // will add/remove LP payment method
+                this.payment.render_loyalty_points_payment_mode();
+            }
+        }
+    })
+}
 
 	init_item_details() {
 		this.item_details = new posnext.PointOfSale.ItemDetails({
@@ -622,11 +630,13 @@ save_draft_invoice() {
 	}
 
 	toggle_recent_order_list(show) {
-		this.toggle_components(!show);
-		this.recent_order_list.toggle_component(show);
-		
-		this.order_summary.toggle_component(show);
-	}
+    this.toggle_components(!show);
+    this.recent_order_list.toggle_component(show);
+    this.order_summary.toggle_component(show);
+    
+    // Return a resolved promise for consistency with async callers
+    return Promise.resolve();
+}
 
 	toggle_components(show) {
 		this.cart.toggle_component(show);
