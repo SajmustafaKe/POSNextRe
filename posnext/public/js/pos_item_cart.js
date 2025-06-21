@@ -404,38 +404,7 @@ posnext.PointOfSale.ItemCart = class {
 			me.events.cart_item_clicked({ name: item_row_name });
 			this.numpad_value = '';
 		});
-			this.$component.on('click', '.checkout-btn:not(.checkout-btn-held):not(.checkout-btn-order)', async function() {
-	if ($(this).attr('style').indexOf('--blue-500') == -1) return;
-	
-	if (!cur_frm.doc.customer && me.mobile_number_based_customer) {
-		const dialog = me.create_mobile_dialog(async function(values) {
-			if (values['mobile_number'].length !== me.settings.custom_mobile_number_length) {
-				frappe.throw("Mobile Number Length is " + me.settings.custom_mobile_number_length.toString());
-				return;
-			}
-			
-			try {
-				await me.create_customer_and_proceed(values['mobile_number']);
-				await me.events.checkout();
-				me.toggle_checkout_btn(false);
-				me.allow_discount_change && me.$add_discount_elem.removeClass("d-none");
-				dialog.hide();
-			} catch (error) {
-				// Error already handled in create_customer_and_proceed
-			}
-		});
-		dialog.show();
-	} else {
-		if (!cur_frm.doc.customer && !me.mobile_number_based_customer) {
-			frappe.throw("Please Select a customer and add items first");
-			return;
-		}
-		await me.events.checkout();
-		me.toggle_checkout_btn(false);
-		me.allow_discount_change && me.$add_discount_elem.removeClass("d-none");
-	}
-});
-
+		
 
 		this.$component.on('click', '.checkout-btn-held', function() {		
 			if ($(this).attr('style').indexOf('--blue-500') == -1) return;
