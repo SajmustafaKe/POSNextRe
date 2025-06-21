@@ -436,7 +436,6 @@ posnext.PointOfSale.ItemCart = class {
 	}
 });
 
-
 this.$component.on('click', '.checkout-btn-held', function() {		
     if ($(this).attr('style').indexOf('--blue-500') == -1) return;
     if (!cur_frm.doc.items.length) {
@@ -466,11 +465,18 @@ this.$component.on('click', '.checkout-btn-held', function() {
                             frm.script_manager.trigger('created_by_name', frm.doc.doctype, frm.doc.name).then(() => {
                                 me.events.save_draft_invoice().then(() => {
                                     const saved_invoice_name = frm.doc.name;
+                                    console.log('=== EXISTING INVOICE SAVED ===');
                                     console.log('Saved invoice name:', saved_invoice_name);
                                     console.log('Creator name from response:', created_by_name);
                                     
                                     // CRITICAL: Use the created_by_name from the response
                                     me.handle_successful_hold(saved_invoice_name, created_by_name);
+                                }).catch((error) => {
+                                    console.error('Error saving draft invoice:', error);
+                                    frappe.show_alert({
+                                        message: __("Failed to save invoice"),
+                                        indicator: 'red'
+                                    });
                                 });
                             });
                             secret_dialog.hide();
@@ -510,11 +516,18 @@ this.$component.on('click', '.checkout-btn-held', function() {
                             frm.script_manager.trigger('created_by_name', frm.doc.doctype, frm.doc.name).then(() => {
                                 me.events.save_draft_invoice().then(() => {
                                     const saved_invoice_name = frm.doc.name;
+                                    console.log('=== NEW INVOICE SAVED ===');
                                     console.log('Saved new invoice name:', saved_invoice_name);
                                     console.log('Creator name:', created_by_name);
                                     
                                     // CRITICAL: Use the created_by_name we just got
                                     me.handle_successful_hold(saved_invoice_name, created_by_name);
+                                }).catch((error) => {
+                                    console.error('Error saving new draft invoice:', error);
+                                    frappe.show_alert({
+                                        message: __("Failed to save invoice"),
+                                        indicator: 'red'
+                                    });
                                 });
                             });
                             secret_dialog.hide();
@@ -593,40 +606,72 @@ this.$component.on('click', '.checkout-btn-held', function() {
 	}
 
 async handle_successful_hold(invoice_name, creator_name) {
-    console.log('=== HANDLE SUCCESSFUL HOLD ===');
-    console.log('Invoice name:', invoice_name);
-    console.log('Creator name:', creator_name);
+    console.log('🔥 === HANDLE SUCCESSFUL HOLD CALLED ===');
+    console.log('🔥 Invoice name:', invoice_name);
+    console.log('🔥 Creator name:', creator_name);
+    console.log('🔥 Current timestamp:', new Date().toISOString());
+    
+    if (!invoice_name || !creator_name) {
+        console.error('🔥 Missing required parameters:', { invoice_name, creator_name });
+        frappe.show_alert({
+            message: __('Error: Missing invoice name or creator name'),
+            indicator: 'red'
+        });
+        return;
+    }
     
     try {
+        console.log('🔥 Step 1: Navigating to PastOrderList...');
         // First, navigate to PastOrderList
         await this.events.toggle_recent_order();
+        console.log('🔥 Step 1 Complete: Navigation done');
         
         // Wait a bit for the component to be properly initialized
-        await new Promise(resolve => setTimeout(resolve, 200));
+        console.log('🔥 Step 2: Waiting for component initialization...');
+        await new Promise(resolve => setTimeout(resolve, 300));
         
         // Check if PastOrderList instance exists and is properly initialized
+        console.log('🔥 Step 3: Checking for PastOrderList instance...');
         const pastOrderListInstance = posnext.PointOfSale.PastOrderList.current_instance;
+        console.log('🔥 Instance check result:', !!pastOrderListInstance);
         
         if (pastOrderListInstance) {
-            console.log('PastOrderList instance found, calling set_filter_and_refresh_with_held_invoice');
-            console.log('Calling with creator_name:', creator_name, 'invoice_name:', invoice_name);
+            console.log('🔥 Step 4: PastOrderList instance found!');
+            console.log('🔥 Calling set_filter_and_refresh_with_held_invoice with:');
+            console.log('🔥   - creator_name:', creator_name);
+            console.log('🔥   - invoice_name:', invoice_name);
             
             // Call the method to set filter and refresh
-            await pastOrderListInstance.set_filter_and_refresh_with_held_invoice(creator_name, invoice_name);
+            const result = await pastOrderListInstance.set_filter_and_refresh_with_held_invoice(creator_name, invoice_name);
             
-            console.log('Filter and refresh completed successfully');
+            console.log('🔥 Step 4 Complete: Filter and refresh result:', result);
+            console.log('🔥 SUCCESS: Handle successful hold completed successfully!');
+            
+            // Show success message
+            frappe.show_alert({
+                message: __('Invoice held successfully: ') + invoice_name,
+                indicator: 'green'
+            });
         } else {
-            console.error('PastOrderList instance not found!');
+            console.log('🔥 Step 4 Failed: PastOrderList instance not found, trying retry...');
             
             // Fallback: try to wait longer and retry once
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise(resolve => setTimeout(resolve, 700));
             const retryInstance = posnext.PointOfSale.PastOrderList.current_instance;
+            console.log('🔥 Retry instance check:', !!retryInstance);
             
             if (retryInstance) {
-                console.log('Retry successful, calling set_filter_and_refresh_with_held_invoice');
+                console.log('🔥 Retry successful! Calling set_filter_and_refresh_with_held_invoice');
                 await retryInstance.set_filter_and_refresh_with_held_invoice(creator_name, invoice_name);
+                console.log('🔥 SUCCESS: Retry completed successfully!');
+                
+                frappe.show_alert({
+                    message: __('Invoice held successfully: ') + invoice_name,
+                    indicator: 'green'
+                });
             } else {
-                console.error('PastOrderList instance still not found after retry!');
+                console.error('🔥 FAILED: PastOrderList instance still not found after retry!');
+                console.error('🔥 Available global objects:', Object.keys(window.posnext || {}));
                 frappe.show_alert({
                     message: __('Invoice held successfully, but could not auto-filter. Please manually select the creator filter.'),
                     indicator: 'orange'
@@ -634,7 +679,8 @@ async handle_successful_hold(invoice_name, creator_name) {
             }
         }
     } catch (error) {
-        console.error('Error in handle_successful_hold:', error);
+        console.error('🔥 ERROR in handle_successful_hold:', error);
+        console.error('🔥 Error stack:', error.stack);
         frappe.show_alert({
             message: __('Invoice held successfully: ') + invoice_name,
             indicator: 'green'
