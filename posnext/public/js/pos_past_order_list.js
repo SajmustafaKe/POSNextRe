@@ -101,9 +101,16 @@ posnext.PointOfSale.PastOrderList = class {
 			me.merge_selected_invoices();
 		});
 
-		this.$component.on('click', '.back', function() {
-			me.events.previous_screen()
-		});
+	this.$component.on('click', '.back', function() {
+	// Clear the held invoice flag when going back
+	me._just_held_invoice = null;
+	
+	// Reset the summary before navigating back
+	me.events.reset_summary();
+	
+	// Navigate to previous screen
+	me.events.previous_screen();
+});
 	}
 
 	load_user_list() {
@@ -222,7 +229,9 @@ refresh_list() {
 		args: { 
 			search_term, 
 			status,
-			created_by: created_by === 'All' ? '' : created_by
+			created_by: created_by === 'All' ? '' : created_by,
+			// Add timestamp to force fresh data when we just held an invoice
+			_force_refresh: this._just_held_invoice ? Date.now() : undefined
 		},
 		callback: (response) => {
 			frappe.dom.unfreeze();
@@ -233,7 +242,7 @@ refresh_list() {
 				this.$invoices_container.append(invoice_html);
 			});
 			
-			// NEW: Auto-load the most recent invoice summary
+			// Auto-load the most recent invoice summary
 			this.auto_load_most_recent_summary(response.message);
 		}
 	});
@@ -246,24 +255,32 @@ auto_load_most_recent_summary(invoices) {
 		return;
 	}
 	
-	// Find the most recent invoice (first one in the list since they're ordered by date)
+	// If we just held an invoice, prioritize loading that specific invoice
+	if (this._just_held_invoice) {
+		const held_invoice = invoices.find(inv => inv.name === this._just_held_invoice);
+		if (held_invoice) {
+			// Load the specific held invoice
+			setTimeout(() => {
+				this.events.open_invoice_data(held_invoice.name);
+				this.highlight_invoice_in_list(held_invoice.name);
+				
+				frappe.show_alert({
+					message: __('Invoice held successfully: ') + held_invoice.name,
+					indicator: 'green'
+				});
+				
+				this._just_held_invoice = null; // Clear the flag
+			}, 100);
+			return;
+		}
+	}
+	
+	// Otherwise, load the most recent invoice (first one in the list)
 	const most_recent_invoice = invoices[0];
 	
-	// Load the summary immediately
 	setTimeout(() => {
 		this.events.open_invoice_data(most_recent_invoice.name);
-		
-		// Optional: Highlight the invoice in the list
 		this.highlight_invoice_in_list(most_recent_invoice.name);
-		
-		// Show success message for held invoices
-		if (this._just_held_invoice && this._just_held_invoice === most_recent_invoice.name) {
-			frappe.show_alert({
-				message: __('Invoice held successfully: ') + most_recent_invoice.name,
-				indicator: 'green'
-			});
-			this._just_held_invoice = null; // Clear the flag
-		}
 	}, 100);
 }
 
