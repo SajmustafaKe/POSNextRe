@@ -305,6 +305,9 @@ toggle_component(show) {
 				this.$component.css('display', 'none');
 				this.selected_invoices.clear();
 				this.update_merge_section();
+				// Clear all cached state when hiding the component
+				this._just_held_invoice = null;
+				this._last_filter_state = null;
 			}
 		},
 		() => {
@@ -314,18 +317,32 @@ toggle_component(show) {
 	]);
 }
 
-// Enhanced method for setting filter and refreshing (called from ItemCart)
+// Enhanced method to ensure we get the newly held invoice with proper filter handling
 set_filter_and_refresh_with_held_invoice(created_by_name, held_invoice_name = null) {
 	// Mark that we just held an invoice
 	if (held_invoice_name) {
 		this.set_just_held_invoice(held_invoice_name);
 	}
 	
-	// Set the created_by filter
-	this.created_by_field.set_value(created_by_name);
+	// IMPORTANT: Always clear and set the filter, even if it's the same value
+	// This ensures proper refresh when switching between users
 	
-	// Refresh the list (will auto-load most recent summary)
-	return this.refresh_list();
+	// First clear the filter to force a refresh
+	this.created_by_field.set_value('All');
+	
+	// Force a brief delay to ensure the field is cleared
+	setTimeout(() => {
+		// Now set the correct filter
+		this.created_by_field.set_value(created_by_name);
+		
+		// Force another delay to ensure the field is properly set
+		setTimeout(() => {
+			// Refresh the list with the new filter
+			this.refresh_list();
+		}, 200);
+	}, 100);
+	
+	return Promise.resolve();
 }
 	get_invoice_html(invoice) {
 		const posting_datetime = moment(invoice.posting_date+" "+invoice.posting_time).format("Do MMMM, h:mma");
