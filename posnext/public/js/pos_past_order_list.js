@@ -6,7 +6,7 @@ posnext.PointOfSale.PastOrderList = class {
         this.selected_invoices = new Set();
         this.can_merge_invoices = this.check_merge_permission();
         this.user_list = [];
-        this.invoices = []; // Store invoices in instance property
+        this.invoices = [];
         this._just_held_invoice = null;
         this._pending_created_by = null;
         posnext.PointOfSale.PastOrderList.current_instance = this;
@@ -65,7 +65,13 @@ posnext.PointOfSale.PastOrderList = class {
 
     bind_events() {
         const me = this;
-        this.search_field.$input.on('input', (e) => {
+        // Unbind existing handlers to prevent duplicates
+        this.$component.off('click', '.back');
+        this.$invoices_container.off('click', '.invoice-wrapper');
+        this.$invoices_container.off('change', '.invoice-checkbox');
+        this.$merge_btn.off('click');
+
+        this.search_field.$input.off('input').on('input', (e) => {
             clearTimeout(this.last_search);
             this.last_search = setTimeout(() => {
                 const search_term = e.target.value;
@@ -76,6 +82,7 @@ posnext.PointOfSale.PastOrderList = class {
         this.$invoices_container.on('click', '.invoice-wrapper', function(e) {
             if (!$(e.target).closest('.invoice-checkbox-container').length) {
                 const invoice_name = unescape($(this).attr('data-invoice-name'));
+                console.log('Opening invoice:', invoice_name);
                 me.events.open_invoice_data(invoice_name);
             }
         });
@@ -83,6 +90,7 @@ posnext.PointOfSale.PastOrderList = class {
         this.$invoices_container.on('change', '.invoice-checkbox', function(e) {
             e.stopPropagation();
             const invoice_name = unescape($(this).closest('.invoice-wrapper').attr('data-invoice-name'));
+            console.log('Checkbox changed for invoice:', invoice_name, 'Checked:', $(this).is(':checked'));
             if ($(this).is(':checked')) {
                 me.selected_invoices.add(invoice_name);
             } else {
@@ -92,10 +100,12 @@ posnext.PointOfSale.PastOrderList = class {
         });
 
         this.$merge_btn.on('click', function() {
+            console.log('Merge button clicked');
             me.merge_selected_invoices();
         });
 
         this.$component.on('click', '.back', function() {
+            console.log('Back button clicked');
             me.events.reset_summary();
             me.events.previous_screen();
         });
@@ -129,11 +139,10 @@ posnext.PointOfSale.PastOrderList = class {
         let options = "All\n" + this.user_list.map(user => user.user_name).join('\n');
         this.created_by_field.df.options = options;
         this.created_by_field.refresh();
-        this.created_by_field.$input.on('change', () => {
+        this.created_by_field.$input.off('change').on('change', () => {
             console.log('Created By filter changed to:', this.created_by_field.get_value());
             this.refresh_list();
         });
-        // Set default value only if no pending filter
         if (!this._pending_created_by) {
             this.get_most_recent_creator();
         }
@@ -160,106 +169,113 @@ posnext.PointOfSale.PastOrderList = class {
     }
 
     async refresh_list(search_term = '', status = 'Draft', created_by = '') {
-        frappe.dom.freeze();
-        this.events.reset_summary();
-        // Use the current UI filter value unless overridden by _pending_created_by
-        created_by = this._pending_created_by || this.created_by_field.get_value() || created_by;
-        if (this._pending_created_by) {
-            await this.created_by_field.set_value(this._pending_created_by);
-            this._pending_created_by = null;
-        }
-        console.log('Refreshing list with filters:', { search_term, status, created_by });
-
-        this.selected_invoices.clear();
-        this.update_merge_section();
-        this.$invoices_container.html('');
-
-        return frappe.call({
-            method: "posnext.posnext.page.posnext.point_of_sale.get_past_order_list",
-            freeze: true,
-            args: { 
-                search_term, 
-                status,
-                created_by: created_by === 'All' ? '' : created_by,
-                _force_refresh: this._just_held_invoice ? Date.now() : undefined
-            },
-            callback: (response) => {
-                frappe.dom.unfreeze();
-                this.invoices = response.message || [];
-                console.log('Received invoices:', this.invoices);
-                
-                if (this.invoices.length === 0 && created_by && created_by !== 'All') {
-                    frappe.show_alert({
-                        message: __('No invoices found for user: {0}', [created_by]),
-                        indicator: 'orange'
-                    });
-                }
-
-                response.message.forEach(invoice => {
-                    const invoice_html = this.get_invoice_html(invoice);
-                    this.$invoices_container.append(invoice_html);
-                });
-                
-                this.auto_load_most_recent_summary(response.message);
-            },
-            error: (error) => {
-                frappe.dom.unfreeze();
-                frappe.show_alert({
-                    message: __('Failed to load invoices: {0}', [error.message || 'Unknown error']),
-                    indicator: 'red'
-                });
-                console.error('Error loading invoices:', error);
+        try {
+            frappe.dom.freeze();
+            this.events.reset_summary();
+            created_by = this._pending_created_by || this.created_by_field.get_value() || created_by;
+            if (this._pending_created_by) {
+                await this.created_by_field.set_value(this._pending_created_by);
+                this._pending_created_by = null;
             }
-        });
+            console.log('Refreshing list with filters:', { search_term, status, created_by });
+
+            this.selected_invoices.clear();
+            this.update_merge_section();
+            this.$invoices_container.html('');
+
+            await frappe.call({
+                method: "posnext.posnext.page.posnext.point_of_sale.get_past_order_list",
+                args: { 
+                    search_term, 
+                    status,
+                    created_by: created_by === 'All' ? '' : created_by,
+                    _force_refresh: this._just_held_invoice ? Date.now() : undefined
+                },
+                callback: (response) => {
+                    this.invoices = response.message || [];
+                    console.log('Received invoices:', this.invoices);
+                    
+                    if (this.invoices.length === 0 && created_by && created_by !== 'All') {
+                        frappe.show_alert({
+                            message: __('No invoices found for user: {0}', [created_by]),
+                            indicator: 'orange'
+                        });
+                    }
+
+                    response.message.forEach(invoice => {
+                        const invoice_html = this.get_invoice_html(invoice);
+                        this.$invoices_container.append(invoice_html);
+                    });
+                    
+                    this.auto_load_most_recent_summary(response.message);
+                }
+            });
+        } catch (error) {
+            console.error('Error in refresh_list:', error);
+            frappe.show_alert({
+                message: __('Failed to load invoices: {0}', [error.message || 'Unknown error']),
+                indicator: 'red'
+            });
+        } finally {
+            frappe.dom.unfreeze();
+        }
     }
 
     async auto_load_most_recent_summary(invoices) {
-        if (!invoices || invoices.length === 0) {
-            await this.events.reset_summary();
-            return;
-        }
-        
-        const most_recent_invoice = this._just_held_invoice 
-            ? invoices.find(inv => inv.name === this._just_held_invoice) || invoices[0]
-            : invoices[0];
-        
-        if (most_recent_invoice) {
-            await this.events.open_invoice_data(most_recent_invoice.name);
-            this.highlight_invoice_in_list(most_recent_invoice.name);
-            if (this._just_held_invoice && this._just_held_invoice === most_recent_invoice.name) {
-                frappe.show_alert({
-                    message: __('Invoice held successfully: ') + most_recent_invoice.name,
-                    indicator: 'green'
-                });
+        try {
+            if (!invoices || invoices.length === 0) {
+                await this.events.reset_summary();
+                return;
             }
+            
+            const most_recent_invoice = this._just_held_invoice 
+                ? invoices.find(inv => inv.name === this._just_held_invoice) || invoices[0]
+                : invoices[0];
+            
+            if (most_recent_invoice) {
+                await this.events.open_invoice_data(most_recent_invoice.name);
+                this.highlight_invoice_in_list(most_recent_invoice.name);
+                if (this._just_held_invoice && this._just_held_invoice === most_recent_invoice.name) {
+                    frappe.show_alert({
+                        message: __('Invoice held successfully: ') + most_recent_invoice.name,
+                        indicator: 'green'
+                    });
+                }
+            }
+            this._just_held_invoice = null;
+        } catch (error) {
+            console.error('Error in auto_load_most_recent_summary:', error);
         }
-        this._just_held_invoice = null;
     }
 
     async set_filter_and_refresh_with_held_invoice(created_by_name, held_invoice_name = null) {
-        if (held_invoice_name) {
-            this._just_held_invoice = held_invoice_name;
+        try {
+            if (held_invoice_name) {
+                this._just_held_invoice = held_invoice_name;
+            }
+            this._pending_created_by = created_by_name;
+            console.log('Setting filter for:', created_by_name, 'Held invoice:', held_invoice_name);
+            if (this.user_list.length === 0) {
+                await new Promise(resolve => {
+                    const checkUsers = () => {
+                        if (this.user_list.length > 0) {
+                            resolve();
+                        } else {
+                            setTimeout(checkUsers, 100);
+                        }
+                    };
+                    checkUsers();
+                });
+            }
+            if (!this.user_list.some(user => user.user_name === created_by_name)) {
+                this.user_list.push({ name: created_by_name, user_name: created_by_name });
+                this.setup_created_by_field();
+            }
+            await this.created_by_field.set_value(created_by_name);
+            return this.toggle_component(true);
+        } catch (error) {
+            console.error('Error in set_filter_and_refresh_with_held_invoice:', error);
         }
-        this._pending_created_by = created_by_name;
-        console.log('Setting filter for:', created_by_name, 'Held invoice:', held_invoice_name);
-        if (this.user_list.length === 0) {
-            await new Promise(resolve => {
-                const checkUsers = () => {
-                    if (this.user_list.length > 0) {
-                        resolve();
-                    } else {
-                        setTimeout(checkUsers, 100);
-                    }
-                };
-                checkUsers();
-            });
-        }
-        if (!this.user_list.some(user => user.user_name === created_by_name)) {
-            this.user_list.push({ name: created_by_name, user_name: created_by_name });
-            this.setup_created_by_field();
-        }
-        await this.created_by_field.set_value(created_by_name);
-        return this.toggle_component(true);
     }
 
     toggle_component(show) {
@@ -267,7 +283,6 @@ posnext.PointOfSale.PastOrderList = class {
             () => {
                 if (show) {
                     this.$component.css('display', 'flex');
-                    // Pass current filter values to refresh_list
                     return this.refresh_list(
                         this.search_field.get_value(),
                         this.status_field.get_value(),
@@ -332,10 +347,10 @@ posnext.PointOfSale.PastOrderList = class {
         
         if (count >= 2) {
             this.$merge_section.show();
-            this.$merge_btn.prop('disabled', false);
+            this.$merge_btn.prop('disabled', false).css('pointer-events', 'auto');
         } else if (count === 1) {
             this.$merge_section.show();
-            this.$merge_btn.prop('disabled', true);
+            this.$merge_btn.prop('disabled', true).css('pointer-events', 'none');
         } else {
             this.$merge_section.hide();
         }
@@ -370,39 +385,38 @@ posnext.PointOfSale.PastOrderList = class {
     }
 
     perform_merge(invoice_names, customer) {
-        frappe.dom.freeze(__('Merging invoices...'));
-
-        frappe.call({
-            method: "posnext.posnext.page.posnext.point_of_sale.merge_invoices",
-            args: {
-                invoice_names: invoice_names,
-                customer: customer
-            },
-            callback: (response) => {
-                frappe.dom.unfreeze();
-                if (response.message && response.message.success) {
-                    frappe.show_alert({
-                        message: __('Invoices merged successfully. New invoice: {0}', [response.message.new_invoice]),
-                        indicator: 'green'
-                    });
-                    
-                    this.selected_invoices.clear();
-                    this.refresh_list();
-                    
-                    if (response.message.new_invoice) {
-                        setTimeout(() => {
-                            this.events.open_invoice_data(response.message.new_invoice);
-                        }, 1);
+        try {
+            frappe.dom.freeze(__('Merging invoices...'));
+            frappe.call({
+                method: "posnext.posnext.page.posnext.point_of_sale.merge_invoices",
+                args: {
+                    invoice_names: invoice_names,
+                    customer: customer
+                },
+                callback: (response) => {
+                    if (response.message && response.message.success) {
+                        frappe.show_alert({
+                            message: __('Invoices merged successfully. New invoice: {0}', [response.message.new_invoice]),
+                            indicator: 'green'
+                        });
+                        this.selected_invoices.clear();
+                        this.refresh_list();
+                        if (response.message.new_invoice) {
+                            setTimeout(() => {
+                                this.events.open_invoice_data(response.message.new_invoice);
+                            }, 1);
+                        }
+                    } else {
+                        frappe.msgprint(__('Error merging invoices: {0}', [response.message.error || 'Unknown error']));
                     }
-                } else {
-                    frappe.msgprint(__('Error merging invoices: {0}', [response.message.error || 'Unknown error']));
+                },
+                error: (error) => {
+                    console.error('Merge error:', error);
+                    frappe.msgprint(__('Error merging invoices. Please try again.'));
                 }
-            },
-            error: (error) => {
-                frappe.dom.unfreeze();
-                frappe.msgprint(__('Error merging invoices. Please try again.'));
-                console.error('Merge error:', error);
-            }
-        });
+            });
+        } finally {
+            frappe.dom.unfreeze();
+        }
     }
 };
