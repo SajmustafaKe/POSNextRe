@@ -405,6 +405,7 @@ posnext.PointOfSale.ItemCart = class {
 			this.numpad_value = '';
 		});
 		this.$component.on('click', '.checkout-btn-held', function() {
+		this.recent_order_list.refresh_list();
 	if ($(this).attr('style').indexOf('--blue-500') == -1) return;
 	if (!cur_frm.doc.items.length) {
 		frappe.throw("Cannot save empty invoice");
@@ -433,6 +434,7 @@ posnext.PointOfSale.ItemCart = class {
 								me.events.save_draft_invoice().then(() => {
 									const saved_invoice_name = frm.doc.name;
 									const creator_name = r.message.created_by_name;
+									this.recent_order_list.refresh_list();
 									
 									// Simple approach: just navigate and set filter
 									me.handle_successful_hold(saved_invoice_name, creator_name);
