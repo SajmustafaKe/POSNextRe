@@ -554,23 +554,12 @@ posnext.PointOfSale.ItemCart = class {
 		});
 	}
 
-handle_successful_hold(invoice_name, creator_name) {
-	// Navigate to order list
-	this.events.toggle_recent_order();
-	
-	// Set up the filter after a delay to ensure the invoice is saved
-	setTimeout(() => {
-		if (posnext.PointOfSale.PastOrderList.current_instance) {
-			const pastOrderList = posnext.PointOfSale.PastOrderList.current_instance;
-			
-			// Set the held invoice flag
-			pastOrderList.set_just_held_invoice(invoice_name);
-			
-			// Update the filter - this will trigger refresh and auto-load
-			pastOrderList.created_by_field.set_value(creator_name);
-			pastOrderList.refresh_list();
-		}
-	}, 400);
+async handle_successful_hold(invoice_name, creator_name) {
+    await this.events.toggle_recent_order(); // Navigate to PastOrderList
+    if (posnext.PointOfSale.PastOrderList.current_instance) {
+        const pastOrderList = posnext.PointOfSale.PastOrderList.current_instance;
+        await pastOrderList.set_filter_and_refresh_with_held_invoice(creator_name, invoice_name);
+    }
 }
 
 	attach_shortcuts() {
