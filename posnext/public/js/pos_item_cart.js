@@ -441,9 +441,7 @@ posnext.PointOfSale.ItemCart = class {
 		});
 
 		// Optimized held button handler
-// In the ItemCart class, update the held button event handler
-
-this.$component.on('click', '.checkout-btn-held', function() {
+		this.$component.on('click', '.checkout-btn-held', function() {
 			if ($(this).attr('style').indexOf('--blue-500') == -1) return;
 			if (!cur_frm.doc.items.length) {
 				frappe.throw("Cannot save empty invoice");
@@ -455,8 +453,9 @@ this.$component.on('click', '.checkout-btn-held', function() {
 					const frm = me.events.get_frm();
 					const invoice_name = frm.doc.name;
 					
+					// Check if invoice is an existing draft (has a name and is not a new doc)
 					if (invoice_name && !frm.doc.__islocal) {
-						// Existing draft invoice logic
+						// Validate secret key against invoice's created_by_name
 						frappe.call({
 							method: "posnext.posnext.page.posnext.point_of_sale.check_edit_permission",
 							args: {
@@ -467,19 +466,17 @@ this.$component.on('click', '.checkout-btn-held', function() {
 							freeze_message: "Validating Secret Key...",
 							callback: function(r) {
 								if (r.message.can_edit) {
+									// Proceed with saving the invoice
 									frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', r.message.created_by_name);
 									frm.script_manager.trigger('created_by_name', frm.doc.doctype, frm.doc.name).then(() => {
-										me.events.save_draft_invoice().then(() => {
-											const saved_invoice_name = frm.doc.name;
-											const creator_name = r.message.created_by_name;
-											me.events.toggle_recent_order();
-											setTimeout(() => {
-												me.setup_order_list_after_hold(saved_invoice_name, creator_name);
-											}, 300);
-										});
+										frappe.run_serially([
+											() => me.events.save_draft_invoice(),
+											() => frappe.dom.unfreeze()
+										]);
 									});
 									secret_dialog.hide();
 								} else {
+									// Show error and keep invoice unchanged
 									frappe.show_alert({
 										message: __(`You did not create this invoice, hence you cannot edit it. Only the creator (${r.message.created_by_name}) can edit it.`),
 										indicator: 'red'
@@ -487,10 +484,18 @@ this.$component.on('click', '.checkout-btn-held', function() {
 									frappe.dom.unfreeze();
 									secret_dialog.hide();
 								}
+							},
+							error: (xhr, status, error) => {
+								frappe.dom.unfreeze();
+								frappe.show_alert({
+									message: __("Failed to validate secret key. Please try again or contact support."),
+									indicator: 'red'
+								});
+								secret_dialog.hide();
 							}
 						});
 					} else {
-						// New invoice logic
+						// New invoice: validate secret key and proceed
 						frappe.call({
 							method: "posnext.posnext.page.posnext.point_of_sale.get_user_name_from_secret_key",
 							args: {
@@ -500,16 +505,12 @@ this.$component.on('click', '.checkout-btn-held', function() {
 							freeze_message: "Validating Secret Key...",
 							callback: function(r) {
 								if (r.message) {
-									const created_by_name = r.message;
-									frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', created_by_name);
+									frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', r.message);
 									frm.script_manager.trigger('created_by_name', frm.doc.doctype, frm.doc.name).then(() => {
-										me.events.save_draft_invoice().then(() => {
-											const saved_invoice_name = frm.doc.name;
-											me.events.toggle_recent_order();
-											setTimeout(() => {
-												me.setup_order_list_after_hold(saved_invoice_name, created_by_name);
-											}, 300);
-										});
+										frappe.run_serially([
+											() => me.events.save_draft_invoice(),
+											() => frappe.dom.unfreeze()
+										]);
 									});
 									secret_dialog.hide();
 								} else {
@@ -527,7 +528,6 @@ this.$component.on('click', '.checkout-btn-held', function() {
 				secret_dialog.show();
 			};
 
-			// Mobile number customer logic
 			if (!cur_frm.doc.customer && me.mobile_number_based_customer) {
 				const mobile_dialog = me.create_mobile_dialog(function(values) {
 					if (values['mobile_number'].length !== me.settings.custom_mobile_number_length) {
@@ -566,8 +566,6 @@ this.$component.on('click', '.checkout-btn-held', function() {
 				show_secret_key_popup();
 			}
 		});
-
-// Add this helper method to the ItemCart class
 
 		this.$component.on('click', '.checkout-btn-order', () => {
 			me.events.toggle_recent_order();
@@ -648,271 +646,7 @@ this.$component.on('click', '.checkout-btn-held', function() {
 			}
 		});
 	}
-	// Complete solution that forces summary reset and direct loading
-// Replace the setup_order_list_after_hold method with this version
 
-setup_order_list_after_hold(invoice_name, creator_name) {
-	const me = this;
-	
-	console.log('🚀 Starting setup for invoice:', invoice_name, 'creator:', creator_name);
-	
-	if (!posnext.PointOfSale.PastOrderList.current_instance) {
-		console.error('❌ PastOrderList instance not found');
-		return;
-	}
-	
-	const pastOrderList = posnext.PointOfSale.PastOrderList.current_instance;
-	
-	// Step 1: Set the filter
-	console.log('📝 Setting filter to creator:', creator_name);
-	pastOrderList.created_by_field.set_value(creator_name);
-	
-	// Step 2: FIRST - Reset the summary to clear any cached content
-	console.log('🔄 Resetting summary before refresh...');
-	me.force_reset_summary();
-	
-	// Step 3: Refresh the list
-	console.log('🔄 Refreshing order list...');
-	pastOrderList.refresh_list().then(() => {
-		console.log('✅ Order list refreshed');
-		
-		// Step 4: Force load the specific invoice summary directly
-		setTimeout(() => {
-			console.log('📄 Force loading invoice summary for:', invoice_name);
-			me.force_load_invoice_summary(invoice_name);
-		}, 500);
-		
-		// Step 5: Also try clicking the element as backup
-		setTimeout(() => {
-			me.try_click_invoice_element(invoice_name, pastOrderList);
-		}, 800);
-		
-	}).catch((error) => {
-		console.error('❌ Error refreshing order list:', error);
-		// Still try to load the summary
-		setTimeout(() => {
-			me.force_load_invoice_summary(invoice_name);
-		}, 500);
-	});
-}
-
-// Force reset the summary component
-force_reset_summary() {
-	console.log('🔄 Force resetting summary component...');
-	
-	// Method 1: Reset through events system
-	if (this.events && this.events.reset_summary) {
-		console.log('🔄 Resetting via events.reset_summary');
-		this.events.reset_summary();
-	}
-	
-	// Method 2: Direct DOM reset
-	const summary_wrapper = $('.past-order-summary');
-	if (summary_wrapper.length > 0) {
-		console.log('🔄 Resetting via DOM manipulation');
-		summary_wrapper.find('.invoice-summary-wrapper').hide();
-		summary_wrapper.find('.no-summary-placeholder').show();
-	}
-	
-	// Method 3: Reset through summary instance
-	const summary_instances = [
-		window.cur_pos?.past_order_summary,
-		posnext.PointOfSale.PastOrderSummary?.current_instance
-	].filter(Boolean);
-	
-	summary_instances.forEach((summary, index) => {
-		if (summary.show_summary_placeholder) {
-			console.log(`🔄 Resetting via summary instance ${index + 1}`);
-			summary.show_summary_placeholder();
-		}
-	});
-}
-
-// Force load a specific invoice summary
-force_load_invoice_summary(invoice_name) {
-	console.log('💪 Force loading summary for:', invoice_name);
-	
-	// Get the invoice document
-	frappe.db.get_doc('POS Invoice', invoice_name)
-		.then((doc) => {
-			console.log('📄 Retrieved document:', doc.name, 'status:', doc.docstatus);
-			
-			// Find all possible summary instances
-			const summary_instances = [
-				window.cur_pos?.past_order_summary,
-				posnext.PointOfSale.PastOrderSummary?.current_instance,
-				this.find_summary_in_dom()
-			].filter(Boolean);
-			
-			console.log('📋 Found', summary_instances.length, 'summary instances');
-			
-			if (summary_instances.length > 0) {
-				// Reset all instances first
-				summary_instances.forEach((summary, index) => {
-					if (summary.toggle_summary_placeholder) {
-						console.log(`🔄 Resetting summary instance ${index + 1}`);
-						summary.toggle_summary_placeholder(true); // Show placeholder first
-					}
-				});
-				
-				// Wait a moment, then load the new summary
-				setTimeout(() => {
-					summary_instances.forEach((summary, index) => {
-						if (summary.load_summary_of) {
-							console.log(`📊 Loading summary in instance ${index + 1}`);
-							summary.load_summary_of(doc);
-							
-							// Ensure the summary is visible
-							if (summary.toggle_summary_placeholder) {
-								summary.toggle_summary_placeholder(false);
-							}
-						}
-					});
-					
-					// Force show the summary wrapper
-					setTimeout(() => {
-						me.ensure_summary_visible(invoice_name);
-					}, 200);
-					
-				}, 300);
-				
-			} else {
-				console.error('❌ No summary instances found');
-				me.create_manual_summary(doc);
-			}
-			
-		})
-		.catch((error) => {
-			console.error('❌ Failed to get invoice document:', error);
-			frappe.show_alert({
-				message: __('Failed to load invoice: ') + error.message,
-				indicator: 'red'
-			});
-		});
-}
-
-// Try to click the invoice element
-try_click_invoice_element(invoice_name, pastOrderList) {
-	console.log('🖱️ Trying to click invoice element for:', invoice_name);
-	
-	const invoice_selector = `[data-invoice-name="${escape(invoice_name)}"]`;
-	const invoice_element = pastOrderList.$invoices_container.find(invoice_selector);
-	
-	if (invoice_element.length > 0) {
-		console.log('🎯 Found invoice element, triggering click event');
-		
-		// Scroll into view
-		invoice_element[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
-		
-		// Wait and click
-		setTimeout(() => {
-			// Trigger multiple events to ensure it's detected
-			invoice_element.trigger('mousedown');
-			invoice_element.trigger('click');
-			invoice_element.trigger('mouseup');
-			
-			console.log('✅ Click events triggered');
-		}, 100);
-	} else {
-		console.log('❌ Invoice element not found in DOM');
-	}
-}
-
-// Ensure summary is visible and showing correct invoice
-ensure_summary_visible(expected_invoice_name) {
-	console.log('👁️ Ensuring summary is visible for:', expected_invoice_name);
-	
-	const summary_wrapper = $('.past-order-summary');
-	const invoice_summary = summary_wrapper.find('.invoice-summary-wrapper');
-	const placeholder = summary_wrapper.find('.no-summary-placeholder');
-	
-	// Hide placeholder and show summary
-	placeholder.hide();
-	invoice_summary.show();
-	
-	// Check if correct invoice is showing
-	const displayed_invoice = invoice_summary.find('.invoice-name').text().trim();
-	console.log('📊 Currently displayed invoice:', displayed_invoice);
-	
-	if (displayed_invoice !== expected_invoice_name) {
-		console.log('⚠️ Wrong invoice displayed, forcing reload...');
-		setTimeout(() => {
-			this.force_load_invoice_summary(expected_invoice_name);
-		}, 200);
-	} else {
-		console.log('✅ Correct invoice is displayed');
-		frappe.show_alert({
-			message: __('Invoice held and summary loaded: ') + expected_invoice_name,
-			indicator: 'green'
-		});
-	}
-}
-
-// Find summary component in DOM
-find_summary_in_dom() {
-	const summary_elements = $('.past-order-summary');
-	if (summary_elements.length > 0) {
-		return {
-			load_summary_of: (doc) => {
-				console.log('📋 Loading summary via DOM method');
-				this.populate_summary_manually(summary_elements.first(), doc);
-			},
-			toggle_summary_placeholder: (show) => {
-				if (show) {
-					summary_elements.find('.invoice-summary-wrapper').hide();
-					summary_elements.find('.no-summary-placeholder').show();
-				} else {
-					summary_elements.find('.no-summary-placeholder').hide();
-					summary_elements.find('.invoice-summary-wrapper').show();
-				}
-			}
-		};
-	}
-	return null;
-}
-
-// Manual summary population as last resort
-create_manual_summary(doc) {
-	console.log('🔧 Creating manual summary for:', doc.name);
-	
-	const summary_wrapper = $('.past-order-summary');
-	if (summary_wrapper.length === 0) {
-		console.error('❌ Summary wrapper not found in DOM');
-		return;
-	}
-	
-	// Hide placeholder
-	summary_wrapper.find('.no-summary-placeholder').hide();
-	
-	// Show and populate summary
-	const invoice_summary = summary_wrapper.find('.invoice-summary-wrapper');
-	invoice_summary.show();
-	
-	// Populate basic info
-	const upper_section = invoice_summary.find('.upper-section');
-	if (upper_section.length > 0) {
-		upper_section.html(`
-			<div class="left-section">
-				<div class="customer-name">${doc.customer || 'Unknown Customer'}</div>
-				<div class="customer-email"></div>
-				<div class="cashier">Sold by: ${doc.created_by_name || frappe.session.user}</div>
-			</div>
-			<div class="right-section">
-				<div class="paid-amount">${format_currency(doc.paid_amount || 0, doc.currency)}</div>
-				<div class="invoice-name">${doc.name}</div>
-				<span class="indicator-pill ${doc.docstatus === 0 ? 'red' : 'green'}">
-					<span>${doc.docstatus === 0 ? 'Draft' : 'Submitted'}</span>
-				</span>
-			</div>
-		`);
-	}
-	
-	console.log('✅ Manual summary created');
-	frappe.show_alert({
-		message: __('Invoice summary loaded: ') + doc.name,
-		indicator: 'green'
-	});
-}
 	toggle_item_highlight(item) {
 		const $cart_item = $(item);
 		const item_is_highlighted = $cart_item.attr("style") == "background-color:var(--gray-50);";

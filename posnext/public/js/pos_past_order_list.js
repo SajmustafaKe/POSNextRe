@@ -203,8 +203,6 @@ posnext.PointOfSale.PastOrderList = class {
 		this.status_field.set_value('Draft');
 	}
 
-// In the PastOrderList class, update the refresh_list method to return a promise
-
 refresh_list() {
 	frappe.dom.freeze();
 	this.events.reset_summary();
@@ -218,40 +216,117 @@ refresh_list() {
 
 	this.$invoices_container.html('');
 
-	// Return the promise so callers can chain operations
 	return frappe.call({
 		method: "posnext.posnext.page.posnext.point_of_sale.get_past_order_list",
 		freeze: true,
 		args: { 
 			search_term, 
 			status,
-			created_by: created_by === 'All' ? '' : created_by // Send empty string for 'All'
+			created_by: created_by === 'All' ? '' : created_by
 		},
 		callback: (response) => {
 			frappe.dom.unfreeze();
-			invoicess = response.message
+			invoicess = response.message;
+			
 			response.message.forEach(invoice => {
 				const invoice_html = this.get_invoice_html(invoice);
 				this.$invoices_container.append(invoice_html);
 			});
+			
+			// NEW: Auto-load the most recent invoice summary
+			this.auto_load_most_recent_summary(response.message);
 		}
 	});
 }
 
-// Also add a helper method to set filter and refresh with a specific created_by
-set_filter_and_refresh(created_by_name, invoice_name_to_open = null) {
+auto_load_most_recent_summary(invoices) {
+	console.log('🔍 Auto-loading most recent invoice from', invoices.length, 'invoices');
+	
+	if (!invoices || invoices.length === 0) {
+		console.log('📭 No invoices to display');
+		this.events.reset_summary();
+		return;
+	}
+	
+	// Find the most recent invoice (first one in the list since they're ordered by date)
+	const most_recent_invoice = invoices[0];
+	console.log('📊 Most recent invoice:', most_recent_invoice.name);
+	
+	// Load the summary immediately
+	setTimeout(() => {
+		console.log('🚀 Loading summary for most recent invoice:', most_recent_invoice.name);
+		this.events.open_invoice_data(most_recent_invoice.name);
+		
+		// Optional: Highlight the invoice in the list
+		this.highlight_invoice_in_list(most_recent_invoice.name);
+		
+		// Show success message for held invoices
+		if (this._just_held_invoice && this._just_held_invoice === most_recent_invoice.name) {
+			frappe.show_alert({
+				message: __('Invoice held successfully: ') + most_recent_invoice.name,
+				indicator: 'green'
+			});
+			this._just_held_invoice = null; // Clear the flag
+		}
+	}, 100);
+}
+
+// Method to highlight the active invoice in the list
+highlight_invoice_in_list(invoice_name) {
+	// Remove any existing highlights
+	this.$invoices_container.find('.invoice-wrapper').removeClass('active-invoice');
+	
+	// Add highlight to the current invoice
+	const target_invoice = this.$invoices_container.find(`[data-invoice-name="${escape(invoice_name)}"]`);
+	if (target_invoice.length > 0) {
+		target_invoice.addClass('active-invoice');
+		console.log('✨ Highlighted invoice in list:', invoice_name);
+	}
+}
+
+// Method to set flag when an invoice was just held
+set_just_held_invoice(invoice_name) {
+	this._just_held_invoice = invoice_name;
+	console.log('🏷️ Marked as just held:', invoice_name);
+}
+
+// Enhanced toggle_component method
+toggle_component(show) {
+	frappe.run_serially([
+		() => {
+			if (show) {
+				this.$component.css('display', 'flex');
+				// Only auto-refresh if no specific filter operation is pending
+				if (!this._pending_filter_operation) {
+					this.refresh_list();
+				}
+			} else {
+				this.$component.css('display', 'none');
+				this.selected_invoices.clear();
+				this.update_merge_section();
+			}
+		},
+		() => {
+			// Reset the pending operation flag
+			this._pending_filter_operation = false;
+		}
+	]);
+}
+
+// Enhanced method for setting filter and refreshing (called from ItemCart)
+set_filter_and_refresh_with_held_invoice(created_by_name, held_invoice_name = null) {
+	console.log('🎯 Setting filter and refreshing for held invoice:', { created_by_name, held_invoice_name });
+	
+	// Mark that we just held an invoice
+	if (held_invoice_name) {
+		this.set_just_held_invoice(held_invoice_name);
+	}
+	
 	// Set the created_by filter
 	this.created_by_field.set_value(created_by_name);
 	
-	// Refresh the list and optionally open specific invoice
-	return this.refresh_list().then(() => {
-		if (invoice_name_to_open) {
-			// Small delay to ensure DOM is updated
-			setTimeout(() => {
-				this.events.open_invoice_data(invoice_name_to_open);
-			},1);
-		}
-	});
+	// Refresh the list (will auto-load most recent summary)
+	return this.refresh_list();
 }
 	get_invoice_html(invoice) {
 		const posting_datetime = moment(invoice.posting_date+" "+invoice.posting_time).format("Do MMMM, h:mma");
