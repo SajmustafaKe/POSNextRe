@@ -99,11 +99,10 @@ posnext.PointOfSale.PastOrderList = class {
             me.merge_selected_invoices();
         });
 
-        this.$component.off('click', '.back').on('click', '.back', function() {
-            console.log('Back button clicked');
-            me.events.reset_summary();
-            me.events.previous_screen();
-        });
+		this.$component.on('click', '.back', function() {
+			me.events.reset_summary();
+			me.events.previous_screen();
+		});
 
         this.$component.off('change', '.status-field select').on('change', '.status-field select', function() {
             console.log('Status select changed to:', $(this).val());
