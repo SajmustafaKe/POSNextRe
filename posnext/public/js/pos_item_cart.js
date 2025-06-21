@@ -453,7 +453,7 @@ make_cart_totals_section() {
     });
 
 
-		    this.$component.on('click', '.checkout-btn-held', function() {
+	    this.$component.on('click', '.checkout-btn-held', function() {
         if ($(this).attr('style').indexOf('--blue-500') == -1) return;
         if (!cur_frm.doc.items.length) {
             frappe.throw("Cannot save empty invoice");
@@ -471,6 +471,18 @@ make_cart_totals_section() {
                 frm.doc.created_by_name = frm.doc.created_by_name || frappe.session.user;
                 console.log('Setting created_by_name before hold:', frm.doc.created_by_name);
 
+                // Check if save_draft_invoice is defined
+                if (!me.events.save_draft_invoice) {
+                    console.error('save_draft_invoice is undefined');
+                    frappe.show_alert({
+                        message: __('Save draft invoice function is not available. Please check POS configuration.'),
+                        indicator: 'red'
+                    });
+                    frappe.dom.unfreeze();
+                    secret_dialog.hide();
+                    return;
+                }
+
                 if (invoice_name && !frm.doc.__islocal) {
                     // Existing draft invoice
                     frappe.call({
@@ -485,12 +497,23 @@ make_cart_totals_section() {
                             if (r.message.can_edit) {
                                 frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', r.message.created_by_name || frappe.session.user);
                                 frm.script_manager.trigger('created_by_name', frm.doc.doctype, frm.doc.name).then(() => {
-                                    me.events.save_draft_invoice().then(() => {
-                                        const saved_invoice_name = frm.doc.name;
-                                        const creator_name = r.message.created_by_name || frappe.session.user;
+                                    console.log('Calling save_draft_invoice for existing invoice:', invoice_name);
+                                    me.events.save_draft_invoice().then((result) => {
+                                        const saved_invoice_name = result.invoice_name || frm.doc.name;
+                                        const creator_name = result.created_by_name || r.message.created_by_name || frappe.session.user;
                                         console.log('Hold successful, invoice:', saved_invoice_name, 'creator:', creator_name);
                                         me.handle_successful_hold(saved_invoice_name, creator_name);
+                                    }).catch(error => {
+                                        console.error('Error saving draft invoice (existing):', error);
+                                        frappe.show_alert({
+                                            message: __('Failed to save draft invoice: {0}', [error.message]),
+                                            indicator: 'red'
+                                        });
+                                        frappe.dom.unfreeze();
                                     });
+                                }).catch(error => {
+                                    console.error('Error triggering created_by_name (existing):', error);
+                                    frappe.dom.unfreeze();
                                 });
                                 secret_dialog.hide();
                             } else {
@@ -503,6 +526,7 @@ make_cart_totals_section() {
                             }
                         },
                         error: (xhr, status, error) => {
+                            console.error('Error validating secret key (existing):', error);
                             frappe.dom.unfreeze();
                             frappe.show_alert({
                                 message: __("Failed to validate secret key. Please try again or contact support."),
@@ -525,11 +549,22 @@ make_cart_totals_section() {
                                 const created_by_name = r.message;
                                 frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', created_by_name);
                                 frm.script_manager.trigger('created_by_name', frm.doc.doctype, frm.doc.name).then(() => {
-                                    me.events.save_draft_invoice().then(() => {
-                                        const saved_invoice_name = frm.doc.name;
+                                    console.log('Calling save_draft_invoice for new invoice:', frm.doc.name);
+                                    me.events.save_draft_invoice().then((result) => {
+                                        const saved_invoice_name = result.invoice_name || frm.doc.name;
                                         console.log('Hold successful, invoice:', saved_invoice_name, 'creator:', created_by_name);
                                         me.handle_successful_hold(saved_invoice_name, created_by_name);
+                                    }).catch(error => {
+                                        console.error('Error saving draft invoice (new):', error);
+                                        frappe.show_alert({
+                                            message: __('Failed to save draft invoice: {0}', [error.message]),
+                                            indicator: 'red'
+                                        });
+                                        frappe.dom.unfreeze();
                                     });
+                                }).catch(error => {
+                                    console.error('Error triggering created_by_name (new):', error);
+                                    frappe.dom.unfreeze();
                                 });
                                 secret_dialog.hide();
                             } else {
@@ -540,6 +575,15 @@ make_cart_totals_section() {
                                 frappe.dom.unfreeze();
                                 secret_dialog.hide();
                             }
+                        },
+                        error: (xhr, status, error) => {
+                            console.error('Error validating secret key (new):', error);
+                            frappe.dom.unfreeze();
+                            frappe.show_alert({
+                                message: __("Failed to validate secret key. Please try again or contact support."),
+                                indicator: 'red'
+                            });
+                            secret_dialog.hide();
                         }
                     });
                 }
