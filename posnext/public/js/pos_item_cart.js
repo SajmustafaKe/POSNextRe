@@ -593,7 +593,6 @@ async handle_successful_hold(invoice_name, creator_name) {
         await pastOrderList.set_filter_and_refresh_with_held_invoice(creator_name, invoice_name);
     }
 }
-
 	attach_shortcuts() {
 		for (let row of this.number_pad.keys) {
 			for (let btn of row) {

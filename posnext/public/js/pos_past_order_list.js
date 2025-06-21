@@ -229,63 +229,38 @@ posnext.PointOfSale.PastOrderList = class {
     }
 
     refresh_list(search_term = '', status = 'Draft', created_by = '') {
-        try {
-            frappe.dom.freeze();
-            this.events.reset_summary();
-            
-            if (this._pending_created_by) {
-                created_by = this._pending_created_by;
-                this.created_by_field.set_value(created_by);
-                this._pending_created_by = null;
-            }
-            
-            if (!search_term && this.search_field) {
-                search_term = this.search_field.get_value() || '';
-            }
-            if (!status && this.status_field) {
-                status = this.status_field.get_value() || 'Draft';
-            }
-            if (!created_by && this.created_by_field) {
-                created_by = this.created_by_field.get_value() || '';
-            }
-            
-            this.selected_invoices.clear();
-            this.update_merge_section();
-            this.$invoices_container.html('');
-
-            console.log('Refreshing list with filters:', { search_term, status, created_by });
-
-            return frappe.call({
-                method: "posnext.posnext.page.posnext.point_of_sale.get_past_order_list",
-                args: { 
-                    search_term: search_term || '',
-                    status: status || 'Draft',
-                    created_by: created_by === 'All' ? '' : created_by,
-                    _force_refresh: this._just_held_invoice ? Date.now() : undefined
-                },
-                callback: (response) => {
-                    invoicess = response.message || [];
-                    console.log('Received invoices:', invoicess);
-                    
-                    if (response.message && response.message.length > 0) {
-                        response.message.forEach(invoice => {
-                            const invoice_html = this.get_invoice_html(invoice);
-                            this.$invoices_container.append(invoice_html);
-                        });
-                    } else {
-                        this.$invoices_container.html('<div style="padding: 20px; text-align: center; color: #999;">No invoices found matching the current filters.</div>');
-                    }
-                    
-                    this.auto_load_most_recent_summary(response.message);
-                },
-                error: (error) => {
-                    console.error('Error fetching past orders:', error);
-                    frappe.msgprint(__('Error loading past orders. Please try again.'));
-                }
-            });
-        } finally {
-            frappe.dom.unfreeze();
+        frappe.dom.freeze();
+        this.events.reset_summary();
+        if (this._pending_created_by) {
+            created_by = this._pending_created_by; // Use pending filter if set
+            this.created_by_field.set_value(created_by);
+            this._pending_created_by = null; // Clear after applying
         }
+        this.selected_invoices.clear();
+        this.update_merge_section();
+        this.$invoices_container.html('');
+
+        return frappe.call({
+            method: "posnext.posnext.page.posnext.point_of_sale.get_past_order_list",
+            freeze: true,
+            args: { 
+                search_term, 
+                status,
+                created_by: created_by === 'All' ? '' : created_by,
+                _force_refresh: this._just_held_invoice ? Date.now() : undefined
+            },
+            callback: (response) => {
+                frappe.dom.unfreeze();
+                this.invoices = response.message || []; // Store in instance property
+                
+                response.message.forEach(invoice => {
+                    const invoice_html = this.get_invoice_html(invoice);
+                    this.$invoices_container.append(invoice_html);
+                });
+                
+                this.auto_load_most_recent_summary(response.message);
+            }
+        });
     }
 
     auto_load_most_recent_summary(invoices) {
@@ -299,7 +274,6 @@ posnext.PointOfSale.PastOrderList = class {
             : invoices[0];
         
         if (most_recent_invoice) {
-            console.log('Loading summary for invoice:', most_recent_invoice.name);
             this.events.open_invoice_data(most_recent_invoice.name);
             this.highlight_invoice_in_list(most_recent_invoice.name);
             if (this._just_held_invoice && this._just_held_invoice === most_recent_invoice.name) {
@@ -309,29 +283,30 @@ posnext.PointOfSale.PastOrderList = class {
                 });
             }
         }
-        this._just_held_invoice = null;
-    }
-
-    highlight_invoice_in_list(invoice_name) {
-        this.$invoices_container.find('.invoice-wrapper').removeClass('highlighted');
-        this.$invoices_container.find(`[data-invoice-name="${escape(invoice_name)}"]`).addClass('highlighted');
+        this._just_held_invoice = null; // Clear after processing
     }
 
     set_filter_and_refresh_with_held_invoice(created_by_name, held_invoice_name = null) {
-        console.log('Setting filter for:', created_by_name, 'Held invoice:', held_invoice_name);
         if (held_invoice_name) {
             this._just_held_invoice = held_invoice_name;
         }
-        this._pending_created_by = created_by_name;
-        
-        // Update filter options if user is not in list
-        if (!this.user_list.some(user => user.user_name === created_by_name)) {
-            this.user_list.push({ name: created_by_name, user_name: created_by_name });
-            this.setup_created_by_field();
-        }
-        
-        this.created_by_field.set_value(created_by_name);
-        this.toggle_component(true);
+        this._pending_created_by = created_by_name; // Store pending filter
+        return this.toggle_component(true); // Trigger refresh via toggle
+    }
+
+    toggle_component(show) {
+        return frappe.run_serially([
+            () => {
+                if (show) {
+                    this.$component.css('display', 'flex');
+                    return this.refresh_list();
+                } else {
+                    this.$component.css('display', 'none');
+                    this.selected_invoices.clear();
+                    this.update_merge_section();
+                }
+            }
+        ]);
     }
 
     get_invoice_html(invoice) {
