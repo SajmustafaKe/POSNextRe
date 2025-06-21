@@ -63,29 +63,27 @@ posnext.PointOfSale.PastOrderList = class {
         this.$selected_count = this.$component.find('.selected-count .count');
     }
 
-    bind_events() {
-        const me = this;
-        this.search_field.$input.off('input').on('input', (e) => {
+        bind_events() {
+        this.search_field.$input.on('input', (e) => {
             clearTimeout(this.last_search);
             this.last_search = setTimeout(() => {
                 const search_term = e.target.value;
-                console.log('Search input changed to:', search_term);
                 this.refresh_list(search_term, this.status_field.get_value(), this.created_by_field.get_value());
             }, 300);
         });
 
-        this.$invoices_container.off('click', '.invoice-wrapper').on('click', '.invoice-wrapper', function(e) {
+        const me = this;
+        
+        this.$invoices_container.on('click', '.invoice-wrapper', function(e) {
             if (!$(e.target).closest('.invoice-checkbox-container').length) {
                 const invoice_name = unescape($(this).attr('data-invoice-name'));
-                console.log('Opening invoice:', invoice_name);
                 me.events.open_invoice_data(invoice_name);
             }
         });
 
-        this.$invoices_container.off('change', '.invoice-checkbox').on('change', '.invoice-checkbox', function(e) {
+        this.$invoices_container.on('change', '.invoice-checkbox', function(e) {
             e.stopPropagation();
             const invoice_name = unescape($(this).closest('.invoice-wrapper').attr('data-invoice-name'));
-            console.log('Checkbox changed for:', invoice_name, 'Checked:', $(this).is(':checked'));
             if ($(this).is(':checked')) {
                 me.selected_invoices.add(invoice_name);
             } else {
@@ -94,24 +92,14 @@ posnext.PointOfSale.PastOrderList = class {
             me.update_merge_section();
         });
 
-        this.$merge_btn.off('click').on('click', function() {
-            console.log('Merge button clicked');
+        this.$merge_btn.on('click', function() {
             me.merge_selected_invoices();
         });
 
-		this.$component.on('click', '.back', function() {
-			me.events.reset_summary();
-			me.events.previous_screen();
-		});
-
-        this.$component.off('change', '.status-field select').on('change', '.status-field select', function() {
-            console.log('Status select changed to:', $(this).val());
-            me.refresh_list(me.search_field.get_value(), $(this).val(), me.created_by_field.get_value());
-        });
-
-        this.$component.off('change', '.created-by-field select').on('change', '.created-by-field select', function() {
-            console.log('Created by select changed to:', $(this).val());
-            me.refresh_list(me.search_field.get_value(), me.status_field.get_value(), $(this).val());
+        this.$component.on('click', '.back', function() {
+            me.events.reset_summary();
+            me.events.previous_screen();
+            // Do not clear _just_held_invoice here; let ItemCart set it
         });
     }
 
