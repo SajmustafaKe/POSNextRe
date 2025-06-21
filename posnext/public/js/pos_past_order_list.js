@@ -114,8 +114,8 @@ posnext.PointOfSale.PastOrderList = class {
                 if (response.message) {
                     this.user_list = response.message;
                     this.setup_created_by_field();
-                    // If a pending filter exists, apply it after loading users
                     if (this._pending_created_by) {
+                        console.log('Applying pending created_by:', this._pending_created_by);
                         this.created_by_field.set_value(this._pending_created_by);
                         this._pending_created_by = null;
                         this.refresh_list();
@@ -129,6 +129,14 @@ posnext.PointOfSale.PastOrderList = class {
         let options = "All\n" + this.user_list.map(user => user.user_name).join('\n');
         this.created_by_field.df.options = options;
         this.created_by_field.refresh();
+        this.created_by_field.$input.on('change', () => {
+            console.log('Created By filter changed to:', this.created_by_field.get_value());
+            this.refresh_list();
+        });
+        // Set default value only if no pending filter
+        if (!this._pending_created_by) {
+            this.get_most_recent_creator();
+        }
     }
 
     get_most_recent_creator() {
@@ -143,6 +151,7 @@ posnext.PointOfSale.PastOrderList = class {
                 if (response.message && response.message.length > 0 && !this._pending_created_by) {
                     const most_recent_creator = response.message[0].created_by_name;
                     if (most_recent_creator) {
+                        console.log('Setting most recent creator:', most_recent_creator);
                         this.created_by_field.set_value(most_recent_creator);
                     }
                 }
@@ -153,11 +162,14 @@ posnext.PointOfSale.PastOrderList = class {
     async refresh_list(search_term = '', status = 'Draft', created_by = '') {
         frappe.dom.freeze();
         this.events.reset_summary();
+        // Use the current UI filter value unless overridden by _pending_created_by
+        created_by = this._pending_created_by || this.created_by_field.get_value() || created_by;
         if (this._pending_created_by) {
-            created_by = this._pending_created_by;
-            await this.created_by_field.set_value(created_by);
+            await this.created_by_field.set_value(this._pending_created_by);
             this._pending_created_by = null;
         }
+        console.log('Refreshing list with filters:', { search_term, status, created_by });
+
         this.selected_invoices.clear();
         this.update_merge_section();
         this.$invoices_container.html('');
@@ -174,13 +186,29 @@ posnext.PointOfSale.PastOrderList = class {
             callback: (response) => {
                 frappe.dom.unfreeze();
                 this.invoices = response.message || [];
+                console.log('Received invoices:', this.invoices);
                 
+                if (this.invoices.length === 0 && created_by && created_by !== 'All') {
+                    frappe.show_alert({
+                        message: __('No invoices found for user: {0}', [created_by]),
+                        indicator: 'orange'
+                    });
+                }
+
                 response.message.forEach(invoice => {
                     const invoice_html = this.get_invoice_html(invoice);
                     this.$invoices_container.append(invoice_html);
                 });
                 
                 this.auto_load_most_recent_summary(response.message);
+            },
+            error: (error) => {
+                frappe.dom.unfreeze();
+                frappe.show_alert({
+                    message: __('Failed to load invoices: {0}', [error.message || 'Unknown error']),
+                    indicator: 'red'
+                });
+                console.error('Error loading invoices:', error);
             }
         });
     }
@@ -213,8 +241,8 @@ posnext.PointOfSale.PastOrderList = class {
             this._just_held_invoice = held_invoice_name;
         }
         this._pending_created_by = created_by_name;
+        console.log('Setting filter for:', created_by_name, 'Held invoice:', held_invoice_name);
         if (this.user_list.length === 0) {
-            // Wait for user list to load
             await new Promise(resolve => {
                 const checkUsers = () => {
                     if (this.user_list.length > 0) {
@@ -227,7 +255,6 @@ posnext.PointOfSale.PastOrderList = class {
             });
         }
         if (!this.user_list.some(user => user.user_name === created_by_name)) {
-            // Add new user to options if not present
             this.user_list.push({ name: created_by_name, user_name: created_by_name });
             this.setup_created_by_field();
         }
@@ -240,7 +267,12 @@ posnext.PointOfSale.PastOrderList = class {
             () => {
                 if (show) {
                     this.$component.css('display', 'flex');
-                    return this.refresh_list();
+                    // Pass current filter values to refresh_list
+                    return this.refresh_list(
+                        this.search_field.get_value(),
+                        this.status_field.get_value(),
+                        this.created_by_field.get_value()
+                    );
                 } else {
                     this.$component.css('display', 'none');
                     this.selected_invoices.clear();
@@ -249,156 +281,128 @@ posnext.PointOfSale.PastOrderList = class {
             }
         ]);
     }
-	get_invoice_html(invoice) {
-		const posting_datetime = moment(invoice.posting_date+" "+invoice.posting_time).format("Do MMMM, h:mma");
-		
-		// Show checkbox only if user can merge invoices
-		const checkbox_html = this.can_merge_invoices ? 
-			`<div class="invoice-checkbox-container" style="margin-right: 10px; display: flex; align-items: center;">
-				<input type="checkbox" class="invoice-checkbox" style="margin: 0;">
-			</div>` : '';
-		
-		// Show created by info if available
-		const created_by_html = invoice.created_by_name ? 
-			`<div class="invoice-creator" style="font-size: 11px; color: #8d99a6; margin-top: 2px;">
-				<svg style="width: 10px; height: 10px; margin-right: 3px;" viewBox="0 0 24 24" fill="currentColor">
-					<path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
-				</svg>
-				${frappe.ellipsis(invoice.created_by_name, 15)}
-			</div>` : '';
-		
-		return (
-			`<div class="invoice-wrapper" data-invoice-name="${escape(invoice.name)}" style="display: flex; align-items: center; padding: 10px; border-bottom: 1px solid #d1d8dd; cursor: pointer;">
-				${checkbox_html}
-				<div style="flex: 1; display: flex; justify-content: space-between; align-items: center;">
-					<div class="invoice-name-date">
-						<div class="invoice-name" style="font-weight: 600; margin-bottom: 4px;">${invoice.name}</div>
-						<div class="invoice-date" style="font-size: 12px; color: #6c757d; display: flex; align-items: center;">
-							<svg class="mr-2" width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
-								<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-							</svg>
-							${frappe.ellipsis(invoice.customer, 20)}
-						</div>
-						${created_by_html}
-					</div>
-					<div class="invoice-total-status" style="text-align: right;">
-						<div class="invoice-total" style="font-weight: 600; margin-bottom: 4px;">${format_currency(invoice.grand_total, invoice.currency, 0) || 0}</div>
-						<div class="invoice-date" style="font-size: 12px; color: #6c757d;">${posting_datetime}</div>
-					</div>
-				</div>
-			</div>`
-		);
-	}
 
-	update_merge_section() {
-		// Don't show merge section if user doesn't have permission
-		if (!this.can_merge_invoices) {
-			this.$merge_section.hide();
-			return;
-		}
+    get_invoice_html(invoice) {
+        const posting_datetime = moment(invoice.posting_date + " " + invoice.posting_time).format("Do MMMM, h:mma");
+        
+        const checkbox_html = this.can_merge_invoices ? 
+            `<div class="invoice-checkbox-container" style="margin-right: 10px; display: flex; align-items: center;">
+                <input type="checkbox" class="invoice-checkbox" style="margin: 0;">
+            </div>` : '';
+        
+        const created_by_html = invoice.created_by_name ? 
+            `<div class="invoice-creator" style="font-size: 11px; color: #8d99a6; margin-top: 2px;">
+                <svg style="width: 10px; height: 10px; margin-right: 3px;" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
+                </svg>
+                ${frappe.ellipsis(invoice.created_by_name, 15)}
+            </div>` : '';
+        
+        return (
+            `<div class="invoice-wrapper" data-invoice-name="${escape(invoice.name)}" style="display: flex; align-items: center; padding: 10px; border-bottom: 1px solid #d1d8dd; cursor: pointer;">
+                ${checkbox_html}
+                <div style="flex: 1; display: flex; justify-content: space-between; align-items: center;">
+                    <div class="invoice-name-date">
+                        <div class="invoice-name" style="font-weight: 600; margin-bottom: 4px;">${invoice.name}</div>
+                        <div class="invoice-date" style="font-size: 12px; color: #6c757d; display: flex; align-items: center;">
+                            <svg class="mr-2" width="12" height="12" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+                            </svg>
+                            ${frappe.ellipsis(invoice.customer, 20)}
+                        </div>
+                        ${created_by_html}
+                    </div>
+                    <div class="invoice-total-status" style="text-align: right;">
+                        <div class="invoice-total" style="font-weight: 600; margin-bottom: 4px;">${format_currency(invoice.grand_total, invoice.currency, 0) || 0}</div>
+                        <div class="invoice-date" style="font-size: 12px; color: #6c757d;">${posting_datetime}</div>
+                    </div>
+                </div>
+            </div>`
+        );
+    }
 
-		const count = this.selected_invoices.size;
-		this.$selected_count.text(count);
-		
-		if (count >= 2) {
-			this.$merge_section.show();
-			this.$merge_btn.prop('disabled', false);
-		} else if (count === 1) {
-			this.$merge_section.show();
-			this.$merge_btn.prop('disabled', true);
-		} else {
-			this.$merge_section.hide();
-		}
-	}
+    update_merge_section() {
+        if (!this.can_merge_invoices) {
+            this.$merge_section.hide();
+            return;
+        }
 
-	merge_selected_invoices() {
-		// Additional check for permission
-		if (!this.can_merge_invoices) {
-			frappe.msgprint(__('You do not have permission to merge invoices.'));
-			return;
-		}
+        const count = this.selected_invoices.size;
+        this.$selected_count.text(count);
+        
+        if (count >= 2) {
+            this.$merge_section.show();
+            this.$merge_btn.prop('disabled', false);
+        } else if (count === 1) {
+            this.$merge_section.show();
+            this.$merge_btn.prop('disabled', true);
+        } else {
+            this.$merge_section.hide();
+        }
+    }
 
-		if (this.selected_invoices.size < 2) {
-			frappe.msgprint(__('Please select at least 2 invoices to merge.'));
-			return;
-		}
+    merge_selected_invoices() {
+        if (!this.can_merge_invoices) {
+            frappe.msgprint(__('You do not have permission to merge invoices.'));
+            return;
+        }
 
-		const selected_names = Array.from(this.selected_invoices);
-		const selected_invoices_data = invoicess.filter(inv => selected_names.includes(inv.name));
+        if (this.selected_invoices.size < 2) {
+            frappe.msgprint(__('Please select at least 2 invoices to merge.'));
+            return;
+        }
 
-		// Validate that all selected invoices have the same customer
-		const customers = [...new Set(selected_invoices_data.map(inv => inv.customer))];
-		if (customers.length > 1) {
-			frappe.msgprint(__('Cannot merge invoices with different customers. Please select invoices from the same customer.'));
-			return;
-		}
+        const selected_names = Array.from(this.selected_invoices);
+        const selected_invoices_data = this.invoices.filter(inv => selected_names.includes(inv.name));
 
-		// Show confirmation dialog
-		frappe.confirm(
-			__('Are you sure you want to merge {0} selected invoices? This action cannot be undone.', [selected_names.length]),
-			() => {
-				this.perform_merge(selected_names, selected_invoices_data[0].customer);
-			}
-		);
-	}
+        const customers = [...new Set(selected_invoices_data.map(inv => inv.customer))];
+        if (customers.length > 1) {
+            frappe.msgprint(__('Cannot merge invoices with different customers. Please select invoices from the same customer.'));
+            return;
+        }
 
-	perform_merge(invoice_names, customer) {
-		frappe.dom.freeze(__('Merging invoices...'));
+        frappe.confirm(
+            __('Are you sure you want to merge {0} selected invoices? This action cannot be undone.', [selected_names.length]),
+            () => {
+                this.perform_merge(selected_names, selected_invoices_data[0].customer);
+            }
+        );
+    }
 
-		frappe.call({
-			method: "posnext.posnext.page.posnext.point_of_sale.merge_invoices",
-			args: {
-				invoice_names: invoice_names,
-				customer: customer
-			},
-			callback: (response) => {
-				frappe.dom.unfreeze();
-				if (response.message && response.message.success) {
-					frappe.show_alert({
-						message: __('Invoices merged successfully. New invoice: {0}', [response.message.new_invoice]),
-						indicator: 'green'
-					});
-					
-					// Clear selections and refresh list
-					this.selected_invoices.clear();
-					this.refresh_list();
-					
-					// Optionally open the new merged invoice
-					if (response.message.new_invoice) {
-						setTimeout(() => {
-							this.events.open_invoice_data(response.message.new_invoice);
-						}, 1);
-					}
-				} else {
-					frappe.msgprint(__('Error merging invoices: {0}', [response.message.error || 'Unknown error']));
-				}
-			},
-			error: (error) => {
-				frappe.dom.unfreeze();
-				frappe.msgprint(__('Error merging invoices. Please try again.'));
-				console.error('Merge error:', error);
-			}
-		});
-	}
+    perform_merge(invoice_names, customer) {
+        frappe.dom.freeze(__('Merging invoices...'));
 
-	toggle_component(show) {
-		frappe.run_serially([
-			() => {
-				if (show) {
-					this.$component.css('display', 'flex');
-					this.refresh_list();
-				} else {
-					this.$component.css('display', 'none');
-					// Clear selections when hiding component
-					this.selected_invoices.clear();
-					this.update_merge_section();
-				}
-			},
-			() => {
-				if (show && invoicess && invoicess.length > 0) {
-					this.events.open_invoice_data(invoicess[0].name);
-				}
-			}
-		]);
-	}
+        frappe.call({
+            method: "posnext.posnext.page.posnext.point_of_sale.merge_invoices",
+            args: {
+                invoice_names: invoice_names,
+                customer: customer
+            },
+            callback: (response) => {
+                frappe.dom.unfreeze();
+                if (response.message && response.message.success) {
+                    frappe.show_alert({
+                        message: __('Invoices merged successfully. New invoice: {0}', [response.message.new_invoice]),
+                        indicator: 'green'
+                    });
+                    
+                    this.selected_invoices.clear();
+                    this.refresh_list();
+                    
+                    if (response.message.new_invoice) {
+                        setTimeout(() => {
+                            this.events.open_invoice_data(response.message.new_invoice);
+                        }, 1);
+                    }
+                } else {
+                    frappe.msgprint(__('Error merging invoices: {0}', [response.message.error || 'Unknown error']));
+                }
+            },
+            error: (error) => {
+                frappe.dom.unfreeze();
+                frappe.msgprint(__('Error merging invoices. Please try again.'));
+                console.error('Merge error:', error);
+            }
+        });
+    }
 };
