@@ -98,61 +98,61 @@ posnext.PointOfSale.ItemCart = class {
 		);
 	}
 
-	make_cart_totals_section() {
-		this.$totals_section = this.$component.find('.cart-totals-section');
+make_cart_totals_section() {
+    this.$totals_section = this.$component.find('.cart-totals-section');
 
-		this.$totals_section.append(
-			`<div class="add-discount-wrapper">
-				${this.get_discount_icon()} ${__('Add Discount')}
-			</div>
-			<div class="item-qty-total-container">
-				<div class="item-qty-total-label">${__('Total Items')}</div>
-				<div class="item-qty-total-value">0.00</div>
-			</div>
-			<div class="net-total-container">
-				<div class="net-total-label">${__("Net Total")}</div>
-				<div class="net-total-value">0.00</div>
-			</div>
-			<div class="taxes-container"></div>
-			<div class="grand-total-container">
-				<div>${__('Grand Total')}</div>
-				<div>0.00</div>
-			</div>
-			<div style=" display: flex;justify-content: space-between;gap: 10px;">
-				<div class="checkout-btn" style="
-							padding: 10px;
-							align-items: center;
-							justify-content: center;
-							color: white;
-							border: none;
-							border-radius: 5px;
-							cursor: pointer;
-							flex: 1; ">${__('Checkout')}</div>
-				<div class="checkout-btn-held checkout-btn" style="
-							padding: 10px;
-							align-items: center;
-							justify-content: center;
-							color: white;
-							border: none;
-							border-radius: 5px;
-							cursor: pointer;
-							flex: 1;">${__('Held')}</div>
-				<div class="checkout-btn-order checkout-btn" style="
-				padding: 10px;
-							align-items: center;
-							justify-content: center;
-							color: white;
-							border: none;
-							border-radius: 5px;
-							cursor: pointer;
-							flex: 1;">${__('Order List')}</div>
-			</div>	
-			<div class="edit-cart-btn">${__('Edit Cart')}</div>`
-		)
+    this.$totals_section.append(
+        `<div class="add-discount-wrapper">
+            ${this.get_discount_icon()} ${__('Add Discount')}
+        </div>
+        <div class="item-qty-total-container">
+            <div class="item-qty-total-label">${__('Total Items')}</div>
+            <div class="item-qty-total-value">0.00</div>
+        </div>
+        <div class="net-total-container">
+            <div class="net-total-label">${__("Net Total")}</div>
+            <div class="net-total-value">0.00</div>
+        </div>
+        <div class="taxes-container"></div>
+        <div class="grand-total-container">
+            <div>${__('Grand Total')}</div>
+            <div>0.00</div>
+        </div>
+        <div style="display: flex; justify-content: space-between; gap: 10px;">
+            <div class="checkout-btn" style="
+                padding: 10px;
+                align-items: center;
+                justify-content: center;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                flex: 1;">${__('Checkout')}</div>
+            <div class="checkout-btn-held" style="
+                padding: 10px;
+                align-items: center;
+                justify-content: center;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                flex: 1;">${__('Held')}</div>
+            <div class="checkout-btn-order" style="
+                padding: 10px;
+                align-items: center;
+                justify-content: center;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                flex: 1;">${__('Order List')}</div>
+        </div>    
+        <div class="edit-cart-btn">${__('Edit Cart')}</div>`
+    );
 
-		this.$add_discount_elem = this.$component.find(".add-discount-wrapper");
-		this.highlight_checkout_btn(true);
-	}
+    this.$add_discount_elem = this.$component.find(".add-discount-wrapper");
+    this.highlight_checkout_btn(true);
+}
 
 	make_cart_numpad() {
 		this.$numpad_section = this.$component.find('.numpad-section');
@@ -378,6 +378,15 @@ posnext.PointOfSale.ItemCart = class {
 
 	bind_events() {
 		const me = this;
+		this.$component.off('click', '.checkout-btn');
+   		this.$component.off('click', '.checkout-btn-held');
+    	this.$component.off('click', '.checkout-btn-order');
+    	this.$totals_section.off('click', '.edit-cart-btn');
+    	this.$component.off('click', '.add-discount-wrapper');
+    	this.$customer_section.off('click', '.reset-customer-btn');
+    	this.$customer_section.off('click', '.close-details-btn');
+    	this.$customer_section.off('click', '.customer-display');
+    	this.$cart_items_wrapper.off('click', '.cart-item-wrapper');
 		
 		this.$customer_section.on('click', '.reset-customer-btn', function () {
 			me.reset_customer_selector();
@@ -404,187 +413,179 @@ posnext.PointOfSale.ItemCart = class {
 			me.events.cart_item_clicked({ name: item_row_name });
 			this.numpad_value = '';
 		});
+		
 		this.$component.on('click', '.checkout-btn:not(.checkout-btn-held):not(.checkout-btn-order)', async function() {
-	if ($(this).attr('style').indexOf('--blue-500') == -1) return;
-	
-	if (!cur_frm.doc.customer && me.mobile_number_based_customer) {
-		const dialog = me.create_mobile_dialog(async function(values) {
-			if (values['mobile_number'].length !== me.settings.custom_mobile_number_length) {
-				frappe.throw("Mobile Number Length is " + me.settings.custom_mobile_number_length.toString());
-				return;
-			}
-			
-			try {
-				await me.create_customer_and_proceed(values['mobile_number']);
-				await me.events.checkout();
-				me.toggle_checkout_btn(false);
-				me.allow_discount_change && me.$add_discount_elem.removeClass("d-none");
-				dialog.hide();
-			} catch (error) {
-				// Error already handled in create_customer_and_proceed
-			}
-		});
-		dialog.show();
-	} else {
-		if (!cur_frm.doc.customer && !me.mobile_number_based_customer) {
-			frappe.throw("Please Select a customer and add items first");
-			return;
-		}
-		await me.events.checkout();
-		me.toggle_checkout_btn(false);
-		me.allow_discount_change && me.$add_discount_elem.removeClass("d-none");
-	}
-});
-
-this.$component.on('click', '.checkout-btn-held', function() {		
-    if ($(this).attr('style').indexOf('--blue-500') == -1) return;
-    if (!cur_frm.doc.items.length) {
-        frappe.throw("Cannot save empty invoice");
-        return;
-    }
-
-    const show_secret_key_popup = (mobile_number = null) => {
-        const secret_dialog = me.create_secret_dialog(function(values) {
-            const frm = me.events.get_frm();
-            const invoice_name = frm.doc.name;
-            
-            if (invoice_name && !frm.doc.__islocal) {
-                // Existing draft invoice
-                frappe.call({
-                    method: "posnext.posnext.page.posnext.point_of_sale.check_edit_permission",
-                    args: {
-                        invoice_name: invoice_name,
-                        secret_key: values['secret_key']
-                    },
-                    freeze: true,
-                    freeze_message: "Validating Secret Key...",
-                    callback: function(r) {
-                        if (r.message.can_edit) {
-                            const created_by_name = r.message.created_by_name;
-                            frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', created_by_name);
-                            frm.script_manager.trigger('created_by_name', frm.doc.doctype, frm.doc.name).then(() => {
-                                me.events.save_draft_invoice().then(() => {
-                                    const saved_invoice_name = frm.doc.name;
-                                    console.log('=== EXISTING INVOICE SAVED ===');
-                                    console.log('Saved invoice name:', saved_invoice_name);
-                                    console.log('Creator name from response:', created_by_name);
-                                    
-                                    // CRITICAL: Use the created_by_name from the response
-                                    me.handle_successful_hold(saved_invoice_name, created_by_name);
-                                }).catch((error) => {
-                                    console.error('Error saving draft invoice:', error);
-                                    frappe.show_alert({
-                                        message: __("Failed to save invoice"),
-                                        indicator: 'red'
-                                    });
-                                });
-                            });
-                            secret_dialog.hide();
-                        } else {
-                            frappe.show_alert({
-                                message: __(`You did not create this invoice, hence you cannot edit it. Only the creator (${r.message.created_by_name}) can edit it.`),
-                                indicator: 'red'
-                            });
-                            frappe.dom.unfreeze();
-                            secret_dialog.hide();
-                        }
-                    },
-                    error: (xhr, status, error) => {
-                        frappe.dom.unfreeze();
-                        frappe.show_alert({
-                            message: __("Failed to validate secret key. Please try again or contact support."),
-                            indicator: 'red'
-                        });
-                        secret_dialog.hide();
+        if ($(this).attr('style').indexOf('--blue-500') == -1) return;
+        
+        console.log('Checkout button clicked');
+        try {
+            if (!cur_frm.doc.customer && me.mobile_number_based_customer) {
+                const dialog = me.create_mobile_dialog(async function(values) {
+                    if (values['mobile_number'].length !== me.settings.custom_mobile_number_length) {
+                        frappe.throw("Mobile Number Length is " + me.settings.custom_mobile_number_length.toString());
+                        return;
+                    }
+                    
+                    try {
+                        await me.create_customer_and_proceed(values['mobile_number']);
+                        await me.events.checkout();
+                        me.toggle_checkout_btn(false);
+                        me.allow_discount_change && me.$add_discount_elem.removeClass("d-none");
+                        dialog.hide();
+                    } catch (error) {
+                        console.error('Error in mobile dialog checkout:', error);
                     }
                 });
+                dialog.show();
             } else {
-                // New invoice
-                frappe.call({
-                    method: "posnext.posnext.page.posnext.point_of_sale.get_user_name_from_secret_key",
-                    args: {
-                        secret_key: values['secret_key']
-                    },
-                    freeze: true,
-                    freeze_message: "Validating Secret Key...",
-                    callback: function(r) {
-                        if (r.message) {
-                            const created_by_name = r.message;
-                            console.log('Got created_by_name from secret key:', created_by_name);
-                            
-                            frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', created_by_name);
-                            frm.script_manager.trigger('created_by_name', frm.doc.doctype, frm.doc.name).then(() => {
-                                me.events.save_draft_invoice().then(() => {
-                                    const saved_invoice_name = frm.doc.name;
-                                    console.log('=== NEW INVOICE SAVED ===');
-                                    console.log('Saved new invoice name:', saved_invoice_name);
-                                    console.log('Creator name:', created_by_name);
-                                    
-                                    // CRITICAL: Use the created_by_name we just got
-                                    me.handle_successful_hold(saved_invoice_name, created_by_name);
-                                }).catch((error) => {
-                                    console.error('Error saving new draft invoice:', error);
-                                    frappe.show_alert({
-                                        message: __("Failed to save invoice"),
-                                        indicator: 'red'
-                                    });
-                                });
-                            });
-                            secret_dialog.hide();
-                        } else {
-                            frappe.show_alert({
-                                message: __("Invalid secret key"),
-                                indicator: 'red'
-                            });
-                            frappe.dom.unfreeze();
-                            secret_dialog.hide();
-                        }
-                    }
-                });
-            }
-        });
-        secret_dialog.show();
-    };
-
-    // Mobile customer logic (unchanged)
-    if (!cur_frm.doc.customer && me.mobile_number_based_customer) {
-        const mobile_dialog = me.create_mobile_dialog(function(values) {
-            if (values['mobile_number'].length !== me.settings.custom_mobile_number_length) {
-                frappe.throw("Mobile Number Length is " + me.settings.custom_mobile_number_length.toString());
-                return;
-            }
-            frappe.call({
-                method: "posnext.posnext.page.posnext.point_of_sale.create_customer",
-                args: {
-                    customer: values['mobile_number']
-                },
-                freeze: true,
-                freeze_message: "Creating Customer....",
-                callback: function() {
-                    const frm = me.events.get_frm();
-                    frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'customer', values['mobile_number']);
-                    frm.script_manager.trigger('customer', frm.doc.doctype, frm.doc.name).then(() => {
-                        frappe.run_serially([
-                            () => me.fetch_customer_details(values['mobile_number']),
-                            () => me.events.customer_details_updated(me.customer_info),
-                            () => me.update_customer_section(),
-                            () => frappe.dom.unfreeze(),
-                            () => show_secret_key_popup(values['mobile_number'])
-                        ]);
-                    });
-                    mobile_dialog.hide();
+                if (!cur_frm.doc.customer && !me.mobile_number_based_customer) {
+                    frappe.throw("Please Select a customer and add items first");
+                    return;
                 }
-            });
-        });
-        mobile_dialog.show();
-    } else {
-        if (!cur_frm.doc.customer && !me.mobile_number_based_customer) {
-            frappe.throw("Please select a customer before holding the invoice");
+                await me.events.checkout();
+                me.toggle_checkout_btn(false);
+                me.allow_discount_change && me.$add_discount_elem.removeClass("d-none");
+            }
+        } catch (error) {
+            console.error('Error in checkout:', error);
+            frappe.msgprint(__('Error during checkout. Please try again.'));
+        }
+    });
+
+
+		    this.$component.on('click', '.checkout-btn-held', function() {
+        if ($(this).attr('style').indexOf('--blue-500') == -1) return;
+        if (!cur_frm.doc.items.length) {
+            frappe.throw("Cannot save empty invoice");
             return;
         }
-        show_secret_key_popup();
-    }
-});
+
+        console.log('Hold button clicked');
+
+        const show_secret_key_popup = (mobile_number = null) => {
+            const secret_dialog = me.create_secret_dialog(function(values) {
+                const frm = me.events.get_frm();
+                const invoice_name = frm.doc.name;
+                
+                // Set created_by_name before saving
+                frm.doc.created_by_name = frm.doc.created_by_name || frappe.session.user;
+                console.log('Setting created_by_name before hold:', frm.doc.created_by_name);
+
+                if (invoice_name && !frm.doc.__islocal) {
+                    // Existing draft invoice
+                    frappe.call({
+                        method: "posnext.posnext.page.posnext.point_of_sale.check_edit_permission",
+                        args: {
+                            invoice_name: invoice_name,
+                            secret_key: values['secret_key']
+                        },
+                        freeze: true,
+                        freeze_message: "Validating Secret Key...",
+                        callback: function(r) {
+                            if (r.message.can_edit) {
+                                frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', r.message.created_by_name || frappe.session.user);
+                                frm.script_manager.trigger('created_by_name', frm.doc.doctype, frm.doc.name).then(() => {
+                                    me.events.save_draft_invoice().then(() => {
+                                        const saved_invoice_name = frm.doc.name;
+                                        const creator_name = r.message.created_by_name || frappe.session.user;
+                                        console.log('Hold successful, invoice:', saved_invoice_name, 'creator:', creator_name);
+                                        me.handle_successful_hold(saved_invoice_name, creator_name);
+                                    });
+                                });
+                                secret_dialog.hide();
+                            } else {
+                                frappe.show_alert({
+                                    message: __(`You did not create this invoice, hence you cannot edit it. Only the creator (${r.message.created_by_name}) can edit it.`),
+                                    indicator: 'red'
+                                });
+                                frappe.dom.unfreeze();
+                                secret_dialog.hide();
+                            }
+                        },
+                        error: (xhr, status, error) => {
+                            frappe.dom.unfreeze();
+                            frappe.show_alert({
+                                message: __("Failed to validate secret key. Please try again or contact support."),
+                                indicator: 'red'
+                            });
+                            secret_dialog.hide();
+                        }
+                    });
+                } else {
+                    // New invoice
+                    frappe.call({
+                        method: "posnext.posnext.page.posnext.point_of_sale.get_user_name_from_secret_key",
+                        args: {
+                            secret_key: values['secret_key']
+                        },
+                        freeze: true,
+                        freeze_message: "Validating Secret Key...",
+                        callback: function(r) {
+                            if (r.message) {
+                                const created_by_name = r.message;
+                                frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', created_by_name);
+                                frm.script_manager.trigger('created_by_name', frm.doc.doctype, frm.doc.name).then(() => {
+                                    me.events.save_draft_invoice().then(() => {
+                                        const saved_invoice_name = frm.doc.name;
+                                        console.log('Hold successful, invoice:', saved_invoice_name, 'creator:', created_by_name);
+                                        me.handle_successful_hold(saved_invoice_name, created_by_name);
+                                    });
+                                });
+                                secret_dialog.hide();
+                            } else {
+                                frappe.show_alert({
+                                    message: __("Invalid secret key"),
+                                    indicator: 'red'
+                                });
+                                frappe.dom.unfreeze();
+                                secret_dialog.hide();
+                            }
+                        }
+                    });
+                }
+            });
+            secret_dialog.show();
+        };
+
+        if (!cur_frm.doc.customer && me.mobile_number_based_customer) {
+            const mobile_dialog = me.create_mobile_dialog(function(values) {
+                if (values['mobile_number'].length !== me.settings.custom_mobile_number_length) {
+                    frappe.throw("Mobile Number Length is " + me.settings.custom_mobile_number_length.toString());
+                    return;
+                }
+                frappe.call({
+                    method: "posnext.posnext.page.posnext.point_of_sale.create_customer",
+                    args: {
+                        customer: values['mobile_number']
+                    },
+                    freeze: true,
+                    freeze_message: "Creating Customer....",
+                    callback: function() {
+                        const frm = me.events.get_frm();
+                        frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'customer', values['mobile_number']);
+                        frm.script_manager.trigger('customer', frm.doc.doctype, frm.doc.name).then(() => {
+                            frappe.run_serially([
+                                () => me.fetch_customer_details(values['mobile_number']),
+                                () => me.events.customer_details_updated(me.customer_info),
+                                () => me.update_customer_section(),
+                                () => frappe.dom.unfreeze(),
+                                () => show_secret_key_popup(values['mobile_number'])
+                            ]);
+                        });
+                        mobile_dialog.hide();
+                    }
+                });
+            });
+            mobile_dialog.show();
+        } else {
+            if (!cur_frm.doc.customer && !me.mobile_number_based_customer) {
+                frappe.throw("Please select a customer before holding the invoice");
+                return;
+            }
+            show_secret_key_popup();
+        }
+    });
+
 
 		this.$component.on('click', '.checkout-btn-order', () => {
 			me.events.toggle_recent_order();
@@ -606,85 +607,11 @@ this.$component.on('click', '.checkout-btn-held', function() {
 	}
 
 async handle_successful_hold(invoice_name, creator_name) {
-    console.log('🔥 === HANDLE SUCCESSFUL HOLD CALLED ===');
-    console.log('🔥 Invoice name:', invoice_name);
-    console.log('🔥 Creator name:', creator_name);
-    console.log('🔥 Current timestamp:', new Date().toISOString());
-    
-    if (!invoice_name || !creator_name) {
-        console.error('🔥 Missing required parameters:', { invoice_name, creator_name });
-        frappe.show_alert({
-            message: __('Error: Missing invoice name or creator name'),
-            indicator: 'red'
-        });
-        return;
-    }
-    
-    try {
-        console.log('🔥 Step 1: Navigating to PastOrderList...');
-        // First, navigate to PastOrderList
-        await this.events.toggle_recent_order();
-        console.log('🔥 Step 1 Complete: Navigation done');
-        
-        // Wait a bit for the component to be properly initialized
-        console.log('🔥 Step 2: Waiting for component initialization...');
-        await new Promise(resolve => setTimeout(resolve, 300));
-        
-        // Check if PastOrderList instance exists and is properly initialized
-        console.log('🔥 Step 3: Checking for PastOrderList instance...');
-        const pastOrderListInstance = posnext.PointOfSale.PastOrderList.current_instance;
-        console.log('🔥 Instance check result:', !!pastOrderListInstance);
-        
-        if (pastOrderListInstance) {
-            console.log('🔥 Step 4: PastOrderList instance found!');
-            console.log('🔥 Calling set_filter_and_refresh_with_held_invoice with:');
-            console.log('🔥   - creator_name:', creator_name);
-            console.log('🔥   - invoice_name:', invoice_name);
-            
-            // Call the method to set filter and refresh
-            const result = await pastOrderListInstance.set_filter_and_refresh_with_held_invoice(creator_name, invoice_name);
-            
-            console.log('🔥 Step 4 Complete: Filter and refresh result:', result);
-            console.log('🔥 SUCCESS: Handle successful hold completed successfully!');
-            
-            // Show success message
-            frappe.show_alert({
-                message: __('Invoice held successfully: ') + invoice_name,
-                indicator: 'green'
-            });
-        } else {
-            console.log('🔥 Step 4 Failed: PastOrderList instance not found, trying retry...');
-            
-            // Fallback: try to wait longer and retry once
-            await new Promise(resolve => setTimeout(resolve, 700));
-            const retryInstance = posnext.PointOfSale.PastOrderList.current_instance;
-            console.log('🔥 Retry instance check:', !!retryInstance);
-            
-            if (retryInstance) {
-                console.log('🔥 Retry successful! Calling set_filter_and_refresh_with_held_invoice');
-                await retryInstance.set_filter_and_refresh_with_held_invoice(creator_name, invoice_name);
-                console.log('🔥 SUCCESS: Retry completed successfully!');
-                
-                frappe.show_alert({
-                    message: __('Invoice held successfully: ') + invoice_name,
-                    indicator: 'green'
-                });
-            } else {
-                console.error('🔥 FAILED: PastOrderList instance still not found after retry!');
-                console.error('🔥 Available global objects:', Object.keys(window.posnext || {}));
-                frappe.show_alert({
-                    message: __('Invoice held successfully, but could not auto-filter. Please manually select the creator filter.'),
-                    indicator: 'orange'
-                });
-            }
-        }
-    } catch (error) {
-        console.error('🔥 ERROR in handle_successful_hold:', error);
-        console.error('🔥 Error stack:', error.stack);
-        frappe.show_alert({
-            message: __('Invoice held successfully: ') + invoice_name,
-            indicator: 'green'
-        });
+    console.log('Handling successful hold:', invoice_name, creator_name);
+	await this.events.toggle_recent_order(); // Navigate to PastOrderList
+    if (posnext.PointOfSale.PastOrderList.current_instance) {
+        const pastOrderList = posnext.PointOfSale.PastOrderList.current_instance;
+        await pastOrderList.set_filter_and_refresh_with_held_invoice(creator_name, invoice_name);
     }
 }
 	attach_shortcuts() {
