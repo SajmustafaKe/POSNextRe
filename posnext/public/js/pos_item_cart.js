@@ -404,7 +404,7 @@ posnext.PointOfSale.ItemCart = class {
 			me.events.cart_item_clicked({ name: item_row_name });
 			this.numpad_value = '';
 		});
-this.$component.on('click', '.checkout-btn-held', function() {
+		this.$component.on('click', '.checkout-btn-held', function() {
 	if ($(this).attr('style').indexOf('--blue-500') == -1) return;
 	if (!cur_frm.doc.items.length) {
 		frappe.throw("Cannot save empty invoice");
@@ -554,28 +554,21 @@ this.$component.on('click', '.checkout-btn-held', function() {
 	}
 
 handle_successful_hold(invoice_name, creator_name) {
-	// Check if we're already on the order list (coming from back button)
-	const already_on_order_list = $('.past-order-list').is(':visible');
+	// Navigate to order list
+	this.events.toggle_recent_order();
 	
-	if (already_on_order_list) {
-		// We're already on the order list, just update the filter directly
-		setTimeout(() => {
-			if (posnext.PointOfSale.PastOrderList.current_instance) {
-				const pastOrderList = posnext.PointOfSale.PastOrderList.current_instance;
-				pastOrderList.force_filter_update_and_refresh(creator_name, invoice_name);
-			}
-		}, 400);
-	} else {
-		// Navigate to order list first, then update filter
-		this.events.toggle_recent_order();
-		
-		setTimeout(() => {
-			if (posnext.PointOfSale.PastOrderList.current_instance) {
-				const pastOrderList = posnext.PointOfSale.PastOrderList.current_instance;
-				pastOrderList.force_filter_update_and_refresh(creator_name, invoice_name);
-			}
-		}, 400);
-	}
+	// Set up the filter after a delay to ensure the invoice is saved
+	setTimeout(() => {
+		if (posnext.PointOfSale.PastOrderList.current_instance) {
+			const pastOrderList = posnext.PointOfSale.PastOrderList.current_instance;
+			
+			// Set the held invoice flag
+			pastOrderList.set_just_held_invoice(invoice_name);
+			
+			// Update the filter - this will trigger refresh and auto-load
+			pastOrderList.created_by_field.set_value(creator_name);
+		}
+	}, 400);
 }
 
 	attach_shortcuts() {

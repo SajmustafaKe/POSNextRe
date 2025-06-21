@@ -229,7 +229,9 @@ refresh_list() {
 		args: { 
 			search_term, 
 			status,
-			created_by: created_by === 'All' ? '' : created_by
+			created_by: created_by === 'All' ? '' : created_by,
+			// Add timestamp to force fresh data when we just held an invoice
+			_force_refresh: this._just_held_invoice ? Date.now() : undefined
 		},
 		callback: (response) => {
 			frappe.dom.unfreeze();
@@ -240,7 +242,7 @@ refresh_list() {
 				this.$invoices_container.append(invoice_html);
 			});
 			
-			// NEW: Auto-load the most recent invoice summary
+			// Auto-load the most recent invoice summary
 			this.auto_load_most_recent_summary(response.message);
 		}
 	});
@@ -253,14 +255,11 @@ auto_load_most_recent_summary(invoices) {
 		return;
 	}
 	
-	// Find the most recent invoice (first one in the list since they're ordered by date)
+	// Load the most recent invoice (first one in the list)
 	const most_recent_invoice = invoices[0];
 	
-	// Load the summary immediately
 	setTimeout(() => {
 		this.events.open_invoice_data(most_recent_invoice.name);
-		
-		// Optional: Highlight the invoice in the list
 		this.highlight_invoice_in_list(most_recent_invoice.name);
 		
 		// Show success message for held invoices
@@ -269,8 +268,10 @@ auto_load_most_recent_summary(invoices) {
 				message: __('Invoice held successfully: ') + most_recent_invoice.name,
 				indicator: 'green'
 			});
-			this._just_held_invoice = null; // Clear the flag
 		}
+		
+		// Clear the flag after using it
+		this._just_held_invoice = null;
 	}, 100);
 }
 
@@ -305,9 +306,6 @@ toggle_component(show) {
 				this.$component.css('display', 'none');
 				this.selected_invoices.clear();
 				this.update_merge_section();
-				// Clear all cached state when hiding the component
-				this._just_held_invoice = null;
-				this._last_filter_state = null;
 			}
 		},
 		() => {
@@ -317,32 +315,18 @@ toggle_component(show) {
 	]);
 }
 
-// Enhanced method to ensure we get the newly held invoice with proper filter handling
+// Enhanced method for setting filter and refreshing (called from ItemCart)
 set_filter_and_refresh_with_held_invoice(created_by_name, held_invoice_name = null) {
 	// Mark that we just held an invoice
 	if (held_invoice_name) {
 		this.set_just_held_invoice(held_invoice_name);
 	}
 	
-	// IMPORTANT: Always clear and set the filter, even if it's the same value
-	// This ensures proper refresh when switching between users
+	// Set the created_by filter
+	this.created_by_field.set_value(created_by_name);
 	
-	// First clear the filter to force a refresh
-	this.created_by_field.set_value('All');
-	
-	// Force a brief delay to ensure the field is cleared
-	setTimeout(() => {
-		// Now set the correct filter
-		this.created_by_field.set_value(created_by_name);
-		
-		// Force another delay to ensure the field is properly set
-		setTimeout(() => {
-			// Refresh the list with the new filter
-			this.refresh_list();
-		}, 200);
-	}, 100);
-	
-	return Promise.resolve();
+	// Refresh the list (will auto-load most recent summary)
+	return this.refresh_list();
 }
 	get_invoice_html(invoice) {
 		const posting_datetime = moment(invoice.posting_date+" "+invoice.posting_time).format("Do MMMM, h:mma");
