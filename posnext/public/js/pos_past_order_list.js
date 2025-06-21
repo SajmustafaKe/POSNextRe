@@ -8,6 +8,8 @@ posnext.PointOfSale.PastOrderList = class {
 		this.can_merge_invoices = this.check_merge_permission(); // Check if user can merge
 		this.user_list = []; // Store list of users from User Secret Key
 		posnext.PointOfSale.PastOrderList.current_instance = this;
+		this._just_held_invoice = null; // Explicitly initialize
+		this._pending_created_by = null; // Store pending created_by filter
 
 		this.init_component();
 	}
@@ -102,7 +104,9 @@ posnext.PointOfSale.PastOrderList = class {
 		});
 
 		this.$component.on('click', '.back', function() {
-			me.events.previous_screen()
+			me.events.reset_summary();
+			me.events.previous_screen();
+			// Do not clear _just_held_invoice here; let ItemCart set it
 		});
 	}
 
@@ -203,13 +207,14 @@ posnext.PointOfSale.PastOrderList = class {
 		this.status_field.set_value('Draft');
 	}
 
-	refresh_list() {
+	refresh_list(search_term = '', status = 'Draft', created_by = '') {
 		frappe.dom.freeze();
 		this.events.reset_summary();
-		const search_term = this.search_field.get_value();
-		const status = this.status_field.get_value();
-		const created_by = this.created_by_field.get_value();
-
+		if (this._pending_created_by) {
+			created_by = this._pending_created_by; // Use pending filter if set
+			this.created_by_field.set_value(created_by);
+			this._pending_created_by = null; // Clear after applying
+		}
 		// Clear selected invoices when refreshing
 		this.selected_invoices.clear();
 		this.update_merge_section();
@@ -222,17 +227,61 @@ posnext.PointOfSale.PastOrderList = class {
 			args: { 
 				search_term, 
 				status,
-				created_by: created_by === 'All' ? '' : created_by // Send empty string for 'All'
+				created_by: created_by === 'All' ? '' : created_by, // Send empty string for 'All'
+				_force_refresh: this._just_held_invoice ? Date.now() : undefined
 			},
 			callback: (response) => {
 				frappe.dom.unfreeze();
-				invoicess = response.message
+				this.invoices = response.message || []; // Store in instance property
+				invoicess = response.message;
+				
 				response.message.forEach(invoice => {
 					const invoice_html = this.get_invoice_html(invoice);
 					this.$invoices_container.append(invoice_html);
 				});
+				
+				this.auto_load_most_recent_summary(response.message);
 			}
 		});
+	}
+
+	auto_load_most_recent_summary(invoices) {
+		if (!invoices || invoices.length === 0) {
+			this.events.reset_summary();
+			return;
+		}
+		
+		const most_recent_invoice = this._just_held_invoice 
+			? invoices.find(inv => inv.name === this._just_held_invoice) || invoices[0]
+			: invoices[0];
+		
+		if (most_recent_invoice) {
+			this.events.open_invoice_data(most_recent_invoice.name);
+			this.highlight_invoice_in_list(most_recent_invoice.name);
+			if (this._just_held_invoice && this._just_held_invoice === most_recent_invoice.name) {
+				frappe.show_alert({
+					message: __('Invoice held successfully: ') + most_recent_invoice.name,
+					indicator: 'green'
+				});
+			}
+		}
+		this._just_held_invoice = null; // Clear after processing
+	}
+
+	highlight_invoice_in_list(invoice_name) {
+		// Remove previous highlighting
+		this.$invoices_container.find('.invoice-wrapper').removeClass('highlighted');
+		
+		// Add highlighting to the specified invoice
+		this.$invoices_container.find(`[data-invoice-name="${escape(invoice_name)}"]`).addClass('highlighted');
+	}
+
+	set_filter_and_refresh_with_held_invoice(created_by_name, held_invoice_name = null) {
+		if (held_invoice_name) {
+			this._just_held_invoice = held_invoice_name;
+		}
+		this._pending_created_by = created_by_name; // Store pending filter
+		return this.toggle_component(true); // Trigger refresh via toggle
 	}
 
 	get_invoice_html(invoice) {
@@ -368,21 +417,16 @@ posnext.PointOfSale.PastOrderList = class {
 	}
 
 	toggle_component(show) {
-		frappe.run_serially([
+		return frappe.run_serially([
 			() => {
 				if (show) {
 					this.$component.css('display', 'flex');
-					this.refresh_list();
+					return this.refresh_list();
 				} else {
 					this.$component.css('display', 'none');
 					// Clear selections when hiding component
 					this.selected_invoices.clear();
 					this.update_merge_section();
-				}
-			},
-			() => {
-				if (show && invoicess && invoicess.length > 0) {
-					this.events.open_invoice_data(invoicess[0].name);
 				}
 			}
 		]);
