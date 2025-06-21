@@ -246,22 +246,18 @@ refresh_list() {
 	});
 }
 
+// New method to automatically load the most recent invoice summary
 auto_load_most_recent_summary(invoices) {
-	console.log('🔍 Auto-loading most recent invoice from', invoices.length, 'invoices');
-	
 	if (!invoices || invoices.length === 0) {
-		console.log('📭 No invoices to display');
 		this.events.reset_summary();
 		return;
 	}
 	
 	// Find the most recent invoice (first one in the list since they're ordered by date)
 	const most_recent_invoice = invoices[0];
-	console.log('📊 Most recent invoice:', most_recent_invoice.name);
 	
 	// Load the summary immediately
 	setTimeout(() => {
-		console.log('🚀 Loading summary for most recent invoice:', most_recent_invoice.name);
 		this.events.open_invoice_data(most_recent_invoice.name);
 		
 		// Optional: Highlight the invoice in the list
@@ -287,14 +283,12 @@ highlight_invoice_in_list(invoice_name) {
 	const target_invoice = this.$invoices_container.find(`[data-invoice-name="${escape(invoice_name)}"]`);
 	if (target_invoice.length > 0) {
 		target_invoice.addClass('active-invoice');
-		console.log('✨ Highlighted invoice in list:', invoice_name);
 	}
 }
 
 // Method to set flag when an invoice was just held
 set_just_held_invoice(invoice_name) {
 	this._just_held_invoice = invoice_name;
-	console.log('🏷️ Marked as just held:', invoice_name);
 }
 
 // Enhanced toggle_component method
@@ -322,8 +316,6 @@ toggle_component(show) {
 
 // Enhanced method for setting filter and refreshing (called from ItemCart)
 set_filter_and_refresh_with_held_invoice(created_by_name, held_invoice_name = null) {
-	console.log('🎯 Setting filter and refreshing for held invoice:', { created_by_name, held_invoice_name });
-	
 	// Mark that we just held an invoice
 	if (held_invoice_name) {
 		this.set_just_held_invoice(held_invoice_name);
