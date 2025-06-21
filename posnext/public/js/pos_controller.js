@@ -610,7 +610,7 @@ find_available_opening_entry() {
 	toggle_recent_order_list(show) {
 		this.toggle_components(!show);
 		this.recent_order_list.toggle_component(show);
-		this.recent_order_list.refresh_list();
+		
 		this.order_summary.toggle_component(show);
 	}
 
