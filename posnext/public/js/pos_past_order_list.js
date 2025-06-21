@@ -216,40 +216,88 @@ posnext.PointOfSale.PastOrderList = class {
         this.status_field.set_value('Draft');
     }
 
-    refresh_list(search_term = '', status = 'Draft', created_by = '') {
-        frappe.dom.freeze();
-        this.events.reset_summary();
-        if (this._pending_created_by) {
-            created_by = this._pending_created_by; // Use pending filter if set
-            this.created_by_field.set_value(created_by);
-            this._pending_created_by = null; // Clear after applying
-        }
-        this.selected_invoices.clear();
-        this.update_merge_section();
-        this.$invoices_container.html('');
-
-        return frappe.call({
-            method: "posnext.posnext.page.posnext.point_of_sale.get_past_order_list",
-            freeze: true,
-            args: { 
-                search_term, 
-                status,
-                created_by: created_by === 'All' ? '' : created_by,
-                _force_refresh: this._just_held_invoice ? Date.now() : undefined
-            },
-            callback: (response) => {
-                frappe.dom.unfreeze();
-                this.invoices = response.message || []; // Store in instance property
-                
-                response.message.forEach(invoice => {
-                    const invoice_html = this.get_invoice_html(invoice);
-                    this.$invoices_container.append(invoice_html);
-                });
-                
-                this.auto_load_most_recent_summary(response.message);
-            }
-        });
+set_filter_and_refresh_with_held_invoice(created_by_name, held_invoice_name = null) {
+    console.log('Setting filter to:', created_by_name, 'with held invoice:', held_invoice_name);
+    
+    if (held_invoice_name) {
+        this._just_held_invoice = held_invoice_name;
     }
+    
+    // CRITICAL FIX: Always update the filter immediately if user list is loaded
+    if (this.user_list && this.user_list.length > 0) {
+        console.log('User list already loaded, setting filter immediately');
+        this.created_by_field.set_value(created_by_name);
+        // Clear any pending state since we're applying immediately
+        this._pending_created_by = null;
+        return this.toggle_component(true);
+    } else {
+        // Store pending filter for when user list loads
+        console.log('User list not loaded yet, storing pending filter');
+        this._pending_created_by = created_by_name;
+        return this.toggle_component(true);
+    }
+}
+
+refresh_list(search_term = '', status = 'Draft', created_by = '') {
+    frappe.dom.freeze();
+    this.events.reset_summary();
+    
+    // CRITICAL FIX: Handle pending filter state properly
+    let final_created_by = created_by;
+    if (this._pending_created_by) {
+        console.log('Applying pending created_by filter:', this._pending_created_by);
+        final_created_by = this._pending_created_by;
+        // Apply the pending filter to the field BEFORE making the API call
+        this.created_by_field.set_value(this._pending_created_by);
+        this._pending_created_by = null; // Clear after applying
+    }
+    
+    this.selected_invoices.clear();
+    this.update_merge_section();
+    this.$invoices_container.html('');
+
+    return frappe.call({
+        method: "posnext.posnext.page.posnext.point_of_sale.get_past_order_list",
+        freeze: true,
+        args: { 
+            search_term, 
+            status,
+            created_by: final_created_by === 'All' ? '' : final_created_by,
+            _force_refresh: this._just_held_invoice ? Date.now() : undefined
+        },
+        callback: (response) => {
+            frappe.dom.unfreeze();
+            this.invoices = response.message || [];
+            
+            response.message.forEach(invoice => {
+                const invoice_html = this.get_invoice_html(invoice);
+                this.$invoices_container.append(invoice_html);
+            });
+            
+            this.auto_load_most_recent_summary(response.message);
+        }
+    });
+}
+
+setup_created_by_field() {
+    let options = "All\n" + this.user_list.map(user => user.user_name).join('\n');
+    this.created_by_field.df.options = options;
+    this.created_by_field.refresh();
+    
+    // CRITICAL FIX: Check for pending filter after setting up options
+    if (this._pending_created_by) {
+        console.log('Applying pending created_by after field setup:', this._pending_created_by);
+        this.created_by_field.set_value(this._pending_created_by);
+        this._pending_created_by = null; // Clear after applying
+        // Trigger refresh with the new filter
+        setTimeout(() => {
+            this.refresh_list();
+        }, 100);
+    } else {
+        // Only get most recent creator if no pending filter
+        this.get_most_recent_creator();
+    }
+}
 
     auto_load_most_recent_summary(invoices) {
         if (!invoices || invoices.length === 0) {
@@ -274,28 +322,27 @@ posnext.PointOfSale.PastOrderList = class {
         this._just_held_invoice = null; // Clear after processing
     }
 
-    set_filter_and_refresh_with_held_invoice(created_by_name, held_invoice_name = null) {
-        if (held_invoice_name) {
-            this._just_held_invoice = held_invoice_name;
-        }
-        this._pending_created_by = created_by_name; // Store pending filter
-        return this.toggle_component(true); // Trigger refresh via toggle
-    }
-
-    toggle_component(show) {
-        return frappe.run_serially([
-            () => {
-                if (show) {
-                    this.$component.css('display', 'flex');
-                    return this.refresh_list();
-                } else {
-                    this.$component.css('display', 'none');
-                    this.selected_invoices.clear();
-                    this.update_merge_section();
-                }
+toggle_component(show) {
+    return frappe.run_serially([
+        () => {
+            if (show) {
+                this.$component.css('display', 'flex');
+                // Pass current field values, but refresh_list will handle pending state
+                return this.refresh_list(
+                    this.search_field.get_value(),
+                    this.status_field.get_value(),
+                    this.created_by_field.get_value()
+                );
+            } else {
+                this.$component.css('display', 'none');
+                this.selected_invoices.clear();
+                this.update_merge_section();
             }
-        ]);
-    }
+        }
+    ]);
+}
+
+   
     get_invoice_html(invoice) {
         const posting_datetime = moment(invoice.posting_date + " " + invoice.posting_time).format("Do MMMM, h:mma");
         
