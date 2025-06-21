@@ -227,7 +227,7 @@ set_filter_and_refresh_with_held_invoice(created_by_name, held_invoice_name = nu
         if (this.user_list && this.user_list.length > 0) {
             this.created_by_field.set_value(created_by_name);
             this._pending_created_by = null;
-            return this.refresh_list_with_retry(held_invoice_name);
+            return this.refresh_list(held_invoice_name);
         }
         return Promise.resolve();
     }).catch(error => {
