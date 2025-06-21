@@ -1,70 +1,70 @@
 frappe.provide('posnext.PointOfSale');
-var invoicess = []
 posnext.PointOfSale.PastOrderList = class {
-constructor({ wrapper, events }) {
+    constructor({ wrapper, events }) {
         this.wrapper = wrapper;
         this.events = events;
         this.selected_invoices = new Set();
         this.can_merge_invoices = this.check_merge_permission();
         this.user_list = [];
+        this.invoices = []; // Store invoices in instance property
+        this._just_held_invoice = null;
+        this._pending_created_by = null;
         posnext.PointOfSale.PastOrderList.current_instance = this;
-        this._just_held_invoice = null; // Explicitly initialize
-        this._pending_created_by = null; // Store pending created_by filter
         this.init_component();
     }
 
-	init_component() {
-		this.prepare_dom();
-		this.make_filter_section();
-		this.bind_events();
-		this.load_user_list(); // Load users for dropdown
-	}
+    init_component() {
+        this.prepare_dom();
+        this.make_filter_section();
+        this.bind_events();
+        this.load_user_list();
+    }
 
-	check_merge_permission() {
-		// Check if user has Waiter role - if they do, disable merge functionality
-		const user_roles = frappe.user_roles || [];
-		return !user_roles.includes('Waiter');
-	}
+    check_merge_permission() {
+        const user_roles = frappe.user_roles || [];
+        return !user_roles.includes('Waiter');
+    }
 
-	prepare_dom() {
-		this.wrapper.append(
-			`<section class="past-order-list">
-				<div class="filter-section">
-					<div class="label back" style="font-size: 13px ">
-						<a>
-							<svg class="es-line" style="width: 13px;height: 13px">
-								<use class="" href="#es-line-left-chevron"></use></svg> Back
-						</a>
-					</div>
-					<br>
-					<div class="label">${__('Recent Orders')}</div>
-					<div class="search-field"></div>
-					<div class="status-field"></div>
-					<div class="created-by-field"></div>
-				</div>
-				<div class="invoices-container"></div>
-				<div class="merge-section" style="display: none; padding: 15px; border-top: 1px solid #d1d8dd; background-color: #f8f9fa;">
-					<div class="selected-count" style="margin-bottom: 10px; font-size: 12px; color: #6c757d;">
-						<span class="count">0</span> invoices selected
-					</div>
-					<button class="btn btn-primary btn-sm merge-btn" disabled>
-						<svg style="width: 14px; height: 14px; margin-right: 5px;" viewBox="0 0 24 24" fill="currentColor">
-							<path d="M17,20.5V19H7V20.5L3,16.5L7,12.5V14H17V12.5L21,16.5L17,20.5M7,3.5V5H17V3.5L21,7.5L17,11.5V10H7V11.5L3,7.5L7,3.5Z"/>
-						</svg>
-						${__('Merge Selected Invoices')}
-					</button>
-				</div>
-			</section>`
-		);
+    prepare_dom() {
+        this.wrapper.append(
+            `<section class="past-order-list">
+                <div class="filter-section">
+                    <div class="label back" style="font-size: 13px">
+                        <a>
+                            <svg class="es-line" style="width: 13px;height: 13px">
+                                <use class="" href="#es-line-left-chevron"></use></svg> Back
+                        </a>
+                    </div>
+                    <br>
+                    <div class="label">${__('Recent Orders')}</div>
+                    <div class="search-field"></div>
+                    <div class="status-field"></div>
+                    <div class="created-by-field"></div>
+                </div>
+                <div class="invoices-container"></div>
+                <div class="merge-section" style="display: none; padding: 15px; border-top: 1px solid #d1d8dd; background-color: #f8f9fa;">
+                    <div class="selected-count" style="margin-bottom: 10px; font-size: 12px; color: #6c757d;">
+                        <span class="count">0</span> invoices selected
+                    </div>
+                    <button class="btn btn-primary btn-sm merge-btn" disabled>
+                        <svg style="width: 14px; height: 14px; margin-right: 5px;" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M17,20.5V19H7V20.5L3,16.5L7,12.5V14H17V12.5L21,16.5L17,20.5M7,3.5V5H17V3.5L21,7.5L17,11.5V10H7V11.5L3,7.5L7,3.5Z"/>
+                        </svg>
+                        ${__('Merge Selected Invoices')}
+                    </button>
+                </div>
+            </section>`
+        );
 
-		this.$component = this.wrapper.find('.past-order-list');
-		this.$invoices_container = this.$component.find('.invoices-container');
-		this.$merge_section = this.$component.find('.merge-section');
-		this.$merge_btn = this.$component.find('.merge-btn');
-		this.$selected_count = this.$component.find('.selected-count .count');
-	}
+        this.$component = this.wrapper.find('.past-order-list');
+        this.$invoices_container = this.$component.find('.invoices-container');
+        this.$merge_section = this.$component.find('.merge-section');
+        this.$merge_btn = this.$component.find('.merge-btn');
+        this.$selected_count = this.$component.find('.selected-count .count');
+    }
 
-	 bind_events() {
+    bind_events() {
+        const me = this;
         this.search_field.$input.on('input', (e) => {
             clearTimeout(this.last_search);
             this.last_search = setTimeout(() => {
@@ -73,8 +73,6 @@ constructor({ wrapper, events }) {
             }, 300);
         });
 
-        const me = this;
-        
         this.$invoices_container.on('click', '.invoice-wrapper', function(e) {
             if (!$(e.target).closest('.invoice-checkbox-container').length) {
                 const invoice_name = unescape($(this).attr('data-invoice-name'));
@@ -100,114 +98,65 @@ constructor({ wrapper, events }) {
         this.$component.on('click', '.back', function() {
             me.events.reset_summary();
             me.events.previous_screen();
-            // Do not clear _just_held_invoice here; let ItemCart set it
         });
     }
 
-	load_user_list() {
-		// Load users from User Secret Key doctype
-		frappe.call({
-			method: "frappe.client.get_list",
-			args: {
-				doctype: "User Secret Key",
-				fields: ["name", "user_name"],
-				filters: [["user_name", "!=", ""]],  // Only get records with user_name
-				order_by: "modified desc"
-			},
-			callback: (response) => {
-				if (response.message) {
-					this.user_list = response.message;
-					this.setup_created_by_field();
-				}
-			}
-		});
-	}
+    load_user_list() {
+        frappe.call({
+            method: "frappe.client.get_list",
+            args: {
+                doctype: "User Secret Key",
+                fields: ["name", "user_name"],
+                filters: [["user_name", "!=", ""]],
+                order_by: "modified desc"
+            },
+            callback: (response) => {
+                if (response.message) {
+                    this.user_list = response.message;
+                    this.setup_created_by_field();
+                    // If a pending filter exists, apply it after loading users
+                    if (this._pending_created_by) {
+                        this.created_by_field.set_value(this._pending_created_by);
+                        this._pending_created_by = null;
+                        this.refresh_list();
+                    }
+                }
+            }
+        });
+    }
 
-	setup_created_by_field() {
-		// Create options string for the dropdown using user_name field
-		let options = "All\n" + this.user_list.map(user => user.user_name).join('\n');
-		
-		// Update the created_by_field with the loaded options
-		this.created_by_field.df.options = options;
-		this.created_by_field.refresh();
-		
-		// Get the most recent created_by_name from invoices to set as default
-		this.get_most_recent_creator();
-	}
+    setup_created_by_field() {
+        let options = "All\n" + this.user_list.map(user => user.user_name).join('\n');
+        this.created_by_field.df.options = options;
+        this.created_by_field.refresh();
+    }
 
-	get_most_recent_creator() {
-		// Make a quick call to get the most recent invoice's creator
-		frappe.call({
-			method: "posnext.posnext.page.posnext.point_of_sale.get_past_order_list",
-			args: { 
-				search_term: '', 
-				status: 'Draft',
-				limit: 1 // Just get the most recent one
-			},
-			callback: (response) => {
-				if (response.message && response.message.length > 0) {
-					const most_recent_creator = response.message[0].created_by_name;
-					if (most_recent_creator) {
-						this.created_by_field.set_value(most_recent_creator);
-					}
-				}
-			}
-		});
-	}
+    get_most_recent_creator() {
+        frappe.call({
+            method: "posnext.posnext.page.posnext.point_of_sale.get_past_order_list",
+            args: { 
+                search_term: '', 
+                status: 'Draft',
+                limit: 1
+            },
+            callback: (response) => {
+                if (response.message && response.message.length > 0 && !this._pending_created_by) {
+                    const most_recent_creator = response.message[0].created_by_name;
+                    if (most_recent_creator) {
+                        this.created_by_field.set_value(most_recent_creator);
+                    }
+                }
+            }
+        });
+    }
 
-	make_filter_section() {
-		const me = this;
-		this.search_field = frappe.ui.form.make_control({
-			df: {
-				label: __('Search'),
-				fieldtype: 'Data',
-				placeholder: __('Search by invoice id or customer name')
-			},
-			parent: this.$component.find('.search-field'),
-			render_input: true,
-		});
-		
-		this.status_field = frappe.ui.form.make_control({
-			df: {
-				label: __('Invoice Status'),
-				fieldtype: 'Select',
-				options: `Draft\nPaid\nConsolidated\nReturn`,
-				placeholder: __('Filter by invoice status'),
-				onchange: function() {
-					if (me.$component.is(':visible')) me.refresh_list();
-				}
-			},
-			parent: this.$component.find('.status-field'),
-			render_input: true,
-		});
-
-		this.created_by_field = frappe.ui.form.make_control({
-			df: {
-				label: __('Created By'),
-				fieldtype: 'Select',
-				options: 'All', // Will be updated when user list is loaded
-				placeholder: __('Filter by creator'),
-				onchange: function() {
-					if (me.$component.is(':visible')) me.refresh_list();
-				}
-			},
-			parent: this.$component.find('.created-by-field'),
-			render_input: true,
-		});
-
-		this.search_field.toggle_label(false);
-		this.status_field.toggle_label(false);
-		this.created_by_field.toggle_label(false);
-		this.status_field.set_value('Draft');
-	}
-
-refresh_list(search_term = '', status = 'Draft', created_by = '') {
+    async refresh_list(search_term = '', status = 'Draft', created_by = '') {
         frappe.dom.freeze();
         this.events.reset_summary();
         if (this._pending_created_by) {
-            created_by = this._pending_created_by; // Use pending filter if set
-            this.created_by_field.set_value(created_by);
-            this._pending_created_by = null; // Clear after applying
+            created_by = this._pending_created_by;
+            await this.created_by_field.set_value(created_by);
+            this._pending_created_by = null;
         }
         this.selected_invoices.clear();
         this.update_merge_section();
@@ -224,7 +173,7 @@ refresh_list(search_term = '', status = 'Draft', created_by = '') {
             },
             callback: (response) => {
                 frappe.dom.unfreeze();
-                this.invoices = response.message || []; // Store in instance property
+                this.invoices = response.message || [];
                 
                 response.message.forEach(invoice => {
                     const invoice_html = this.get_invoice_html(invoice);
@@ -236,9 +185,9 @@ refresh_list(search_term = '', status = 'Draft', created_by = '') {
         });
     }
 
-    auto_load_most_recent_summary(invoices) {
+    async auto_load_most_recent_summary(invoices) {
         if (!invoices || invoices.length === 0) {
-            this.events.reset_summary();
+            await this.events.reset_summary();
             return;
         }
         
@@ -247,7 +196,7 @@ refresh_list(search_term = '', status = 'Draft', created_by = '') {
             : invoices[0];
         
         if (most_recent_invoice) {
-            this.events.open_invoice_data(most_recent_invoice.name);
+            await this.events.open_invoice_data(most_recent_invoice.name);
             this.highlight_invoice_in_list(most_recent_invoice.name);
             if (this._just_held_invoice && this._just_held_invoice === most_recent_invoice.name) {
                 frappe.show_alert({
@@ -256,15 +205,34 @@ refresh_list(search_term = '', status = 'Draft', created_by = '') {
                 });
             }
         }
-        this._just_held_invoice = null; // Clear after processing
+        this._just_held_invoice = null;
     }
 
-    set_filter_and_refresh_with_held_invoice(created_by_name, held_invoice_name = null) {
+    async set_filter_and_refresh_with_held_invoice(created_by_name, held_invoice_name = null) {
         if (held_invoice_name) {
             this._just_held_invoice = held_invoice_name;
         }
-        this._pending_created_by = created_by_name; // Store pending filter
-        return this.toggle_component(true); // Trigger refresh via toggle
+        this._pending_created_by = created_by_name;
+        if (this.user_list.length === 0) {
+            // Wait for user list to load
+            await new Promise(resolve => {
+                const checkUsers = () => {
+                    if (this.user_list.length > 0) {
+                        resolve();
+                    } else {
+                        setTimeout(checkUsers, 100);
+                    }
+                };
+                checkUsers();
+            });
+        }
+        if (!this.user_list.some(user => user.user_name === created_by_name)) {
+            // Add new user to options if not present
+            this.user_list.push({ name: created_by_name, user_name: created_by_name });
+            this.setup_created_by_field();
+        }
+        await this.created_by_field.set_value(created_by_name);
+        return this.toggle_component(true);
     }
 
     toggle_component(show) {
