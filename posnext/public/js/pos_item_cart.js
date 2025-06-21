@@ -586,12 +586,23 @@ posnext.PointOfSale.ItemCart = class {
 		});
 	}
 
-async handle_successful_hold(invoice_name, creator_name) {
-    await this.events.toggle_recent_order(); // Navigate to PastOrderList
-    if (posnext.PointOfSale.PastOrderList.current_instance) {
-        const pastOrderList = posnext.PointOfSale.PastOrderList.current_instance;
-        await pastOrderList.set_filter_and_refresh_with_held_invoice(creator_name, invoice_name);
-    }
+handle_successful_hold(invoice_name, creator_name) {
+    console.log('Handling successful hold:', invoice_name, creator_name);
+    frappe.dom.freeze();
+    frappe.run_serially([
+        () => this.events.toggle_recent_order(),
+        () => {
+            if (posnext.PointOfSale.PastOrderList.current_instance) {
+                const pastOrderList = posnext.PointOfSale.PastOrderList.current_instance;
+                return pastOrderList.set_filter_and_refresh_with_held_invoice(creator_name, invoice_name);
+            }
+        },
+         () => frappe.dom.unfreeze()
+    ]).catch(error => {
+        frappe.dom.unfreeze();
+        console.error('Error in handle_successful_hold:', error);
+        frappe.msgprint(__('Error holding invoice. Please try again.'));
+    });
 }
 	attach_shortcuts() {
 		for (let row of this.number_pad.keys) {
