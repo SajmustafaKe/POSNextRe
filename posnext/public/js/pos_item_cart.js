@@ -405,7 +405,7 @@ posnext.PointOfSale.ItemCart = class {
 			this.numpad_value = '';
 		});
 		this.$component.on('click', '.checkout-btn-held', function() {
-		this.recent_order_list.refresh_list();
+		
 	if ($(this).attr('style').indexOf('--blue-500') == -1) return;
 	if (!cur_frm.doc.items.length) {
 		frappe.throw("Cannot save empty invoice");
