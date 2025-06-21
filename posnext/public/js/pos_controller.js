@@ -234,7 +234,7 @@ find_available_opening_entry() {
 
 	toggle_recent_order() {
 		const show = this.recent_order_list.$component.is(':hidden');
-		this.recent_order_list.refresh_list();
+		
 		this.toggle_recent_order_list(show);
 	}
 
