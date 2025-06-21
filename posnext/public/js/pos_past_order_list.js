@@ -70,6 +70,7 @@ posnext.PointOfSale.PastOrderList = class {
 			clearTimeout(this.last_search);
 			this.last_search = setTimeout(() => {
 				const search_term = e.target.value;
+				console.log('Search input changed to:', search_term);
 				this.refresh_list(search_term, this.status_field.get_value(), this.created_by_field.get_value());
 			}, 300);
 		});
@@ -107,6 +108,25 @@ posnext.PointOfSale.PastOrderList = class {
 			me.events.reset_summary();
 			me.events.previous_screen();
 			// Do not clear _just_held_invoice here; let ItemCart set it
+		});
+
+		// Add additional event listeners for select fields to ensure they trigger
+		this.$component.on('change', '.status-field select', function() {
+			console.log('Status select changed via DOM event');
+			me.refresh_list(
+				me.search_field.get_value(), 
+				$(this).val(), 
+				me.created_by_field.get_value()
+			);
+		});
+
+		this.$component.on('change', '.created-by-field select', function() {
+			console.log('Created by select changed via DOM event');
+			me.refresh_list(
+				me.search_field.get_value(), 
+				me.status_field.get_value(), 
+				$(this).val()
+			);
 		});
 	}
 
@@ -180,7 +200,14 @@ posnext.PointOfSale.PastOrderList = class {
 				options: `Draft\nPaid\nConsolidated\nReturn`,
 				placeholder: __('Filter by invoice status'),
 				onchange: function() {
-					if (me.$component.is(':visible')) me.refresh_list();
+					console.log('Status field changed to:', me.status_field.get_value());
+					if (me.$component.is(':visible')) {
+						me.refresh_list(
+							me.search_field.get_value(), 
+							me.status_field.get_value(), 
+							me.created_by_field.get_value()
+						);
+					}
 				}
 			},
 			parent: this.$component.find('.status-field'),
@@ -194,7 +221,14 @@ posnext.PointOfSale.PastOrderList = class {
 				options: 'All', // Will be updated when user list is loaded
 				placeholder: __('Filter by creator'),
 				onchange: function() {
-					if (me.$component.is(':visible')) me.refresh_list();
+					console.log('Created by field changed to:', me.created_by_field.get_value());
+					if (me.$component.is(':visible')) {
+						me.refresh_list(
+							me.search_field.get_value(), 
+							me.status_field.get_value(), 
+							me.created_by_field.get_value()
+						);
+					}
 				}
 			},
 			parent: this.$component.find('.created-by-field'),
@@ -210,37 +244,66 @@ posnext.PointOfSale.PastOrderList = class {
 	refresh_list(search_term = '', status = 'Draft', created_by = '') {
 		frappe.dom.freeze();
 		this.events.reset_summary();
+		
+		// Handle pending created_by filter
 		if (this._pending_created_by) {
-			created_by = this._pending_created_by; // Use pending filter if set
+			created_by = this._pending_created_by;
 			this.created_by_field.set_value(created_by);
-			this._pending_created_by = null; // Clear after applying
+			this._pending_created_by = null;
 		}
+		
+		// Get current values from form controls if not provided
+		if (!search_term && this.search_field) {
+			search_term = this.search_field.get_value() || '';
+		}
+		if (!status && this.status_field) {
+			status = this.status_field.get_value() || 'Draft';
+		}
+		if (!created_by && this.created_by_field) {
+			created_by = this.created_by_field.get_value() || '';
+		}
+		
 		// Clear selected invoices when refreshing
 		this.selected_invoices.clear();
 		this.update_merge_section();
-
 		this.$invoices_container.html('');
+
+		console.log('Refreshing list with filters:', {
+			search_term: search_term,
+			status: status, 
+			created_by: created_by
+		});
 
 		return frappe.call({
 			method: "posnext.posnext.page.posnext.point_of_sale.get_past_order_list",
 			freeze: true,
 			args: { 
-				search_term, 
-				status,
-				created_by: created_by === 'All' ? '' : created_by, // Send empty string for 'All'
+				search_term: search_term || '', 
+				status: status || 'Draft',
+				created_by: created_by === 'All' ? '' : created_by,
 				_force_refresh: this._just_held_invoice ? Date.now() : undefined
 			},
 			callback: (response) => {
 				frappe.dom.unfreeze();
-				this.invoices = response.message || []; // Store in instance property
-				invoicess = response.message;
+				console.log('Server response:', response.message);
+				this.invoices = response.message || [];
+				invoicess = response.message || [];
 				
-				response.message.forEach(invoice => {
-					const invoice_html = this.get_invoice_html(invoice);
-					this.$invoices_container.append(invoice_html);
-				});
+				if (response.message && response.message.length > 0) {
+					response.message.forEach(invoice => {
+						const invoice_html = this.get_invoice_html(invoice);
+						this.$invoices_container.append(invoice_html);
+					});
+				} else {
+					this.$invoices_container.html('<div style="padding: 20px; text-align: center; color: #999;">No invoices found matching the current filters.</div>');
+				}
 				
 				this.auto_load_most_recent_summary(response.message);
+			},
+			error: (error) => {
+				frappe.dom.unfreeze();
+				console.error('Error fetching past orders:', error);
+				frappe.msgprint(__('Error loading past orders. Please try again.'));
 			}
 		});
 	}
