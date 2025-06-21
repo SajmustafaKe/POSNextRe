@@ -434,8 +434,7 @@ posnext.PointOfSale.ItemCart = class {
 								me.events.save_draft_invoice().then(() => {
 									const saved_invoice_name = frm.doc.name;
 									const creator_name = r.message.created_by_name;
-									this.recent_order_list.refresh_list();
-									
+														
 									// Simple approach: just navigate and set filter
 									me.handle_successful_hold(saved_invoice_name, creator_name);
 								});
@@ -569,6 +568,7 @@ handle_successful_hold(invoice_name, creator_name) {
 			
 			// Update the filter - this will trigger refresh and auto-load
 			pastOrderList.created_by_field.set_value(creator_name);
+			pastOrderList.refresh_list();
 		}
 	}, 400);
 }
