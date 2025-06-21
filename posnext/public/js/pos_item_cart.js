@@ -652,11 +652,34 @@ make_cart_totals_section() {
 
 async handle_successful_hold(invoice_name, creator_name) {
     console.log('Handling successful hold:', invoice_name, creator_name);
-	await this.events.toggle_recent_order(); // Navigate to PastOrderList
-    if (posnext.PointOfSale.PastOrderList.current_instance) {
-        const pastOrderList = posnext.PointOfSale.PastOrderList.current_instance;
-        await pastOrderList.set_filter_and_refresh_with_held_invoice(creator_name, invoice_name);
+    try {
+        await this.events.toggle_recent_order(); // Navigate to PastOrderList
+        if (posnext.PointOfSale.PastOrderList.current_instance) {
+            const pastOrderList = posnext.PointOfSale.PastOrderList.current_instance;
+            await pastOrderList.set_filter_and_refresh_with_held_invoice(creator_name, invoice_name);
+        }
+        this.reset_cart_state(); // Clear cart after navigation
+        frappe.dom.unfreeze(); // Ensure UI is unfrozen
+    } catch (error) {
+        console.error('Error in handle_successful_hold:', error);
+        frappe.show_alert({
+            message: __('Failed to complete hold action: {0}', [error.message]),
+            indicator: 'red'
+        });
+        frappe.dom.unfreeze();
     }
+}
+
+// Add reset_cart_state if not present
+reset_cart_state() {
+    const frm = this.events.get_frm();
+    frm.doc.items = [];
+    frm.doc.customer = '';
+    this.$cart_items_wrapper.html('');
+    this.make_no_items_placeholder();
+    this.update_totals_section(frm);
+    this.customer_info = {};
+    this.update_customer_section();
 }
 	attach_shortcuts() {
 		for (let row of this.number_pad.keys) {
