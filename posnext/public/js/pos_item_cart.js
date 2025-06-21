@@ -443,7 +443,6 @@ posnext.PointOfSale.ItemCart = class {
 		// Optimized held button handler
 // In the ItemCart class, update the held button event handler
 
-// Replace the existing held button handler with this enhanced version:
 this.$component.on('click', '.checkout-btn-held', function() {
 	if ($(this).attr('style').indexOf('--blue-500') == -1) return;
 	if (!cur_frm.doc.items.length) {
@@ -472,32 +471,26 @@ this.$component.on('click', '.checkout-btn-held', function() {
 							// Proceed with saving the invoice
 							frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', r.message.created_by_name);
 							frm.script_manager.trigger('created_by_name', frm.doc.doctype, frm.doc.name).then(() => {
-								frappe.run_serially([
-									() => me.events.save_draft_invoice(),
-									() => {
-										// Enhanced UX: Open order list with proper filter and summary
-										me.events.toggle_recent_order();
-										
-										// Set filter to the created_by_name and refresh
-										setTimeout(() => {
-											if (posnext.PointOfSale.PastOrderList.current_instance) {
-												const pastOrderList = posnext.PointOfSale.PastOrderList.current_instance;
-												
-												// Set the created_by filter to match the saved invoice
-												pastOrderList.created_by_field.set_value(r.message.created_by_name);
-												
-												// Refresh the list with the new filter
-												pastOrderList.refresh_list().then(() => {
-													// After refresh, open the summary of the saved invoice
-													setTimeout(() => {
-														me.events.open_invoice_data(invoice_name);
-													}, 1);
-												});
-											}
-										}, 1);
-									},
-									() => frappe.dom.unfreeze()
-								]);
+								// Save the invoice first
+								me.events.save_draft_invoice().then(() => {
+									// Store the saved invoice name and creator
+									const saved_invoice_name = frm.doc.name;
+									const creator_name = r.message.created_by_name;
+									
+									// Navigate to order list
+									me.events.toggle_recent_order();
+									
+									// Set up the filter and summary after a delay to ensure order list is loaded
+									setTimeout(() => {
+										me.setup_order_list_after_hold(saved_invoice_name, creator_name);
+									}, 300);
+								}).catch((error) => {
+									console.error('Error saving draft invoice:', error);
+									frappe.show_alert({
+										message: __("Error saving invoice"),
+										indicator: 'red'
+									});
+								});
 							});
 							secret_dialog.hide();
 						} else {
@@ -533,33 +526,25 @@ this.$component.on('click', '.checkout-btn-held', function() {
 							const created_by_name = r.message;
 							frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', created_by_name);
 							frm.script_manager.trigger('created_by_name', frm.doc.doctype, frm.doc.name).then(() => {
-								frappe.run_serially([
-									() => me.events.save_draft_invoice(),
-									() => {
-										// Enhanced UX: Open order list with proper filter and summary
-										me.events.toggle_recent_order();
-										
-										// Set filter to the created_by_name and refresh
-										setTimeout(() => {
-											if (posnext.PointOfSale.PastOrderList.current_instance) {
-												const pastOrderList = posnext.PointOfSale.PastOrderList.current_instance;
-												
-												// Set the created_by filter to match the saved invoice
-												pastOrderList.created_by_field.set_value(created_by_name);
-												
-												// Refresh the list with the new filter
-												pastOrderList.refresh_list().then(() => {
-													// After refresh, open the summary of the saved invoice
-													setTimeout(() => {
-														const current_invoice_name = frm.doc.name;
-														me.events.open_invoice_data(current_invoice_name);
-													}, 1);
-												});
-											}
-										}, 1);
-									},
-									() => frappe.dom.unfreeze()
-								]);
+								// Save the invoice first
+								me.events.save_draft_invoice().then(() => {
+									// Store the saved invoice name and creator
+									const saved_invoice_name = frm.doc.name;
+									
+									// Navigate to order list
+									me.events.toggle_recent_order();
+									
+									// Set up the filter and summary after a delay to ensure order list is loaded
+									setTimeout(() => {
+										me.setup_order_list_after_hold(saved_invoice_name, created_by_name);
+									}, 300);
+								}).catch((error) => {
+									console.error('Error saving draft invoice:', error);
+									frappe.show_alert({
+										message: __("Error saving invoice"),
+										indicator: 'red'
+									});
+								});
 							});
 							secret_dialog.hide();
 						} else {
@@ -616,6 +601,47 @@ this.$component.on('click', '.checkout-btn-held', function() {
 	}
 });
 
+// Add this helper method to the ItemCart class
+setup_order_list_after_hold(invoice_name, creator_name) {
+	const me = this;
+	
+	// Check if PastOrderList instance exists
+	if (posnext.PointOfSale.PastOrderList.current_instance) {
+		const pastOrderList = posnext.PointOfSale.PastOrderList.current_instance;
+		
+		// Set the filter first
+		pastOrderList.created_by_field.set_value(creator_name);
+		
+		// Refresh the list
+		pastOrderList.refresh_list().then(() => {
+			// After list is refreshed, open the specific invoice summary
+			setTimeout(() => {
+				// Use the events system to open the invoice data
+				pastOrderList.events.open_invoice_data(invoice_name);
+				
+				// Optional: Show a success message
+				frappe.show_alert({
+					message: __('Invoice held successfully and loaded in order list'),
+					indicator: 'green'
+				});
+			}, 500); // Longer delay to ensure everything is loaded
+		}).catch((error) => {
+			console.error('Error refreshing order list:', error);
+			// Still try to open the invoice even if refresh failed
+			setTimeout(() => {
+				pastOrderList.events.open_invoice_data(invoice_name);
+			}, 200);
+		});
+	} else {
+		console.warn('PastOrderList instance not found');
+		// Fallback: try to access events directly
+		setTimeout(() => {
+			if (me.events && me.events.open_invoice_data) {
+				me.events.open_invoice_data(invoice_name);
+			}
+		}, 500);
+	}
+}
 		this.$component.on('click', '.checkout-btn-order', () => {
 			me.events.toggle_recent_order();
 		});
