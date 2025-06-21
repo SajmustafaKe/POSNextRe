@@ -715,7 +715,8 @@ posnext.PointOfSale.Payment = class {
 		} else {
 			this.$split_container.hide();
 			this.clear_split_payments();
-			this.render_payment_mode_dom(); // Restore original payment modes
+			// FIXED: Render all payment modes regardless of amounts when exiting split mode
+			this.render_all_payment_modes();
 		}
 		
 		// Backup the current state
@@ -1984,6 +1985,70 @@ posnext.PointOfSale.Payment = class {
 			});
 			this[`${mode}_control`].toggle_label(false);
 			this[`${mode}_control`].set_value(p.amount);
+		});
+
+		this.render_loyalty_points_payment_mode();
+		this.attach_cash_shortcuts(doc);
+	}
+
+	// NEW: Method to render all payment modes when exiting split mode
+	render_all_payment_modes() {
+		const doc = this.events.get_frm().doc;
+		const payments = doc.payments;
+		const currency = doc.currency;
+
+		// Show ALL payment modes regardless of amounts
+		this.$payment_modes.html(`${
+			payments.map((p, i) => {
+				const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+				const payment_type = p.type;
+				// Always show amount, even if 0
+				const amount = format_currency(p.amount || 0, currency);
+
+				return (`
+					<div class="payment-mode-wrapper">
+						<div class="mode-of-payment" data-mode="${mode}" data-payment-type="${payment_type}">
+							${p.mode_of_payment}
+							<div class="${mode}-amount pay-amount">${amount}</div>
+							<div class="${mode} mode-of-payment-control"></div>
+						</div>
+					</div>
+				`);
+			}).join('')
+		}`);
+
+		// Create controls for ALL payment methods
+		payments.forEach(p => {
+			const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+			const me = this;
+			
+			// Clear any existing control first
+			if (this[`${mode}_control`]) {
+				this[`${mode}_control`] = null;
+			}
+			
+			this[`${mode}_control`] = frappe.ui.form.make_control({
+				df: {
+					label: p.mode_of_payment,
+					fieldtype: 'Currency',
+					placeholder: __('Enter {0} amount.', [p.mode_of_payment]),
+					onchange: function() {
+						const current_value = frappe.model.get_value(p.doctype, p.name, 'amount');
+						if (current_value != this.value) {
+							frappe.model
+								.set_value(p.doctype, p.name, 'amount', flt(this.value))
+								.then(() => me.update_totals_section())
+
+							const formatted_currency = format_currency(this.value, currency);
+							me.$payment_modes.find(`.${mode}-amount`).html(formatted_currency);
+						}
+					}
+				},
+				parent: this.$payment_modes.find(`.${mode}.mode-of-payment-control`),
+				render_input: true,
+			});
+			this[`${mode}_control`].toggle_label(false);
+			this[`${mode}_control`].set_value(p.amount || 0);
 		});
 
 		this.render_loyalty_points_payment_mode();
