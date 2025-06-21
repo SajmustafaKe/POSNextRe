@@ -602,46 +602,7 @@ this.$component.on('click', '.checkout-btn-held', function() {
 });
 
 // Add this helper method to the ItemCart class
-setup_order_list_after_hold(invoice_name, creator_name) {
-	const me = this;
-	
-	// Check if PastOrderList instance exists
-	if (posnext.PointOfSale.PastOrderList.current_instance) {
-		const pastOrderList = posnext.PointOfSale.PastOrderList.current_instance;
-		
-		// Set the filter first
-		pastOrderList.created_by_field.set_value(creator_name);
-		
-		// Refresh the list
-		pastOrderList.refresh_list().then(() => {
-			// After list is refreshed, open the specific invoice summary
-			setTimeout(() => {
-				// Use the events system to open the invoice data
-				pastOrderList.events.open_invoice_data(invoice_name);
-				
-				// Optional: Show a success message
-				frappe.show_alert({
-					message: __('Invoice held successfully and loaded in order list'),
-					indicator: 'green'
-				});
-			}, 500); // Longer delay to ensure everything is loaded
-		}).catch((error) => {
-			console.error('Error refreshing order list:', error);
-			// Still try to open the invoice even if refresh failed
-			setTimeout(() => {
-				pastOrderList.events.open_invoice_data(invoice_name);
-			}, 200);
-		});
-	} else {
-		console.warn('PastOrderList instance not found');
-		// Fallback: try to access events directly
-		setTimeout(() => {
-			if (me.events && me.events.open_invoice_data) {
-				me.events.open_invoice_data(invoice_name);
-			}
-		}, 500);
-	}
-}
+
 		this.$component.on('click', '.checkout-btn-order', () => {
 			me.events.toggle_recent_order();
 		});
@@ -721,6 +682,46 @@ setup_order_list_after_hold(invoice_name, creator_name) {
 			}
 		});
 	}
+	setup_order_list_after_hold(invoice_name, creator_name) {
+	const me = this;
+	
+	// Check if PastOrderList instance exists
+	if (posnext.PointOfSale.PastOrderList.current_instance) {
+		const pastOrderList = posnext.PointOfSale.PastOrderList.current_instance;
+		
+		// Set the filter first
+		pastOrderList.created_by_field.set_value(creator_name);
+		
+		// Refresh the list
+		pastOrderList.refresh_list().then(() => {
+			// After list is refreshed, open the specific invoice summary
+			setTimeout(() => {
+				// Use the events system to open the invoice data
+				pastOrderList.events.open_invoice_data(invoice_name);
+				
+				// Optional: Show a success message
+				frappe.show_alert({
+					message: __('Invoice held successfully and loaded in order list'),
+					indicator: 'green'
+				});
+			}, 500); // Longer delay to ensure everything is loaded
+		}).catch((error) => {
+			console.error('Error refreshing order list:', error);
+			// Still try to open the invoice even if refresh failed
+			setTimeout(() => {
+				pastOrderList.events.open_invoice_data(invoice_name);
+			}, 200);
+		});
+	} else {
+		console.warn('PastOrderList instance not found');
+		// Fallback: try to access events directly
+		setTimeout(() => {
+			if (me.events && me.events.open_invoice_data) {
+				me.events.open_invoice_data(invoice_name);
+			}
+		}, 500);
+	}
+}
 
 	toggle_item_highlight(item) {
 		const $cart_item = $(item);
