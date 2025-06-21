@@ -203,38 +203,56 @@ posnext.PointOfSale.PastOrderList = class {
 		this.status_field.set_value('Draft');
 	}
 
-	refresh_list() {
-		frappe.dom.freeze();
-		this.events.reset_summary();
-		const search_term = this.search_field.get_value();
-		const status = this.status_field.get_value();
-		const created_by = this.created_by_field.get_value();
+// In the PastOrderList class, update the refresh_list method to return a promise
 
-		// Clear selected invoices when refreshing
-		this.selected_invoices.clear();
-		this.update_merge_section();
+refresh_list() {
+	frappe.dom.freeze();
+	this.events.reset_summary();
+	const search_term = this.search_field.get_value();
+	const status = this.status_field.get_value();
+	const created_by = this.created_by_field.get_value();
 
-		this.$invoices_container.html('');
+	// Clear selected invoices when refreshing
+	this.selected_invoices.clear();
+	this.update_merge_section();
 
-		return frappe.call({
-			method: "posnext.posnext.page.posnext.point_of_sale.get_past_order_list",
-			freeze: true,
-			args: { 
-				search_term, 
-				status,
-				created_by: created_by === 'All' ? '' : created_by // Send empty string for 'All'
-			},
-			callback: (response) => {
-				frappe.dom.unfreeze();
-				invoicess = response.message
-				response.message.forEach(invoice => {
-					const invoice_html = this.get_invoice_html(invoice);
-					this.$invoices_container.append(invoice_html);
-				});
-			}
-		});
-	}
+	this.$invoices_container.html('');
 
+	// Return the promise so callers can chain operations
+	return frappe.call({
+		method: "posnext.posnext.page.posnext.point_of_sale.get_past_order_list",
+		freeze: true,
+		args: { 
+			search_term, 
+			status,
+			created_by: created_by === 'All' ? '' : created_by // Send empty string for 'All'
+		},
+		callback: (response) => {
+			frappe.dom.unfreeze();
+			invoicess = response.message
+			response.message.forEach(invoice => {
+				const invoice_html = this.get_invoice_html(invoice);
+				this.$invoices_container.append(invoice_html);
+			});
+		}
+	});
+}
+
+// Also add a helper method to set filter and refresh with a specific created_by
+set_filter_and_refresh(created_by_name, invoice_name_to_open = null) {
+	// Set the created_by filter
+	this.created_by_field.set_value(created_by_name);
+	
+	// Refresh the list and optionally open specific invoice
+	return this.refresh_list().then(() => {
+		if (invoice_name_to_open) {
+			// Small delay to ensure DOM is updated
+			setTimeout(() => {
+				this.events.open_invoice_data(invoice_name_to_open);
+			},1);
+		}
+	});
+}
 	get_invoice_html(invoice) {
 		const posting_datetime = moment(invoice.posting_date+" "+invoice.posting_time).format("Do MMMM, h:mma");
 		

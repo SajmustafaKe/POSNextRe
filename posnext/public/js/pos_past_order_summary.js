@@ -354,7 +354,7 @@ posnext.PointOfSale.PastOrderSummary = class {
 
 		setTimeout(() => {
 			this.bind_split_events(dialog);
-		}, 100);
+		}, 1);
 	}
 
 	get_split_table_html(items_data, invoice_count) {
@@ -458,7 +458,7 @@ posnext.PointOfSale.PastOrderSummary = class {
 
 		setTimeout(() => {
 			this.bind_split_events(dialog);
-		}, 100);
+		}, 1);
 	}
 
 	restore_selections(dialog, items_data) {
