@@ -404,43 +404,7 @@ posnext.PointOfSale.ItemCart = class {
 			me.events.cart_item_clicked({ name: item_row_name });
 			this.numpad_value = '';
 		});
-
-		// Optimized checkout button handler
-		this.$component.on('click', '.checkout-btn', async function() {
-			if ($(this).attr('style').indexOf('--blue-500') == -1) return;
-			if ($(this).attr('class').indexOf('checkout-btn-held') !== -1) return;
-			if ($(this).attr('class').indexOf('checkout-btn-order') !== -1) return;
-			
-			if (!cur_frm.doc.customer && me.mobile_number_based_customer) {
-				const dialog = me.create_mobile_dialog(async function(values) {
-					if (values['mobile_number'].length !== me.settings.custom_mobile_number_length) {
-						frappe.throw("Mobile Number Length is " + me.settings.custom_mobile_number_length.toString());
-						return;
-					}
-					
-					try {
-						await me.create_customer_and_proceed(values['mobile_number']);
-						await me.events.checkout();
-						me.toggle_checkout_btn(false);
-						me.allow_discount_change && me.$add_discount_elem.removeClass("d-none");
-						dialog.hide();
-					} catch (error) {
-						// Error already handled in create_customer_and_proceed
-					}
-				});
-				dialog.show();
-			} else {
-				if (!cur_frm.doc.customer && !me.mobile_number_based_customer) {
-					frappe.throw("Please Select a customer and add items first");
-					return;
-				}
-				await me.events.checkout();
-				me.toggle_checkout_btn(false);
-				me.allow_discount_change && me.$add_discount_elem.removeClass("d-none");
-			}
-		});
-
-		this.$component.on('click', '.checkout-btn-held', function() {
+this.$component.on('click', '.checkout-btn-held', function() {
 	if ($(this).attr('style').indexOf('--blue-500') == -1) return;
 	if (!cur_frm.doc.items.length) {
 		frappe.throw("Cannot save empty invoice");
@@ -589,19 +553,29 @@ posnext.PointOfSale.ItemCart = class {
 		});
 	}
 
-	handle_successful_hold(invoice_name, creator_name) {
-	// Navigate to order list
-	this.events.toggle_recent_order();
+handle_successful_hold(invoice_name, creator_name) {
+	// Check if we're already on the order list (coming from back button)
+	const already_on_order_list = $('.past-order-list').is(':visible');
 	
-	// Set up the filter after a delay to ensure the invoice is saved
-	setTimeout(() => {
-		if (posnext.PointOfSale.PastOrderList.current_instance) {
-			const pastOrderList = posnext.PointOfSale.PastOrderList.current_instance;
-			
-			// Use the enhanced method that forces filter refresh
-			pastOrderList.force_filter_update_and_refresh(creator_name, invoice_name);
-		}
-	}, 400); // Increased delay to ensure save completion
+	if (already_on_order_list) {
+		// We're already on the order list, just update the filter directly
+		setTimeout(() => {
+			if (posnext.PointOfSale.PastOrderList.current_instance) {
+				const pastOrderList = posnext.PointOfSale.PastOrderList.current_instance;
+				pastOrderList.force_filter_update_and_refresh(creator_name, invoice_name);
+			}
+		}, 400);
+	} else {
+		// Navigate to order list first, then update filter
+		this.events.toggle_recent_order();
+		
+		setTimeout(() => {
+			if (posnext.PointOfSale.PastOrderList.current_instance) {
+				const pastOrderList = posnext.PointOfSale.PastOrderList.current_instance;
+				pastOrderList.force_filter_update_and_refresh(creator_name, invoice_name);
+			}
+		}, 400);
+	}
 }
 
 	attach_shortcuts() {
