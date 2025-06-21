@@ -423,40 +423,18 @@ init_item_cart() {
         settings: this.settings,
         events: {
             get_frm: () => this.frm,
-
-            cart_item_clicked: (item) => {
-                console.log("ITEEEEEEEM")
-                console.log(item)
-
-                const item_row = this.get_item_from_frm(item);
-
-                if(selected_item && selected_item['name'] == item['name']){
-                    selected_item = null
-                } else {
-                    selected_item = item_row
-                }
-                this.item_details.toggle_item_details_section(item_row);
-            },
-
+            cart_item_clicked: (item) => { /* ... */ },
             numpad_event: (value, action) => this.update_item_field(value, action),
-
             checkout: () => this.save_and_checkout(),
-
             edit_cart: () => this.payment.edit_cart(),
             save_draft_invoice: () => this.save_draft_invoice(),
             toggle_recent_order: () => this.toggle_recent_order(),
-            // ADD THIS NEW EVENT:
             show_recent_order_list: () => this.show_recent_order_list(),
-            
-            customer_details_updated: (details) => {
-                this.customer_details = details;
-                // will add/remove LP payment method
-                this.payment.render_loyalty_points_payment_mode();
-            }
+            customer_details_updated: (details) => { /* ... */ },
+            load_new_invoice: (from_held) => this.make_new_invoice(from_held) // Add from_held
         }
-    })
+    });
 }
-
 	init_item_details() {
 		this.item_details = new posnext.PointOfSale.ItemDetails({
 			wrapper: this.$components_wrapper,
@@ -646,29 +624,23 @@ init_item_cart() {
 		!show ? (this.item_details.toggle_component(false) || this.payment.toggle_component(false)) : '';
 	}
 
-	make_new_invoice(from_held=false) {
-		if(from_held){
-			return frappe.run_serially([
-				() => frappe.dom.freeze(),
-				() => this.make_sales_invoice_frm(),
-				() => this.set_pos_profile_data(),
-				() => this.set_pos_profile_status(),
-				() => this.cart.load_invoice(),
-				() => frappe.dom.unfreeze(),
-				() => this.toggle_recent_order(),
-			]);
-		} else {
-			return frappe.run_serially([
-				() => frappe.dom.freeze(),
-				() => this.make_sales_invoice_frm(),
-				() => this.set_pos_profile_data(),
-				() => this.set_pos_profile_status(),
-				() => this.cart.load_invoice(),
-				() => frappe.dom.unfreeze(),
-			]);
-		}
-
-	}
+make_new_invoice(from_held = false) {
+    const steps = [
+        () => frappe.dom.freeze(),
+        () => this.make_sales_invoice_frm(),
+        () => this.set_pos_profile_data(),
+        () => this.set_pos_profile_status(),
+        () => this.cart.load_invoice(),
+        () => frappe.dom.unfreeze()
+    ];
+    if (from_held) {
+        // Ensure recent order list remains visible
+        steps.push(() => this.toggle_components(false)); // Hide cart explicitly
+        steps.push(() => this.recent_order_list.toggle_component(true)); // Ensure list is visible
+        steps.push(() => this.order_summary.toggle_component(true)); // Ensure summary is visible
+    }
+    return frappe.run_serially(steps);
+}
 
 	make_sales_invoice_frm() {
 		const doctype = 'POS Invoice';

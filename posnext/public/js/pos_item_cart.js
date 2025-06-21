@@ -644,36 +644,46 @@ make_cart_totals_section() {
 async handle_successful_hold(invoice_name, creator_name) {
     console.log('Handling successful hold:', invoice_name, creator_name);
     try {
-        // FIXED: Instead of toggle_recent_order(), explicitly show the order list
-        // Call the controller's toggle_recent_order_list with true to force show
-        await this.events.show_recent_order_list(); // New method needed in Controller
-        
+        frappe.dom.freeze();
+        // Show recent order list
+        await this.events.show_recent_order_list();
+        // Refresh PastOrderList with held invoice
         if (posnext.PointOfSale.PastOrderList.current_instance) {
-            const pastOrderList = posnext.PointOfSale.PastOrderList.current_instance;
-            await pastOrderList.set_filter_and_refresh_with_held_invoice(creator_name, invoice_name);
+            await posnext.PointOfSale.PastOrderList.current_instance.set_filter_and_refresh_with_held_invoice(creator_name, invoice_name);
+            // Load held invoice into PastOrderSummary
+            if (posnext.PointOfSale.PastOrderSummary.current_instance) {
+                await frappe.db.get_doc('POS Invoice', invoice_name).then(doc => {
+                    posnext.PointOfSale.PastOrderSummary.current_instance.load_summary_of(doc);
+                });
+            }
+        } else {
+            console.warn('PastOrderList not initialized');
+            frappe.show_alert({
+                message: __('Recent order list is not available. Please refresh the page.'),
+                indicator: 'orange'
+            });
         }
-        this.reset_cart_state(); // Clear cart after navigation
-        frappe.dom.unfreeze(); // Ensure UI is unfrozen
+        // Reset cart state after list is shown
+        await this.reset_cart_state(true); // Pass from_held=true
+        frappe.dom.unfreeze();
     } catch (error) {
         console.error('Error in handle_successful_hold:', error);
         frappe.show_alert({
-            message: __('Failed to complete hold action: {0}', [error.message]),
+            message: __('Failed to show the held invoice in the orders list: {0}', [error.message]),
             indicator: 'red'
         });
+        frappe.utils.play_sound("error");
         frappe.dom.unfreeze();
     }
 }
 
-// Add reset_cart_state if not present
-reset_cart_state() {
-    const frm = this.events.get_frm();
-    frm.doc.items = [];
-    frm.doc.customer = '';
+// Modify reset_cart_state to accept from_held
+reset_cart_state(from_held = false) {
     this.$cart_items_wrapper.html('');
-    this.make_no_items_placeholder();
-    this.update_totals_section(frm);
-    this.customer_info = {};
-    this.update_customer_section();
+    this.update_totals_section();
+    this.toggle_checkout_btn(true);
+    this.toggle_numpad(false);
+    this.events.load_new_invoice(from_held); // Pass from_held
 }
 	attach_shortcuts() {
 		for (let row of this.number_pad.keys) {

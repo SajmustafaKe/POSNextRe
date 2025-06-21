@@ -221,57 +221,41 @@ set_filter_and_refresh_with_held_invoice(created_by_name, held_invoice_name = nu
     if (held_invoice_name) {
         this._just_held_invoice = held_invoice_name;
     }
-    if (this.user_list && this.user_list.length > 0) {
-        console.log('User list already loaded, setting filter immediately');
-        this.created_by_field.set_value(created_by_name);
+    this._pending_created_by = created_by_name;
+    return this.toggle_component(true).then(() => {
+        console.log('toggle_component completed for filter set');
+        if (this.user_list && this.user_list.length > 0) {
+            this.created_by_field.set_value(created_by_name);
+            this._pending_created_by = null;
+            return this.refresh_list_with_retry(held_invoice_name);
+        }
+        return Promise.resolve();
+    }).catch(error => {
+        console.error('Error in set_filter_and_refresh_with_held_invoice:', error);
+        this._just_held_invoice = null;
         this._pending_created_by = null;
-        return this.toggle_component(true).then(() => {
-            console.log('toggle_component completed for filter set');
-            return this.refresh_list(); // Force refresh after setting filter
-        }).catch(error => {
-            console.error('Error in set_filter_and_refresh_with_held_invoice:', error);
-            frappe.show_alert({
-                message: __('Failed to set filter: {0}', [error.message]),
-                indicator: 'red'
-            });
-            frappe.dom.unfreeze();
+        frappe.show_alert({
+            message: __('Failed to set filter: {0}', [error.message]),
+            indicator: 'red'
         });
-    } else {
-        console.log('User list not loaded yet, storing pending filter');
-        this._pending_created_by = created_by_name;
-        return this.toggle_component(true).catch(error => {
-            console.error('Error in set_filter_and_refresh_with_held_invoice (pending):', error);
-            frappe.show_alert({
-                message: __('Failed to set filter: {0}', [error.message]),
-                indicator: 'red'
-            });
-            frappe.dom.unfreeze();
-        });
-    }
+        frappe.dom.unfreeze();
+        throw error; // Propagate for upstream handling
+    });
 }
 
 toggle_component(show) {
     return frappe.run_serially([
         () => {
             if (show) {
-                this.$component.css('display', 'flex');
                 console.log('Showing PastOrderList component');
+                this.$component.css('display', 'flex');
                 return this.refresh_list(
                     this.search_field.get_value(),
                     this.status_field.get_value(),
                     this.created_by_field.get_value()
                 ).then(() => {
-                    console.log('refresh_list completed, component should be visible');
-                    // Ensure component stays visible
-                    this.$component.css('display', 'flex');
-                }).catch(error => {
-                    console.error('Error in refresh_list during toggle_component:', error);
-                    frappe.show_alert({
-                        message: __('Failed to load orders: {0}', [error.message]),
-                        indicator: 'red'
-                    });
-                    frappe.dom.unfreeze();
-                    throw error; // Propagate error
+                    console.log('PastOrderList refreshed, ensuring visibility');
+                    this.$component.css('display', 'flex'); // Re-ensure visibility
                 });
             } else {
                 console.log('Hiding PastOrderList component');
