@@ -308,7 +308,6 @@ posnext.PointOfSale.PastOrderList = class {
             }
         ]);
     }
-
     get_invoice_html(invoice) {
         const posting_datetime = moment(invoice.posting_date + " " + invoice.posting_time).format("Do MMMM, h:mma");
         
