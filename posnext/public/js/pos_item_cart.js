@@ -378,15 +378,6 @@ make_cart_totals_section() {
 
 	bind_events() {
 		const me = this;
-		this.$component.off('click', '.checkout-btn');
-   		this.$component.off('click', '.checkout-btn-held');
-    	this.$component.off('click', '.checkout-btn-order');
-    	this.$totals_section.off('click', '.edit-cart-btn');
-    	this.$component.off('click', '.add-discount-wrapper');
-    	this.$customer_section.off('click', '.reset-customer-btn');
-    	this.$customer_section.off('click', '.close-details-btn');
-    	this.$customer_section.off('click', '.customer-display');
-    	this.$cart_items_wrapper.off('click', '.cart-item-wrapper');
 		
 		this.$customer_section.on('click', '.reset-customer-btn', function () {
 			me.reset_customer_selector();
