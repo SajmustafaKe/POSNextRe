@@ -539,14 +539,15 @@ posnext.PointOfSale.Payment = class {
     }
 
     add_split_buttons_to_payment_modes() {
-        this.$payment_modes.find('.mode-of-payment').each(function() {
-            const $mode = $(this);
-            const mode = $mode.attr('data-mode');
-            if (!$mode.find('.add-to-split-btn').length) {
-                $mode.append(`<button class="add-to-split-btn btn btn-sm btn-primary" data-mode="${mode}">${__('Add to Split')}</button>`);
-            }
-        });
-    }
+    this.$payment_modes.find('.mode-of-payment').each(function() {
+        const $mode = $(this);
+        const mode = $mode.attr('data-mode');
+        const $controlContainer = $mode.find('.mode-of-payment-control');
+        if (!$controlContainer.find('.add-to-split-btn').length) {
+            $controlContainer.append(`<button class="add-to-split-btn btn btn-sm btn-primary" data-mode="${mode}">${__('Add to Split')}</button>`);
+        }
+    });
+}
 
     remove_split_buttons_from_payment_modes() {
         this.$payment_modes.find('.add-to-split-btn').remove();
