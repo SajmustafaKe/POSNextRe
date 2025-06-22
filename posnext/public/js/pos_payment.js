@@ -1265,14 +1265,12 @@ render_payment_mode_dom() {
                 const payment_type = p.type;
                 const amount = p.amount > 0 ? format_currency(p.amount, currency) : '';
                 return (`
-                    <div class="payment-mode-wrapper">
-                        <div class="mode-of-payment" data-mode="${mode}" data-payment-type="${payment_type}">
-                            <div class="payment-mode-header">
-                                <span class="payment-mode-title">${p.mode_of_payment}</span>
-                                <div class="${mode}-amount pay-amount">${amount}</div>
-                            </div>
-                            <div class="${mode} mode-of-payment-control" style="width: 100%;"></div>
+                    <div class="mode-of-payment" data-mode="${mode}" data-payment-type="${payment_type}">
+                        <div class="payment-mode-header">
+                            <span class="payment-mode-title">${p.mode_of_payment}</span>
+                            <div class="${mode}-amount pay-amount">${amount}</div>
                         </div>
+                        <div class="${mode} mode-of-payment-control" style="width: 100%;"></div>
                     </div>
                 `);
             }).join('')
