@@ -942,7 +942,7 @@ make_new_invoice(from_held = false) {
 			// show checkout button on error
 			save_error && setTimeout(() => {
 				this.cart.toggle_checkout_btn(true);
-			}, 300); // wait for save to finish
+			}, 3); // wait for save to finish
 		} else {
 			this.payment.checkout();
 		}
