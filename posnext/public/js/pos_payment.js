@@ -369,7 +369,8 @@ posnext.PointOfSale.Payment = class {
         });
 
         // Fixed event handler for add to split button (ported from second code)
- this.$payment_modes.on('click', '.add-to-split-btn', function(e) {
+ 
+        this.$payment_modes.on('click', '.add-to-split-btn', function(e) {
             e.preventDefault();
             e.stopPropagation();
             const mode = $(this).attr('data-mode') || $(this).closest('.mode-of-payment').attr('data-mode');
@@ -378,12 +379,8 @@ posnext.PointOfSale.Payment = class {
                 return;
             }
             if (!me[`${mode}_control`]) {
-                // Attempt to re-render payment modes as a fallback
-                me.render_payment_mode_dom();
-                if (!me[`${mode}_control`]) {
-                    frappe.show_alert({ message: __("Payment control not found for mode: {0}", [mode]), indicator: "red" });
-                    return;
-                }
+                frappe.show_alert({ message: __("Payment control not found for mode: {0}", [mode]), indicator: "red" });
+                return;
             }
             const amount = flt(me[`${mode}_control`].get_value()) || 0;
             if (amount <= 0) {
@@ -393,6 +390,7 @@ posnext.PointOfSale.Payment = class {
             }
             me.add_split_payment(mode, amount);
         });
+
 
         this.$component.on('click', '.split-payment-remove', function() {
             const index = $(this).data('index');
@@ -1261,59 +1259,81 @@ posnext.PointOfSale.Payment = class {
         }
     }
 
-    render_payment_mode_dom() {
-        const doc = this.events.get_frm().doc;
-        const payments = doc.payments || []; // Fallback to empty array if undefined
+     render_payment_mode_dom() {
+        const doc = this.events.get_frm().doc();
+        const payments = doc.payments || []; // Fallback to empty array
         const currency = doc.currency;
 
-        // Only recreate DOM if it doesn't exist or needs updating
-        if (!this.$payment_modes.find('.mode-of-payment').length || payments.length !== this.$payment_modes.find('.mode-of-payment').length) {
-            this.$payment_modes.html(
-                payments.map((p, i) => {
-                    const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-                    const payment_type = p.type;
-                    const amount = p.amount > 0 ? format_currency(p.amount, currency) : '';
-                    return `
-                        <div class="payment-mode-wrapper">
-                            <div class="mode-of-payment" data-mode="${mode}" data-payment-type="${payment_type}">
-                                <div class="payment-mode-header">
-                                    <span class="payment-mode-title">${p.mode_of_payment}</span>
-                                    <div class="${mode}-amount pay-amount">${amount}</div>
-                                </div>
-                                <div class="${mode} mode-of-payment-control" style="width: 100%;"></div>
-                            </div>
-                        </div>
-                    `;
-                }).join('')
-            );
+        // Clear existing payment modes to prevent duplicates
+        this.$payment_modes.empty();
 
-            // Ensure improved CSS is added only once
-            if (!$('#payment-mode-improved-styles').length) {
-                $('head').append(`
-                    <style id="payment-mode-improved-styles">
-                        .payment-modes { display: flex; flex-wrap: wrap; gap: 10px; padding: 10px; }
-                        .payment-mode-wrapper { flex: 1; min-width: 200px; max-width: 300px; }
-                        .mode-of-payment { border: 2px solid #e0e0e0; border-radius: 8px; padding: 12px; cursor: pointer; transition: all 0.2s ease; background: white; min-height: 60px; }
-                        .mode-of-payment:hover { border-color: #2196F3; box-shadow: 0 2px 8px rgba(33, 150, 243, 0.2); }
-                        .mode-of-payment.border-primary { border-color: #2196F3; background-color: #f8fafe; box-shadow: 0 2px 12px rgba(33, 150, 243, 0.3); }
-                        .payment-mode-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-                        .payment-mode-title { font-weight: 600; color: #333; font-size: 14px; }
-                        .pay-amount { font-weight: bold; color: #2196F3; font-size: 13px; }
-                        .mode-of-payment-control { margin-top: 8px; }
-                        .cash-shortcuts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
-                        .shortcut { background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; padding: 6px 8px; text-align: center; cursor: pointer; font-size: 12px; transition: all 0.2s ease; }
-                        .shortcut:hover { background: #e3f2fd; border-color: #2196F3; color: #2196F3; }
-                    </style>
-                `);
+        // Deduplicate payments by mode_of_payment to handle data issues
+        const uniquePayments = [];
+        const seenModes = new Set();
+        payments.forEach(p => {
+            const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+            if (!seenModes.has(mode)) {
+                seenModes.add(mode);
+                uniquePayments.push(p);
+            } else {
+                frappe.show_alert({
+                    message: __("Duplicate payment mode detected: {0}. Using first occurrence.", [p.mode_of_payment]),
+                    indicator: "orange"
+                });
             }
+        });
+
+        // Render payment modes
+        this.$payment_modes.html(
+            uniquePayments.map((p, i) => {
+                const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+                const payment_type = p.type;
+                const amount = p.amount > 0 ? format_currency(p.amount, currency) : '';
+                return `
+                    <div class="payment-mode-wrapper">
+                        <div class="mode-of-payment" data-mode="${mode}" data-payment-type="${payment_type}">
+                            <div class="payment-mode-header">
+                                <span class="payment-mode-title">${p.mode_of_payment}</span>
+                                <div class="${mode}-amount pay-amount">${amount}</div>
+                            </div>
+                            <div class="${mode} mode-of-payment-control" style="width: 100%;"></div>
+                        </div>
+                    </div>
+                `;
+            }).join('')
+        );
+
+        // Ensure CSS is added only once
+        if (!$('#payment-mode-improved-styles').length) {
+            $('head').append(`
+                <style id="payment-mode-improved-styles">
+                    .payment-modes { display: flex; flex-wrap: wrap; gap: 10px; padding: 10px; }
+                    .payment-mode-wrapper { flex: 1; min-width: 200px; max-width: 300px; }
+                    .mode-of-payment { border: 2px solid #e0e0e0; border-radius: 8px; padding: 12px; cursor: pointer; transition: all 0.2s ease; background: white; min-height: 60px; }
+                    .mode-of-payment:hover { border-color: #2196F3; box-shadow: 0 2px 8px rgba(33, 150, 243, 0.2); }
+                    .mode-of-payment.border-primary { border-color: #2196F3; background-color: #f8fafe; box-shadow: 0 2px 12px rgba(33, 150, 243, 0.3); }
+                    .payment-mode-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+                    .payment-mode-title { font-weight: 600; color: #333; font-size: 14px; }
+                    .pay-amount { font-weight: bold; color: #2196F3; font-size: 13px; }
+                    .mode-of-payment-control { margin-top: 8px; }
+                    .cash-shortcuts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+                    .shortcut { background: #f5f5f5; border: 1px solid #ddd; border-radius: 4px; padding: 6px 8px; text-align: center; cursor: pointer; font-size: 12px; transition: all 0.2s ease; }
+                    .shortcut:hover { background: #e3f2fd; border-color: #2196F3; color: #2196F3; }
+                </style>
+            `);
         }
 
-        // Create payment controls for all modes
-        payments.forEach(p => {
+        // Clear existing controls to prevent orphaned instances
+        uniquePayments.forEach(p => {
+            const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+            this[`${mode}_control`] = null;
+        });
+
+        // Create payment controls
+        uniquePayments.forEach(p => {
             const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
             const controlContainer = this.$payment_modes.find(`.${mode}.mode-of-payment-control`);
 
-            // Skip if container not found (log for debugging)
             if (!controlContainer.length) {
                 frappe.show_alert({
                     message: __("Control container not found for mode: {0}", [p.mode_of_payment]),
@@ -1322,37 +1342,28 @@ posnext.PointOfSale.Payment = class {
                 return;
             }
 
-            // Create control if it doesn't exist
-            if (!this[`${mode}_control`]) {
-                this[`${mode}_control`] = frappe.ui.form.make_control({
-                    df: {
-                        label: p.mode_of_payment,
-                        fieldtype: 'Currency',
-                        placeholder: __('Enter {0} amount.', [p.mode_of_payment]),
-                        onchange: () => {
-                            const current_value = frappe.model.get_value(p.doctype, p.name, 'amount');
-                            if (current_value != this[`${mode}_control`].value) {
-                                frappe.model.set_value(p.doctype, p.name, 'amount', flt(this[`${mode}_control`].value)).then(() => this.update_totals_section());
-                                const formatted_currency = format_currency(this[`${mode}_control`].value, currency);
-                                this.$payment_modes.find(`.${mode}-amount`).html(formatted_currency);
-                            }
+            // Create control
+            this[`${mode}_control`] = frappe.ui.form.make_control({
+                df: {
+                    label: p.mode_of_payment,
+                    fieldtype: 'Currency',
+                    placeholder: __('Enter {0} amount.', [p.mode_of_payment]),
+                    onchange: () => {
+                        const current_value = frappe.model.get_value(p.doctype, p.name, 'amount');
+                        if (current_value != this[`${mode}_control`].value) {
+                            frappe.model.set_value(p.doctype, p.name, 'amount', flt(this[`${mode}_control`].value)).then(() => this.update_totals_section());
+                            const formatted_currency = format_currency(this[`${mode}_control`].value, currency);
+                            this.$payment_modes.find(`.${mode}-amount`).html(formatted_currency);
                         }
-                    },
-                    parent: controlContainer,
-                    render_input: true
-                });
-                this[`${mode}_control`].toggle_label(false);
-            }
+                    }
+                },
+                parent: controlContainer,
+                render_input: true
+            });
+            this[`${mode}_control`].toggle_label(false);
 
-            // Set value if control exists
-            if (this[`${mode}_control`]) {
-                this[`${mode}_control`].set_value(p.amount);
-            } else {
-                frappe.show_alert({
-                    message: __("Failed to create control for mode: {0}", [p.mode_of_payment]),
-                    indicator: "red"
-                });
-            }
+            // Set value
+            this[`${mode}_control`].set_value(p.amount);
         });
 
         this.render_loyalty_points_payment_mode();
