@@ -368,24 +368,22 @@ posnext.PointOfSale.Payment = class {
             }
         });
 
-        // Use event delegation for add to split button clicks
+        // Fixed event handler for add to split button (ported from second code)
         this.$payment_modes.on('click', '.add-to-split-btn', function(e) {
             e.preventDefault();
             e.stopPropagation();
             const mode = $(this).attr('data-mode') || $(this).closest('.mode-of-payment').attr('data-mode');
-            console.log('Add to split clicked for mode:', mode); // Debug log
             if (!me[`${mode}_control`]) {
-                console.log('No control found for mode:', mode); // Debug log
+                frappe.show_alert({ message: __("Payment control not found for this mode"), indicator: "red" });
                 return;
             }
-            const amount = parseFloat(me[`${mode}_control`].get_value()) || 0;
-            console.log('Amount to add:', amount); // Debug log
-            if (amount > 0) {
-                me.add_split_payment(mode, amount);
-            } else {
+            const amount = flt(me[`${mode}_control`].get_value()) || 0;
+            if (amount <= 0) {
                 frappe.show_alert({ message: __("Please enter an amount greater than 0"), indicator: "orange" });
-                if (me[`${mode}_control`] && me[`${mode}_control`].$input) me[`${mode}_control`].$input.focus();
+                if (me[`${mode}_control`].$input) me[`${mode}_control`].$input.focus();
+                return;
             }
+            me.add_split_payment(mode, amount);
         });
 
         this.$component.on('click', '.split-payment-remove', function() {
@@ -825,34 +823,31 @@ posnext.PointOfSale.Payment = class {
     add_split_payment(mode, amount) {
         const doc = this.events.get_frm().doc;
         const payment_method = doc.payments.find(p => p.mode_of_payment.replace(/ +/g, "_").toLowerCase() === mode);
-        if (!payment_method || !amount || amount <= 0) {
-            frappe.show_alert({ message: __("Please enter a valid amount greater than 0"), indicator: "orange" });
+        if (!payment_method) {
+            frappe.show_alert({ message: __("Invalid payment method selected"), indicator: "red" });
             return;
         }
-
-        const split_id = `${mode}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const split_id = `${mode}_${frappe.utils.get_random(8)}`;
         const same_method_count = this.split_payments.filter(p => p.mode === mode).length;
         const reference = same_method_count > 0 ? ` #${same_method_count + 1}` : '';
-
         const new_payment = {
             id: split_id,
             mode: mode,
             mode_of_payment: payment_method.mode_of_payment,
             display_name: payment_method.mode_of_payment + reference,
-            amount: amount,
-            type: payment_method.type,
+            amount: flt(amount),
+            type: payment_method.type || 'Cash',
             reference_number: '',
             notes: '',
             is_existing: false
         };
-
         this.split_payments.push(new_payment);
         if (this[`${mode}_control`]) this[`${mode}_control`].set_value(0);
         this.render_split_payments_list();
         this.update_split_summary();
         this.backup_payments_to_session();
         frappe.show_alert({
-            message: __("Added {0} payment: {1}", [payment_method.mode_of_payment, format_currency(amount, doc.currency)]),
+            message: __("Payment added: {0} ({1})", [payment_method.mode_of_payment, format_currency(amount, doc.currency)]),
             indicator: "green"
         });
     }
