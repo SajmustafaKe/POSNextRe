@@ -148,12 +148,9 @@ posnext.PointOfSale.Payment = class {
 					});
 				}
 				
-				// Force UI refresh - DON'T call render_payment_mode_dom if in split mode
+				// Force UI refresh
 				setTimeout(() => {
 					this.update_totals_section(current_doc);
-					if (!this.is_split_mode) {
-						this.render_payment_mode_dom();
-					}
 				}, 200);
 			}
 			
@@ -470,14 +467,13 @@ posnext.PointOfSale.Payment = class {
 			}
 		});
 
-		// FIXED: Use event delegation for "Add to Split" buttons to ensure they work with dynamically created content
+		// Use event delegation for "Add to Split" buttons
 		this.$component.on('click', '.add-to-split-btn', function(e) {
 			e.preventDefault();
 			e.stopPropagation();
 			
 			const mode = $(this).attr('data-mode') || $(this).closest('.mode-of-payment').attr('data-mode');
 			
-			// Ensure we have a valid control for this mode
 			if (!me[`${mode}_control`]) {
 				frappe.show_alert({
 					message: __("Payment control not found for {0}", [mode]),
@@ -650,7 +646,7 @@ posnext.PointOfSale.Payment = class {
 			this.attach_cash_shortcuts(frm.doc);
 			!is_cash_shortcuts_invisible && this.$payment_modes.find('.cash-shortcuts').css('display', 'grid');
 			
-			// DON'T call render_payment_mode_dom if in split mode as it will remove "Add to Split" buttons
+			// Only refresh payment modes if NOT in split mode
 			if (!this.is_split_mode) {
 				this.render_payment_mode_dom();
 			}
@@ -696,59 +692,50 @@ posnext.PointOfSale.Payment = class {
 		if (enable) {
 			this.$split_container.show();
 			
-			// First render the split payment modes
-			this.render_split_payment_modes();
+			// Add "Add to Split" buttons to existing payment modes
+			this.add_split_buttons_to_payment_modes();
 			
-			// Then load existing payments (with backup support)
+			// Load existing payments
 			this.load_existing_payments();
 			
 			// If no payments were loaded but there are payments in the document, try to sync
 			if (this.split_payments.length === 0) {
 				this.sync_document_payments_to_split();
 			}
-			
-			// FIXED: Ensure "Add to Split" buttons are properly enabled after loading existing payments
-			const me = this;
-			setTimeout(() => {
-				me.ensure_add_to_split_buttons_enabled();
-			}, 100);
 		} else {
 			this.$split_container.hide();
 			this.clear_split_payments();
-			// FIXED: Render all payment modes regardless of amounts when exiting split mode
-			this.render_all_payment_modes();
+			
+			// Remove "Add to Split" buttons from payment modes
+			this.remove_split_buttons_from_payment_modes();
 		}
 		
 		// Backup the current state
 		this.backup_payments_to_session();
 	}
 
-	// FIXED: New method to ensure "Add to Split" buttons are enabled
-	ensure_add_to_split_buttons_enabled() {
-		// Make sure all "Add to Split" buttons are visible and enabled
-		this.$payment_modes.find('.add-to-split-btn').each(function() {
-			const $btn = $(this);
-			const mode = $btn.attr('data-mode') || $btn.closest('.mode-of-payment').attr('data-mode');
+	// Add "Add to Split" buttons to existing payment modes without re-rendering
+	add_split_buttons_to_payment_modes() {
+		const doc = this.events.get_frm().doc;
+		
+		// Add "Add to Split" buttons to each payment mode if they don't exist
+		this.$payment_modes.find('.mode-of-payment').each(function() {
+			const $mode = $(this);
+			const mode = $mode.attr('data-mode');
 			
-			// Enable the button
-			$btn.prop('disabled', false).show();
-			
-			// Ensure the button has the correct styling
-			if (!$btn.hasClass('btn-primary')) {
-				$btn.removeClass('btn-secondary btn-default').addClass('btn-primary');
+			if (!$mode.find('.add-to-split-btn').length) {
+				$mode.append(`
+					<button class="add-to-split-btn btn btn-sm btn-primary" data-mode="${mode}">
+						${__('Add to Split')}
+					</button>
+				`);
 			}
 		});
-		
-		// Also ensure payment controls are properly initialized
-		const doc = this.events.get_frm().doc;
-		if (doc.payments) {
-			doc.payments.forEach(p => {
-				const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-				if (this[`${mode}_control`] && this[`${mode}_control`].get_value() === undefined) {
-					this[`${mode}_control`].set_value(0);
-				}
-			});
-		}
+	}
+
+	// Remove "Add to Split" buttons from payment modes
+	remove_split_buttons_from_payment_modes() {
+		this.$payment_modes.find('.add-to-split-btn').remove();
 	}
 
 	// Enhanced debugging and payment detection for edited orders
@@ -756,8 +743,6 @@ posnext.PointOfSale.Payment = class {
 		const doc = this.events.get_frm().doc;
 		
 		// Check if this looks like an edited existing order (ERPNext Bug Fix)
-		// ERPNext has a known issue where editing existing POS invoices clears payment data
-		// We need to detect both 'new-' prefixed AND existing invoice names that have been edited
 		const is_edited_order = (
 			(doc.name.startsWith('new-') && (doc.creation || doc.modified || doc.status !== 'Draft')) ||
 			(!doc.name.startsWith('new-') && doc.creation && doc.docstatus === 0 && !doc.__islocal)
@@ -766,14 +751,12 @@ posnext.PointOfSale.Payment = class {
 		if (is_edited_order) {
 			// For edited orders, be more aggressive in looking for payment signs
 			let has_payment_indicators = false;
-			let reasons = [];
 			
 			// Check 1: Any payment amounts > 0
 			if (doc.payments && Array.isArray(doc.payments)) {
 				doc.payments.forEach(payment => {
 					if (payment.amount && payment.amount > 0) {
 						has_payment_indicators = true;
-						reasons.push(`Payment: ${payment.mode_of_payment} = ${payment.amount}`);
 					}
 				});
 			}
@@ -781,32 +764,26 @@ posnext.PointOfSale.Payment = class {
 			// Check 2: Paid amount > 0
 			if (doc.paid_amount && doc.paid_amount > 0) {
 				has_payment_indicators = true;
-				reasons.push(`Paid amount: ${doc.paid_amount}`);
 			}
 			
 			// Check 3: Status indicates payment
 			if (doc.status && ['Partly Paid', 'Paid'].includes(doc.status)) {
 				has_payment_indicators = true;
-				reasons.push(`Status: ${doc.status}`);
 			}
 			
 			// Check 4: Outstanding amount calculation
 			if (doc.outstanding_amount && doc.grand_total && doc.outstanding_amount < doc.grand_total) {
 				has_payment_indicators = true;
-				const paid = doc.grand_total - doc.outstanding_amount;
-				reasons.push(`Outstanding suggests payment: ${paid}`);
 			}
 			
 			// Check 5: Creation/modification date suggests it's not truly new
 			if (doc.creation || doc.modified) {
 				has_payment_indicators = true;
-				reasons.push('Has creation/modified date');
 			}
 			
 			// Check 6: ERPNext Bug Detection - existing invoice name with cleared payments
 			if (!doc.name.startsWith('new-') && doc.creation && doc.docstatus === 0) {
 				has_payment_indicators = true;
-				reasons.push('ERPNext payment clearing bug detected');
 				
 				// Try to fetch original payment data from server
 				this.fetch_original_payment_data(doc.name);
@@ -815,16 +792,9 @@ posnext.PointOfSale.Payment = class {
 			if (has_payment_indicators && !this.is_split_mode) {
 				this.$component.find('#split-payment-checkbox').prop('checked', true);
 				this.toggle_split_payment_mode(true);
-				
-				frappe.show_alert({
-					message: __("Split payment mode enabled for edited order: {0}", [reasons.join(', ')]),
-					indicator: "blue"
-				});
 				return;
 			}
 		}
-		
-		// Continue with normal logic for truly new orders
 		
 		// Standard check for existing payments
 		let has_existing_payments = false;
@@ -862,11 +832,6 @@ posnext.PointOfSale.Payment = class {
 			// Automatically enable split payment mode
 			this.$component.find('#split-payment-checkbox').prop('checked', true);
 			this.toggle_split_payment_mode(true);
-			
-			frappe.show_alert({
-				message: __("Split payment mode enabled automatically (Found payments: {0})", [format_currency(total_existing_amount, doc.currency)]),
-				indicator: "blue"
-			});
 		}
 	}
 
@@ -906,7 +871,7 @@ posnext.PointOfSale.Payment = class {
 				}
 			}
 		}).catch(error => {
-			// Error fetching original payment data - continue silently
+			console.error('Error fetching original payment data:', error);
 		});
 	}
 
@@ -963,17 +928,14 @@ posnext.PointOfSale.Payment = class {
 			}
 			frappe.model.set_value(current_doc.doctype, current_doc.name, 'status', status);
 			
-			// Force UI refresh - DON'T call render_payment_mode_dom if in split mode
+			// Force UI refresh
 			setTimeout(() => {
 				this.update_totals_section(current_doc);
-				if (!this.is_split_mode) {
-					this.render_payment_mode_dom();
-				}
 			}, 200);
 		}
 	}
 
-	// FIXED: Enhanced load_existing_payments method for edited orders
+	// Enhanced load_existing_payments method for edited orders
 	load_existing_payments() {
 		const doc = this.events.get_frm().doc;
 		
@@ -1039,71 +1001,12 @@ posnext.PointOfSale.Payment = class {
 		this.update_split_summary();
 		this.show_payment_status();
 		
-		// FIXED: Ensure "Add to Split" functionality remains available after loading existing payments
-		const me = this;
-		setTimeout(() => {
-			me.ensure_add_to_split_buttons_enabled();
-			
-			// Show user that they can still add more payments
-			if (this.split_payments.length > 0) {
-				const total_existing = this.get_split_total();
-				const grand_total = doc.grand_total || doc.rounded_total || 0;
-				const remaining = grand_total - total_existing;
-				
-				if (remaining > 0) {
-					frappe.show_alert({
-						message: __("Existing payments loaded. You can add more payments for the remaining amount: {0}", [format_currency(remaining, doc.currency)]),
-						indicator: "blue"
-					});
-				}
-			}
-		}, 200);
-		
 		// Show success message if payments were restored
 		if (this.split_payments.length > 0 && this.original_payment_data) {
 			frappe.show_alert({
 				message: __("Payments restored successfully! ({0} payment(s) found)", [this.split_payments.length]),
 				indicator: "green"
 			});
-		}
-	}
-
-	// Helper method to parse split payment data from remarks
-	parse_split_payment_from_remarks(remarks) {
-		try {
-			// Extract split payment section from remarks
-			const split_section = remarks.split('Split Payment:')[1];
-			if (!split_section) return;
-			
-			// Parse payment entries (format: "Method: Amount (Ref: xxx) - notes | ...")
-			const payment_entries = split_section.split(' | ');
-			
-			payment_entries.forEach((entry, index) => {
-				const parts = entry.trim().match(/(.+?):\s*([^(]+)(?:\(Ref:\s*([^)]*)\))?(?:\s*-\s*(.+))?/);
-				if (parts) {
-					const [, display_name, amount_str, reference, notes] = parts;
-					const amount = parseFloat(amount_str.replace(/[^0-9.-]/g, ''));
-					
-					if (amount > 0) {
-						const mode = display_name.replace(/ +/g, "_").toLowerCase();
-						const split_payment = {
-							id: `remarks_${mode}_${index}`,
-							mode: mode,
-							mode_of_payment: display_name.replace(/ #\d+$/, ''), // Remove numbering
-							display_name: display_name,
-							amount: amount,
-							type: 'Cash', // Default
-							reference_number: reference || '',
-							notes: notes || '',
-							is_existing: true
-						};
-						
-						this.split_payments.push(split_payment);
-					}
-				}
-			});
-		} catch (error) {
-			// Error parsing - continue silently
 		}
 	}
 
@@ -1183,63 +1086,7 @@ posnext.PointOfSale.Payment = class {
 		this.update_totals_section(doc);
 	}
 
-	// FIXED: Enhanced render_split_payment_modes method
-	render_split_payment_modes() {
-		const doc = this.events.get_frm().doc;
-		const payments = doc.payments;
-
-		// Render payment modes with "Add to Split" buttons
-		this.$payment_modes.html(`${
-			payments.map((p, i) => {
-				const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-				const payment_type = p.type;
-
-				return (`
-					<div class="payment-mode-wrapper">
-						<div class="mode-of-payment" data-mode="${mode}" data-payment-type="${payment_type}">
-							${p.mode_of_payment}
-							<div class="${mode} mode-of-payment-control"></div>
-							<button class="add-to-split-btn btn btn-sm btn-primary" data-mode="${mode}">
-								${__('Add to Split')}
-							</button>
-						</div>
-					</div>
-				`);
-			}).join('')
-		}`);
-
-		// Create controls for each payment method
-		payments.forEach(p => {
-			const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-			
-			// Clear any existing control first
-			if (this[`${mode}_control`]) {
-				this[`${mode}_control`] = null;
-			}
-			
-			this[`${mode}_control`] = frappe.ui.form.make_control({
-				df: {
-					label: p.mode_of_payment,
-					fieldtype: 'Currency',
-					placeholder: __('Enter {0} amount.', [p.mode_of_payment]),
-					onchange: function() {
-						// Update the display but don't modify the actual payment record yet
-					}
-				},
-				parent: this.$payment_modes.find(`.${mode}.mode-of-payment-control`),
-				render_input: true,
-			});
-			this[`${mode}_control`].toggle_label(false);
-			
-			// Set default value to 0 for split mode
-			this[`${mode}_control`].set_value(0);
-		});
-		
-		// Ensure "Add to Split" buttons are visible and enabled
-		this.$payment_modes.find('.add-to-split-btn').show().prop('disabled', false);
-	}
-
-	// FIXED: Enhanced add_split_payment method with better error handling
+	// Enhanced add_split_payment method with better error handling
 	add_split_payment(mode, amount) {
 		const doc = this.events.get_frm().doc;
 		const payment_method = doc.payments.find(p => 
@@ -1522,24 +1369,6 @@ posnext.PointOfSale.Payment = class {
 		});
 	}
 
-	open_recent_orders_view() {
-		// Use the same pattern as previous_screen but in reverse
-		// Instead of: this.recent_order_list.toggle_component(false) → show main screen
-		// We do: hide main screen → this.recent_order_list.toggle_component(true)
-		
-		if (this.events.show_recent_orders) {
-			// Custom event following the previous_screen pattern
-			this.events.show_recent_orders();
-		} else {
-			// Fallback message
-			frappe.msgprint({
-				title: __('Partial Payment Saved'),
-				message: __('Partial payment saved successfully. Please check Recent Orders to view the saved order.'),
-				indicator: 'green'
-			});
-		}
-	}
-
 	apply_split_payments_to_doc() {
 		const doc = this.events.get_frm().doc;
 		
@@ -1664,8 +1493,6 @@ posnext.PointOfSale.Payment = class {
 
 			me.selected_mode = me[`${mode}_control`];
 			me.selected_mode && me.selected_mode.$input.get(0).focus();
-			
-			// Auto-setting is now disabled for both modes
 		}
 	}
 
@@ -1757,10 +1584,8 @@ posnext.PointOfSale.Payment = class {
 	}
 
 	render_payment_section() {
-		// DON'T render payment mode DOM here if we're in split mode
-		if (!this.is_split_mode) {
-			this.render_payment_mode_dom();
-		}
+		// Always render payment modes first
+		this.render_payment_mode_dom();
 		this.update_totals_section();
 		
 		// Enhanced payment section rendering for POSNext edit order flow
@@ -1783,11 +1608,6 @@ posnext.PointOfSale.Payment = class {
 			
 			// Standard payment detection if no restored data
 			this.check_for_existing_payments();
-			
-			// Additional check: if we enabled split mode, make sure payments are loaded
-			if (this.is_split_mode) {
-				this.sync_document_payments_to_split();
-			}
 		}, 100);
 		
 		this.focus_on_default_mop();
@@ -1859,10 +1679,9 @@ posnext.PointOfSale.Payment = class {
 			this.$component.find('#split-payment-checkbox').prop('checked', true);
 			this.toggle_split_payment_mode(true);
 			
-			// Force UI refresh - DON'T call render_payment_mode_dom since we're in split mode
+			// Force UI refresh
 			setTimeout(() => {
 				this.update_totals_section(current_doc);
-				// Don't call render_payment_mode_dom here as it will override split mode buttons
 			}, 300);
 			
 			frappe.show_alert({
@@ -1933,18 +1752,15 @@ posnext.PointOfSale.Payment = class {
 		}
 	}
 
-	// FIXED: Show all payment modes regardless of whether they have amounts
 	render_payment_mode_dom() {
 		const doc = this.events.get_frm().doc;
 		const payments = doc.payments;
 		const currency = doc.currency;
 
-		// FIXED: Show ALL payment modes, not just ones with amounts > 0
 		this.$payment_modes.html(`${
 			payments.map((p, i) => {
 				const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
 				const payment_type = p.type;
-				// Show amount if it exists and is > 0, otherwise show empty
 				const amount = p.amount > 0 ? format_currency(p.amount, currency) : '';
 
 				return (`
@@ -1959,7 +1775,6 @@ posnext.PointOfSale.Payment = class {
 			}).join('')
 		}`);
 
-		// Create controls for ALL payment methods
 		payments.forEach(p => {
 			const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
 			const me = this;
@@ -1989,70 +1804,11 @@ posnext.PointOfSale.Payment = class {
 
 		this.render_loyalty_points_payment_mode();
 		this.attach_cash_shortcuts(doc);
-	}
-
-	// NEW: Method to render all payment modes when exiting split mode
-	render_all_payment_modes() {
-		const doc = this.events.get_frm().doc;
-		const payments = doc.payments;
-		const currency = doc.currency;
-
-		// Show ALL payment modes regardless of amounts
-		this.$payment_modes.html(`${
-			payments.map((p, i) => {
-				const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-				const payment_type = p.type;
-				// Always show amount, even if 0
-				const amount = format_currency(p.amount || 0, currency);
-
-				return (`
-					<div class="payment-mode-wrapper">
-						<div class="mode-of-payment" data-mode="${mode}" data-payment-type="${payment_type}">
-							${p.mode_of_payment}
-							<div class="${mode}-amount pay-amount">${amount}</div>
-							<div class="${mode} mode-of-payment-control"></div>
-						</div>
-					</div>
-				`);
-			}).join('')
-		}`);
-
-		// Create controls for ALL payment methods
-		payments.forEach(p => {
-			const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-			const me = this;
-			
-			// Clear any existing control first
-			if (this[`${mode}_control`]) {
-				this[`${mode}_control`] = null;
-			}
-			
-			this[`${mode}_control`] = frappe.ui.form.make_control({
-				df: {
-					label: p.mode_of_payment,
-					fieldtype: 'Currency',
-					placeholder: __('Enter {0} amount.', [p.mode_of_payment]),
-					onchange: function() {
-						const current_value = frappe.model.get_value(p.doctype, p.name, 'amount');
-						if (current_value != this.value) {
-							frappe.model
-								.set_value(p.doctype, p.name, 'amount', flt(this.value))
-								.then(() => me.update_totals_section())
-
-							const formatted_currency = format_currency(this.value, currency);
-							me.$payment_modes.find(`.${mode}-amount`).html(formatted_currency);
-						}
-					}
-				},
-				parent: this.$payment_modes.find(`.${mode}.mode-of-payment-control`),
-				render_input: true,
-			});
-			this[`${mode}_control`].toggle_label(false);
-			this[`${mode}_control`].set_value(p.amount || 0);
-		});
-
-		this.render_loyalty_points_payment_mode();
-		this.attach_cash_shortcuts(doc);
+		
+		// Add split buttons if in split mode
+		if (this.is_split_mode) {
+			this.add_split_buttons_to_payment_modes();
+		}
 	}
 
 	focus_on_default_mop() {
