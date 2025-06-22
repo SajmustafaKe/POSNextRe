@@ -13,7 +13,6 @@ posnext.PointOfSale.Payment = class {
         this._current_invoice_name = null;
         this._payment_detection_done = false;
         this._payments_loaded_for_invoice = null;
-
         this.init_component();
     }
 
@@ -322,8 +321,7 @@ posnext.PointOfSale.Payment = class {
                     .split-total-amount { color: #4CAF50; }
                     .split-change-amount { color: #2196F3; }
                     .payment-mode-split-active { border: 2px solid #2196F3 !important; background-color: #e3f2fd !important; }
-                    .add-to-split-btn { margin-top: 5px; width: 100%; background-color: #2196F3; color: white; border: none; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 12px; }
-                    .add-to-split-btn:hover { background-color: #1976d2; }
+                    .add-to-split-btn { margin-top: 5px; width: 100%; }
                     .split-payment-actions { margin-top: 15px; text-align: center; }
                     .save-partial-payment-btn { background-color: #ffc107; border-color: #ffc107; color: #212529; }
                     .save-partial-payment-btn:hover { background-color: #e0a800; border-color: #d39e00; }
@@ -356,6 +354,7 @@ posnext.PointOfSale.Payment = class {
             me.toggle_split_payment_mode($(this).is(':checked'));
         });
 
+        // Use event delegation for payment mode clicks
         this.$payment_modes.on('click', '.mode-of-payment', function(e) {
             const mode_clicked = $(this);
             if ($(e.target).hasClass('add-to-split-btn') || $(e.target).closest('.add-to-split-btn').length) return;
@@ -369,31 +368,23 @@ posnext.PointOfSale.Payment = class {
             }
         });
 
-        // Enhanced click handler for add-to-split-btn
-        this.$component.on('click', '.add-to-split-btn', function(e) {
+        // Use event delegation for add to split button clicks
+        this.$payment_modes.on('click', '.add-to-split-btn', function(e) {
             e.preventDefault();
             e.stopPropagation();
-            const $button = $(this);
-            const mode = $button.attr('data-mode') || $button.closest('.mode-of-payment').attr('data-mode');
-            if (!mode) {
-                frappe.show_alert({ message: __("Payment mode not found"), indicator: "red" });
-                return;
-            }
+            const mode = $(this).attr('data-mode') || $(this).closest('.mode-of-payment').attr('data-mode');
+            console.log('Add to split clicked for mode:', mode); // Debug log
             if (!me[`${mode}_control`]) {
-                frappe.show_alert({ message: __("Payment control not initialized for this mode"), indicator: "red" });
+                console.log('No control found for mode:', mode); // Debug log
                 return;
             }
-            const amount = flt(me[`${mode}_control`].get_value()) || 0;
+            const amount = parseFloat(me[`${mode}_control`].get_value()) || 0;
+            console.log('Amount to add:', amount); // Debug log
             if (amount > 0) {
                 me.add_split_payment(mode, amount);
-                me[`${mode}_control`].set_value(0); // Clear input after adding
-                me.render_split_payments_list();
-                me.update_split_summary();
             } else {
                 frappe.show_alert({ message: __("Please enter an amount greater than 0"), indicator: "orange" });
-                if (me[`${mode}_control`] && me[`${mode}_control`].$input) {
-                    me[`${mode}_control`].$input.focus();
-                }
+                if (me[`${mode}_control`] && me[`${mode}_control`].$input) me[`${mode}_control`].$input.focus();
             }
         });
 
@@ -834,11 +825,7 @@ posnext.PointOfSale.Payment = class {
     add_split_payment(mode, amount) {
         const doc = this.events.get_frm().doc;
         const payment_method = doc.payments.find(p => p.mode_of_payment.replace(/ +/g, "_").toLowerCase() === mode);
-        if (!payment_method) {
-            frappe.show_alert({ message: __("Payment method not found"), indicator: "red" });
-            return;
-        }
-        if (!amount || amount <= 0) {
+        if (!payment_method || !amount || amount <= 0) {
             frappe.show_alert({ message: __("Please enter a valid amount greater than 0"), indicator: "orange" });
             return;
         }
@@ -852,7 +839,7 @@ posnext.PointOfSale.Payment = class {
             mode: mode,
             mode_of_payment: payment_method.mode_of_payment,
             display_name: payment_method.mode_of_payment + reference,
-            amount: flt(amount, 2),
+            amount: amount,
             type: payment_method.type,
             reference_number: '',
             notes: '',
@@ -860,6 +847,7 @@ posnext.PointOfSale.Payment = class {
         };
 
         this.split_payments.push(new_payment);
+        if (this[`${mode}_control`]) this[`${mode}_control`].set_value(0);
         this.render_split_payments_list();
         this.update_split_summary();
         this.backup_payments_to_session();
@@ -1041,8 +1029,8 @@ posnext.PointOfSale.Payment = class {
         if (remaining > 0) {
             const status_html = `
                 <div class="payment-status-partial">
-                    <strong>${__('Status: Partly Paid')}</strong><br>
-                    ${__('Paid')}: ${format_currency(paid_amount, doc.currency)}<br>
+                    <strong>${__('Status: Partly Paid')}</strong>
+                    ${__('Paid')}: ${format_currency(paid_amount, doc.currency)}
                     ${__('Remaining')}: ${format_currency(remaining, doc.currency)}
                 </div>
             `;
@@ -1276,6 +1264,7 @@ posnext.PointOfSale.Payment = class {
         const payments = doc.payments;
         const currency = doc.currency;
 
+        // Only recreate DOM if it doesn't exist or needs updating
         if (!this.$payment_modes.find('.mode-of-payment').length) {
             this.$payment_modes.html(`${
                 payments.map((p, i) => {
@@ -1374,6 +1363,7 @@ posnext.PointOfSale.Payment = class {
             }
         }
 
+        // Create payment controls
         payments.forEach(p => {
             const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
             const controlContainer = this.$payment_modes.find(`.${mode}.mode-of-payment-control`);
@@ -1409,7 +1399,11 @@ posnext.PointOfSale.Payment = class {
 
         this.render_loyalty_points_payment_mode();
         this.attach_cash_shortcuts(doc);
-        if (this.is_split_mode) this.add_split_buttons_to_payment_modes();
+        
+        // Re-add split buttons if in split mode
+        if (this.is_split_mode) {
+            this.add_split_buttons_to_payment_modes();
+        }
     }
 
     focus_on_default_mop() {
