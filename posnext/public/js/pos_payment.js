@@ -1265,16 +1265,95 @@ render_payment_mode_dom() {
                 const payment_type = p.type;
                 const amount = p.amount > 0 ? format_currency(p.amount, currency) : '';
                 return (`
-                    <div class="mode-of-payment" data-mode="${mode}" data-payment-type="${payment_type}">
-                        <div class="payment-mode-header">
-                            <span class="payment-mode-title">${p.mode_of_payment}</span>
-                            <div class="${mode}-amount pay-amount">${amount}</div>
+                    <div class="payment-mode-wrapper">
+                        <div class="mode-of-payment" data-mode="${mode}" data-payment-type="${payment_type}">
+                            <div class="payment-mode-header">
+                                <span class="payment-mode-title">${p.mode_of_payment}</span>
+                                <div class="${mode}-amount pay-amount">${amount}</div>
+                            </div>
+                            <div class="${mode} mode-of-payment-control" style="width: 100%;"></div>
                         </div>
-                        <div class="${mode} mode-of-payment-control" style="width: 100%;"></div>
                     </div>
                 `);
             }).join('')
         }`);
+        
+        // Add improved CSS for payment modes
+        if (!$('#payment-mode-improved-styles').length) {
+            $('head').append(`
+                <style id="payment-mode-improved-styles">
+                    .payment-modes {
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 10px;
+                        padding: 10px;
+                    }
+                    .payment-mode-wrapper {
+                        flex: 1;
+                        min-width: 200px;
+                        max-width: 300px;
+                    }
+                    .mode-of-payment {
+                        border: 2px solid #e0e0e0;
+                        border-radius: 8px;
+                        padding: 12px;
+                        cursor: pointer;
+                        transition: all 0.2s ease;
+                        background: white;
+                        min-height: 60px;
+                    }
+                    .mode-of-payment:hover {
+                        border-color: #2196F3;
+                        box-shadow: 0 2px 8px rgba(33, 150, 243, 0.2);
+                    }
+                    .mode-of-payment.border-primary {
+                        border-color: #2196F3;
+                        background-color: #f8fafe;
+                        box-shadow: 0 2px 12px rgba(33, 150, 243, 0.3);
+                    }
+                    .payment-mode-header {
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        margin-bottom: 8px;
+                    }
+                    .payment-mode-title {
+                        font-weight: 600;
+                        color: #333;
+                        font-size: 14px;
+                    }
+                    .pay-amount {
+                        font-weight: bold;
+                        color: #2196F3;
+                        font-size: 13px;
+                    }
+                    .mode-of-payment-control {
+                        margin-top: 8px;
+                    }
+                    .cash-shortcuts {
+                        display: grid;
+                        grid-template-columns: repeat(3, 1fr);
+                        gap: 6px;
+                        margin-top: 8px;
+                    }
+                    .shortcut {
+                        background: #f5f5f5;
+                        border: 1px solid #ddd;
+                        border-radius: 4px;
+                        padding: 6px 8px;
+                        text-align: center;
+                        cursor: pointer;
+                        font-size: 12px;
+                        transition: all 0.2s ease;
+                    }
+                    .shortcut:hover {
+                        background: #e3f2fd;
+                        border-color: #2196F3;
+                        color: #2196F3;
+                    }
+                </style>
+            `);
+        }
     }
 
     payments.forEach(p => {
