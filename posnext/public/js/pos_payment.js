@@ -593,9 +593,6 @@ posnext.PointOfSale.Payment = class {
     toggle_split_payment_mode(enable) {
         this.is_split_mode = enable;
         
-        // Clear payment modes before rendering
-        this.$payment_modes.empty();
-        
         if (enable) {
             this.$split_container.show();
             this.render_split_payment_modes();
@@ -606,7 +603,12 @@ posnext.PointOfSale.Payment = class {
         } else {
             this.$split_container.hide();
             this.clear_split_payments();
-            this.render_payment_mode_dom();
+            this.remove_split_buttons_from_payment_modes();
+            // Clear and re-render normal payment modes
+            this.$payment_modes.empty();
+            setTimeout(() => {
+                this.render_payment_mode_dom();
+            }, 50);
         }
         this.backup_payments_to_session();
     }
@@ -614,17 +616,30 @@ posnext.PointOfSale.Payment = class {
     render_split_payment_modes() {
         const doc = this.events.get_frm().doc;
         const payments = doc.payments;
+        const currency = doc.currency;
 
+        // Clear existing payment modes and controls
+        this.$payment_modes.empty();
+        payments.forEach(p => {
+            const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+            if (this[`${mode}_control`]) {
+                this[`${mode}_control`] = null;
+            }
+        });
+
+        // Always render ALL payment modes in split mode, ensuring consistency
         this.$payment_modes.html(`${
             payments.map((p, i) => {
                 const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
                 const payment_type = p.type;
+                const amount = p.amount > 0 ? format_currency(p.amount, currency) : '';
 
                 return (`
                     <div class="payment-mode-wrapper">
                         <div class="mode-of-payment" data-mode="${mode}" data-payment-type="${payment_type}">
                             <div class="payment-mode-header">
                                 <span class="payment-mode-title">${p.mode_of_payment}</span>
+                                <div class="${mode}-amount pay-amount">${amount}</div>
                             </div>
                             <div class="${mode} mode-of-payment-control"></div>
                             <button class="add-to-split-btn btn btn-sm btn-primary" data-mode="${mode}">
@@ -636,21 +651,20 @@ posnext.PointOfSale.Payment = class {
             }).join('')
         }`);
 
-        // Create payment controls for split mode
+        // Create payment controls for ALL payment modes in split mode
         payments.forEach(p => {
             const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-            // Clear existing control
-            if (this[`${mode}_control`]) {
-                this[`${mode}_control`] = null;
-            }
-
+            const me = this;
+            
             this[`${mode}_control`] = frappe.ui.form.make_control({
                 df: {
                     label: p.mode_of_payment,
                     fieldtype: 'Currency',
                     placeholder: __('Enter {0} amount.', [p.mode_of_payment]),
                     onchange: function() {
-                        // Update display only in split mode
+                        // Update display in split mode
+                        const formatted_currency = format_currency(this.value, currency);
+                        me.$payment_modes.find(`.${mode}-amount`).html(formatted_currency);
                     }
                 },
                 parent: this.$payment_modes.find(`.${mode}.mode-of-payment-control`),
@@ -660,9 +674,18 @@ posnext.PointOfSale.Payment = class {
             this[`${mode}_control`].set_value(0);
         });
 
-        // Ensure buttons are enabled
+        // Add loyalty points payment mode if available
+        this.render_loyalty_points_payment_mode();
+
+        // Ensure ALL buttons are properly enabled and visible
         setTimeout(() => {
-            this.$payment_modes.find('.add-to-split-btn').show().prop('disabled', false);
+            this.$payment_modes.find('.add-to-split-btn').each(function() {
+                const $btn = $(this);
+                $btn.show().prop('disabled', false);
+                if (!$btn.hasClass('btn-primary')) {
+                    $btn.removeClass('btn-secondary btn-default').addClass('btn-primary');
+                }
+            });
         }, 50);
     }
 
@@ -934,8 +957,10 @@ posnext.PointOfSale.Payment = class {
 
     refresh_payments_display() {
         const doc = this.events.get_frm().doc;
+        
         if (this.is_split_mode) {
             this.render_split_payment_modes();
+            this.add_split_buttons_to_payment_modes();
             this.sync_document_payments_to_split();
         } else {
             this.check_for_existing_payments();
