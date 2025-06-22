@@ -711,7 +711,7 @@ make_new_invoice(from_held = false) {
 	}
 
 	async on_cart_update(args) {
-		frappe.dom.freeze();
+		//frappe.dom.freeze();
 		let item_row = undefined;
 		try {
 			let { field, value, item } = args;
@@ -779,13 +779,13 @@ make_new_invoice(from_held = false) {
 		} catch (error) {
 			console.log(error);
 		} finally {
-			frappe.dom.unfreeze();
+			//frappe.dom.unfreeze();
 			return item_row; // eslint-disable-line no-unsafe-finally
 		}
 	}
 
 	raise_customer_selection_alert() {
-		frappe.dom.unfreeze();
+		//frappe.dom.unfreeze();
 		frappe.show_alert({
 			message: __('You must select a customer before adding an item.'),
 			indicator: 'orange'
@@ -851,7 +851,7 @@ make_new_invoice(from_held = false) {
 		const available_qty = resp[0];
 		const is_stock_item = resp[1];
 
-		frappe.dom.unfreeze();
+		//frappe.dom.unfreeze();
 		console.log(item_row)
 		const bold_uom = item_row.uom.bold();
 		const bold_item_code = item_row.item_code.bold();
@@ -874,7 +874,7 @@ make_new_invoice(from_held = false) {
 			});
 			frappe.utils.play_sound("error");
 		}
-		frappe.dom.freeze();
+		//frappe.dom.freeze();
 	}
 
 	async check_serial_no_availablilty(item_code, warehouse, serial_no) {
@@ -920,7 +920,7 @@ make_new_invoice(from_held = false) {
 	}
 
 	remove_item_from_cart() {
-		frappe.dom.freeze();
+		//frappe.dom.freeze();
 		const { doctype, name, current_item } = this.item_details;
 
 		return frappe.model.set_value(doctype, name, 'qty', 0)
@@ -928,7 +928,7 @@ make_new_invoice(from_held = false) {
 				frappe.model.clear_doc(doctype, name);
 				this.update_cart_html(current_item, true);
 				this.item_details.toggle_item_details_section(null);
-				frappe.dom.unfreeze();
+				//frappe.dom.unfreeze();
 			})
 			.catch(e => console.log(e));
 	}

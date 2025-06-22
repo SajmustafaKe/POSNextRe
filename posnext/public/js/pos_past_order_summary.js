@@ -202,7 +202,7 @@ posnext.PointOfSale.PastOrderSummary = class {
 					doctype: this.doc.doctype,
 					print_format: this.pos_profile.print_format
 				},
-				freeze: true,
+				//freeze: true,
 				freeze_message: "Creating file then send to whatsapp thru link....",
 				callback: function (r) {
 					message += "Please Find your invoice here \n "+window.origin+r.message.file_url
@@ -983,10 +983,10 @@ posnext.PointOfSale.PastOrderSummary = class {
 			return frappe.utils.play_sound("error");
 		}
 
-		frappe.dom.freeze();
+		//frappe.dom.freeze();
 		frappe.db.get_value("Print Settings", "Print Settings", "enable_raw_printing")
 			.then(({ message }) => {
-				frappe.dom.unfreeze();
+				//frappe.dom.unfreeze();
 				if (message && message.enable_raw_printing === "1") {
 					_print_via_qz(doctype, docname, print_format, letterhead, lang_code);
 				} else {
@@ -994,7 +994,7 @@ posnext.PointOfSale.PastOrderSummary = class {
 				}
 			})
 			.catch(() => {
-				frappe.dom.unfreeze();
+				//frappe.dom.unfreeze();
 				frappe.show_alert({
 					message: __("Failed to check Print Settings."),
 					indicator: 'red'

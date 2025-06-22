@@ -69,7 +69,7 @@ posnext.PointOfSale.PastOrderList = class {
             this.last_search = setTimeout(() => {
                 const search_term = e.target.value;
                 this.refresh_list(search_term, this.status_field.get_value(), this.created_by_field.get_value());
-            }, 300);
+            }, 3);
         });
 
         const me = this;
@@ -238,7 +238,7 @@ set_filter_and_refresh_with_held_invoice(created_by_name, held_invoice_name = nu
             message: __('Failed to set filter: {0}', [error.message]),
             indicator: 'red'
         });
-        frappe.dom.unfreeze();
+        //frappe.dom.unfreeze();
         throw error; // Propagate for upstream handling
     });
 }
@@ -269,7 +269,7 @@ toggle_component(show) {
 
 refresh_list(search_term = '', status = 'Draft', created_by = '') {
     console.log('Refreshing list with:', { search_term, status, created_by, just_held_invoice: this._just_held_invoice });
-    frappe.dom.freeze();
+    //frappe.dom.freeze();
     this.events.reset_summary();
     let final_created_by = created_by;
     if (this._pending_created_by) {
@@ -283,7 +283,7 @@ refresh_list(search_term = '', status = 'Draft', created_by = '') {
     this.$invoices_container.html('');
     return frappe.call({
         method: "posnext.posnext.page.posnext.point_of_sale.get_past_order_list",
-        freeze: true,
+        //freeze: true,
         args: { 
             search_term, 
             status,
@@ -292,7 +292,7 @@ refresh_list(search_term = '', status = 'Draft', created_by = '') {
         },
         callback: (response) => {
             console.log('get_past_order_list response:', response);
-            frappe.dom.unfreeze();
+            //frappe.dom.unfreeze();
             this.invoices = response.message || [];
             if (!this.invoices.length) {
                 console.log('No invoices found, showing placeholder');
@@ -311,7 +311,7 @@ refresh_list(search_term = '', status = 'Draft', created_by = '') {
         },
         error: (xhr, status, error) => {
             console.error('Error in get_past_order_list:', { status, error });
-            frappe.dom.unfreeze();
+            //frappe.dom.unfreeze();
             this.$invoices_container.html(
                 `<div class="no-invoices-placeholder" style="text-align: center; padding: 20px; color: #6c757d;">
                     ${__('Failed to load orders. Please try again.')}
@@ -338,7 +338,7 @@ setup_created_by_field() {
         // Trigger refresh with the new filter
         setTimeout(() => {
             this.refresh_list();
-        }, 100);
+        }, 10);
     } else {
         // Only get most recent creator if no pending filter
         this.get_most_recent_creator();
