@@ -328,95 +328,6 @@ posnext.PointOfSale.Payment = class {
                     .save-partial-payment-btn:hover { background-color: #e0a800; border-color: #d39e00; }
                     .payment-status-partial { background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 4px; padding: 8px; margin: 10px 0; color: #856404; }
                     .existing-payment-badge { background: #28a745; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; margin-left: 5px; }
-                    
-                    /* Fixed Payment Mode Styles */
-                    .payment-mode-wrapper {
-                        margin-bottom: 10px;
-                        border: 1px solid #e0e0e0;
-                        border-radius: 6px;
-                        background: white;
-                    }
-                    
-                    .mode-of-payment {
-                        padding: 12px;
-                        cursor: pointer;
-                        transition: all 0.2s ease;
-                    }
-                    
-                    .mode-of-payment:hover {
-                        background-color: #f8f9fa;
-                    }
-                    
-                    .payment-mode-header {
-                        display: flex;
-                        justify-content: space-between;
-                        align-items: center;
-                        margin-bottom: 8px;
-                    }
-                    
-                    .payment-mode-title {
-                        font-weight: 600;
-                        color: #333;
-                    }
-                    
-                    .pay-amount {
-                        font-weight: bold;
-                        color: #2196F3;
-                    }
-                    
-                    .mode-of-payment-control {
-                        width: 100% !important;
-                        margin-top: 8px;
-                    }
-                    
-                    .mode-of-payment-control .frappe-control {
-                        margin-bottom: 0 !important;
-                    }
-                    
-                    .mode-of-payment-control input[type="number"],
-                    .mode-of-payment-control input[type="text"] {
-                        width: 100% !important;
-                        border: 1px solid #ddd;
-                        border-radius: 4px;
-                        padding: 8px 12px;
-                        font-size: 14px;
-                    }
-                    
-                    .mode-of-payment-control input:focus {
-                        border-color: #2196F3;
-                        box-shadow: 0 0 0 2px rgba(33, 150, 243, 0.1);
-                        outline: none;
-                    }
-                    
-                    .border-primary {
-                        border-color: #2196F3 !important;
-                        background-color: #e3f2fd !important;
-                    }
-                    
-                    .cash-shortcuts {
-                        display: grid;
-                        grid-template-columns: repeat(3, 1fr);
-                        gap: 8px;
-                        margin-top: 10px;
-                        padding-top: 10px;
-                        border-top: 1px solid #eee;
-                    }
-                    
-                    .shortcut {
-                        background: #f8f9fa;
-                        border: 1px solid #ddd;
-                        border-radius: 4px;
-                        padding: 6px 8px;
-                        text-align: center;
-                        cursor: pointer;
-                        font-size: 12px;
-                        transition: all 0.2s ease;
-                    }
-                    
-                    .shortcut:hover {
-                        background: #e9ecef;
-                        border-color: #2196F3;
-                    }
                 </style>
             `);
         }
@@ -808,287 +719,6 @@ posnext.PointOfSale.Payment = class {
 
         if (this.split_payments.length === 0 && this.original_payment_data && Array.isArray(this.original_payment_data)) {
             this.original_payment_data.forEach((payment, index) => {
-            if (payment.amount && payment.amount > 0) {
-                const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-                const split_payment = {
-                    id: `${mode}_restored_${index}`,
-                    mode: mode,
-                    mode_of_payment: payment.mode_of_payment,
-                    display_name: payment.mode_of_payment,
-                    amount: payment.amount,
-                    type: payment.type || 'Cash',
-                    reference_number: payment.reference_no || '',
-                    notes: payment.remarks || 'Restored from backup',
-                    is_existing: true
-                };
-                this.split_payments.push(split_payment);
-                total_paid += payment.amount;
-
-                const current_payment = current_doc.payments.find(p => p.mode_of_payment === payment.mode_of_payment);
-                if (current_payment) {
-                    frappe.model.set_value(current_payment.doctype, current_payment.name, 'amount', payment.amount);
-                    if (payment.reference_no) frappe.model.set_value(current_payment.doctype, current_payment.name, 'reference_no', payment.reference_no);
-                    if (payment.remarks) frappe.model.set_value(current_payment.doctype, current_payment.name, 'remarks', payment.remarks);
-                }
-            }
-        });
-
-        if (this.split_payments.length > 0) {
-            frappe.model.set_value(current_doc.doctype, current_doc.name, 'paid_amount', total_paid);
-            const grand_total = current_doc.grand_total || current_doc.rounded_total || 0;
-            const outstanding = grand_total - total_paid;
-            frappe.model.set_value(current_doc.doctype, current_doc.name, 'outstanding_amount', Math.max(0, outstanding));
-
-            let status = 'Draft';
-            if (total_paid >= grand_total) status = 'Paid';
-            else if (total_paid > 0) status = 'Partly Paid';
-            frappe.model.set_value(current_doc.doctype, current_doc.name, 'status', status);
-
-            this.$component.find('#split-payment-checkbox').prop('checked', true);
-            this.toggle_split_payment_mode(true);
-            setTimeout(() => { this.update_totals_section(current_doc); }, 100);
-            frappe.show_alert({
-                message: __("Payments restored from backup ({0} payment(s), Total: {1})", [this.split_payments.length, format_currency(total_paid, current_doc.currency)]),
-                indicator: "green"
-            });
-        }
-    }
-
-    after_render() {
-        const frm = this.events.get_frm();
-        frm.script_manager.trigger("after_payment_render", frm.doc.doctype, frm.doc.docname);
-    }
-
-    edit_cart() {
-        this.events.toggle_other_sections(false);
-        this.toggle_component(false);
-        this._payment_detection_done = false;
-    }
-
-    checkout() {
-        this.events.toggle_other_sections(true);
-        this.toggle_component(true);
-        this.handle_posnext_checkout_flow();
-        this.render_payment_section();
-        this.after_render();
-    }
-
-    handle_posnext_checkout_flow() {
-        const doc = this.events.get_frm().doc;
-        if (this._current_invoice_name !== doc.name) {
-            this.clear_invoice_switch_data();
-        }
-        setTimeout(() => { this.backup_payments_to_session(); }, 200);
-    }
-
-    toggle_remarks_control() {
-        if (this.$remarks.find('.frappe-control').length) {
-            this.$remarks.html('+ Add Remark');
-        } else {
-            this.$remarks.html('');
-            this[`remark_control`] = frappe.ui.form.make_control({
-                df: { label: __('Remark'), fieldtype: 'Data', onchange: function() {} },
-                parent: this.$totals_section.find(`.remarks`),
-                render_input: true,
-            });
-            this[`remark_control`].set_value('');
-        }
-    }
-
-    render_payment_mode_dom() {
-        const doc = this.events.get_frm().doc;
-        const payments = doc.payments;
-        const currency = doc.currency;
-
-        if (!this.$payment_modes.find('.mode-of-payment').length) {
-            this.$payment_modes.html(`${
-                payments.map((p, i) => {
-                    const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-                    const payment_type = p.type;
-                    const amount = p.amount > 0 ? format_currency(p.amount, currency) : '';
-                    return (`
-                        <div class="payment-mode-wrapper">
-                            <div class="mode-of-payment" data-mode="${mode}" data-payment-type="${payment_type}">
-                                <div class="payment-mode-header">
-                                    <span class="payment-mode-title">${p.mode_of_payment}</span>
-                                    <div class="${mode}-amount pay-amount">${amount}</div>
-                                </div>
-                                <div class="${mode} mode-of-payment-control" style="width: 100%;"></div>
-                            </div>
-                        </div>
-                    `);
-                }).join('')
-            }`);
-        }
-
-        payments.forEach(p => {
-            const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-            if (!this[`${mode}_control`]) {
-                const me = this;
-                this[`${mode}_control`] = frappe.ui.form.make_control({
-                    df: {
-                        label: p.mode_of_payment,
-                        fieldtype: 'Currency',
-                        placeholder: __('Enter {0} amount.', [p.mode_of_payment]),
-                        onchange: function() {
-                            const current_value = frappe.model.get_value(p.doctype, p.name, 'amount');
-                            if (current_value != this.value) {
-                                frappe.model.set_value(p.doctype, p.name, 'amount', flt(this.value)).then(() => me.update_totals_section());
-                                const formatted_currency = format_currency(this.value, currency);
-                                me.$payment_modes.find(`.${mode}-amount`).html(formatted_currency);
-                            }
-                        }
-                    },
-                    parent: this.$payment_modes.find(`.${mode}.mode-of-payment-control`),
-                    render_input: true,
-                });
-                this[`${mode}_control`].toggle_label(false);
-            }
-            this[`${mode}_control`].set_value(p.amount);
-        });
-
-        this.render_loyalty_points_payment_mode();
-        this.attach_cash_shortcuts(doc);
-        if (this.is_split_mode) this.add_split_buttons_to_payment_modes();
-    }
-
-    focus_on_default_mop() {
-        const doc = this.events.get_frm().doc;
-        const payments = doc.payments;
-        if (this.is_split_mode) return;
-        payments.forEach(p => {
-            const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-            if (p.default) {
-                setTimeout(() => { this.$payment_modes.find(`.${mode}.mode-of-payment-control`).parent().click(); }, 100);
-            }
-        });
-    }
-
-    attach_cash_shortcuts(doc) {
-        const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
-        const currency = doc.currency;
-        const shortcuts = this.get_cash_shortcuts(flt(grand_total));
-
-        this.$payment_modes.find('.cash-shortcuts').remove();
-        let shortcuts_html = shortcuts.map(s => `<div class="shortcut" data-value="${s}">${format_currency(s, currency, 0)}</div>`).join('');
-        this.$payment_modes.find('[data-payment-type="Cash"]').find('.mode-of-payment-control').after(`<div class="cash-shortcuts">${shortcuts_html}</div>`);
-    }
-
-    get_cash_shortcuts(grand_total) {
-        let steps = [1, 5, 10];
-        const digits = String(Math.round(grand_total)).length;
-        steps = steps.map(x => x * (10 ** (digits - 2)));
-        const get_nearest = (amount, x) => {
-            let nearest_x = Math.ceil((amount / x)) * x;
-            return nearest_x === amount ? nearest_x + x : nearest_x;
-        };
-        return steps.reduce((finalArr, x) => {
-            let nearest_x = get_nearest(grand_total, x);
-            nearest_x = finalArr.indexOf(nearest_x) != -1 ? nearest_x + x : nearest_x;
-            return [...finalArr, nearest_x];
-        }, []);
-    }
-
-    render_loyalty_points_payment_mode() {
-        const me = this;
-        const doc = this.events.get_frm().doc;
-        const { loyalty_program, loyalty_points, conversion_factor } = this.events.get_customer_details();
-        this.$payment_modes.find(`.mode-of-payment[data-mode="loyalty-amount"]`).parent().remove();
-        if (!loyalty_program) return;
-
-        let description, read_only, max_redeemable_amount;
-        if (!loyalty_points) {
-            description = __("You don't have enough points to redeem.");
-            read_only = true;
-        } else {
-            max_redeemable_amount = flt(flt(loyalty_points) * flt(conversion_factor), precision("loyalty_amount", doc));
-            description = __("You can redeem upto {0}.", [format_currency(max_redeemable_amount)]);
-            read_only = false;
-        }
-
-        const amount = doc.loyalty_amount > 0 ? format_currency(doc.loyalty_amount, doc.currency) : '';
-        this.$payment_modes.append(
-            `<div class="payment-mode-wrapper">
-                <div class="mode-of-payment loyalty-card" data-mode="loyalty-amount" data-payment-type="loyalty-amount">
-                    <div class="payment-mode-header">
-                        <span class="payment-mode-title">Redeem Loyalty Points</span>
-                        <div class="loyalty-amount-amount pay-amount">${amount}</div>
-                    </div>
-                    <div class="loyalty-amount-name">${loyalty_program}</div>
-                    <div class="loyalty-amount mode-of-payment-control"></div>
-                </div>
-            </div>`
-        );
-
-        this['loyalty-amount_control'] = frappe.ui.form.make_control({
-            df: {
-                label: __("Redeem Loyalty Points"),
-                fieldtype: 'Currency',
-                placeholder: __("Enter amount to be redeemed."),
-                options: 'company:currency',
-                read_only,
-                onchange: async function() {
-                    if (!loyalty_points) return;
-                    if (this.value > max_redeemable_amount) {
-                        frappe.show_alert({ message: __("You cannot redeem more than {0}.", [format_currency(max_redeemable_amount)]), indicator: "red" });
-                        frappe.utils.play_sound("submit");
-                        me['loyalty-amount_control'].set_value(0);
-                        return;
-                    }
-                    const redeem_loyalty_points = this.value > 0 ? 1 : 0;
-                    await frappe.model.set_value(doc.doctype, doc.name, 'redeem_loyalty_points', redeem_loyalty_points);
-                    frappe.model.set_value(doc.doctype, doc.name, 'loyalty_points', parseInt(this.value / conversion_factor));
-                },
-                description
-            },
-            parent: this.$payment_modes.find(`.loyalty-amount.mode-of-payment-control`),
-            render_input: true,
-        });
-        this['loyalty-amount_control'].toggle_label(false);
-    }
-
-    render_add_payment_method_dom() {
-        const docstatus = this.events.get_frm().doc.docstatus;
-        if (docstatus === 0) {
-            this.$payment_modes.append(
-                `<div class="w-full pr-2">
-                    <div class="add-mode-of-payment w-half text-grey mb-4 no-select pointer">+ Add Payment Method</div>
-                </div>`
-            );
-        }
-    }
-
-    update_totals_section(doc) {
-        if (!doc) doc = this.events.get_frm().doc;
-        const paid_amount = doc.paid_amount;
-        const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
-        const remaining = grand_total - doc.paid_amount;
-        const change = doc.change_amount || remaining <= 0 ? -1 * remaining : undefined;
-        const currency = doc.currency;
-        const label = change ? __('Change') : __('To Be Paid');
-
-        this.$totals.html(
-            `<div class="col">
-                <div class="total-label">${__('Grand Total')}</div>
-                <div class="value">${format_currency(grand_total, currency)}</div>
-            </div>
-            <div class="seperator-y"></div>
-            <div class="col">
-                <div class="total-label">${__('Paid Amount')}</div>
-                <div class="value">${format_currency(paid_amount, currency)}</div>
-            </div>
-            <div class="seperator-y"></div>
-            <div class="col">
-                <div class="total-label">${label}</div>
-                <div class="value">${format_currency(change || remaining, currency)}</div>
-            </div>`
-        );
-    }
-
-    toggle_component(show) {
-        show ? this.$component.css('display', 'flex') : this.$component.css('display', 'none');
-    }
-};payment, index) => {
                 if (payment.amount && payment.amount > 0) {
                     const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
                     const existing_payment = {
@@ -1535,4 +1165,284 @@ posnext.PointOfSale.Payment = class {
         this.split_payments = [];
         let total_paid = 0;
 
-        this.original_payment_data.forEach((
+        this.original_payment_data.forEach((payment, index) => {
+            if (payment.amount && payment.amount > 0) {
+                const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+                const split_payment = {
+                    id: `${mode}_restored_${index}`,
+                    mode: mode,
+                    mode_of_payment: payment.mode_of_payment,
+                    display_name: payment.mode_of_payment,
+                    amount: payment.amount,
+                    type: payment.type || 'Cash',
+                    reference_number: payment.reference_no || '',
+                    notes: payment.remarks || 'Restored from backup',
+                    is_existing: true
+                };
+                this.split_payments.push(split_payment);
+                total_paid += payment.amount;
+
+                const current_payment = current_doc.payments.find(p => p.mode_of_payment === payment.mode_of_payment);
+                if (current_payment) {
+                    frappe.model.set_value(current_payment.doctype, current_payment.name, 'amount', payment.amount);
+                    if (payment.reference_no) frappe.model.set_value(current_payment.doctype, current_payment.name, 'reference_no', payment.reference_no);
+                    if (payment.remarks) frappe.model.set_value(current_payment.doctype, current_payment.name, 'remarks', payment.remarks);
+                }
+            }
+        });
+
+        if (this.split_payments.length > 0) {
+            frappe.model.set_value(current_doc.doctype, current_doc.name, 'paid_amount', total_paid);
+            const grand_total = current_doc.grand_total || current_doc.rounded_total || 0;
+            const outstanding = grand_total - total_paid;
+            frappe.model.set_value(current_doc.doctype, current_doc.name, 'outstanding_amount', Math.max(0, outstanding));
+
+            let status = 'Draft';
+            if (total_paid >= grand_total) status = 'Paid';
+            else if (total_paid > 0) status = 'Partly Paid';
+            frappe.model.set_value(current_doc.doctype, current_doc.name, 'status', status);
+
+            this.$component.find('#split-payment-checkbox').prop('checked', true);
+            this.toggle_split_payment_mode(true);
+            setTimeout(() => { this.update_totals_section(current_doc); }, 100);
+            frappe.show_alert({
+                message: __("Payments restored from backup ({0} payment(s), Total: {1})", [this.split_payments.length, format_currency(total_paid, current_doc.currency)]),
+                indicator: "green"
+            });
+        }
+    }
+
+    after_render() {
+        const frm = this.events.get_frm();
+        frm.script_manager.trigger("after_payment_render", frm.doc.doctype, frm.doc.docname);
+    }
+
+    edit_cart() {
+        this.events.toggle_other_sections(false);
+        this.toggle_component(false);
+        this._payment_detection_done = false;
+    }
+
+    checkout() {
+        this.events.toggle_other_sections(true);
+        this.toggle_component(true);
+        this.handle_posnext_checkout_flow();
+        this.render_payment_section();
+        this.after_render();
+    }
+
+    handle_posnext_checkout_flow() {
+        const doc = this.events.get_frm().doc;
+        if (this._current_invoice_name !== doc.name) {
+            this.clear_invoice_switch_data();
+        }
+        setTimeout(() => { this.backup_payments_to_session(); }, 200);
+    }
+
+    toggle_remarks_control() {
+        if (this.$remarks.find('.frappe-control').length) {
+            this.$remarks.html('+ Add Remark');
+        } else {
+            this.$remarks.html('');
+            this[`remark_control`] = frappe.ui.form.make_control({
+                df: { label: __('Remark'), fieldtype: 'Data', onchange: function() {} },
+                parent: this.$totals_section.find(`.remarks`),
+                render_input: true,
+            });
+            this[`remark_control`].set_value('');
+        }
+    }
+
+render_payment_mode_dom() {
+    const doc = this.events.get_frm().doc;
+    const payments = doc.payments;
+    const currency = doc.currency;
+
+    if (!this.$payment_modes.find('.mode-of-payment').length) {
+        this.$payment_modes.html(`${
+            payments.map((p, i) => {
+                const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+                const payment_type = p.type;
+                const amount = p.amount > 0 ? format_currency(p.amount, currency) : '';
+                return (`
+                    <div class="payment-mode-wrapper">
+                        <div class="mode-of-payment" data-mode="${mode}" data-payment-type="${payment_type}">
+                            <div class="payment-mode-header">
+                                <span class="payment-mode-title">${p.mode_of_payment}</span>
+                                <div class="${mode}-amount pay-amount">${amount}</div>
+                            </div>
+                            <div class="${mode} mode-of-payment-control" style="width: 100%;"></div>
+                        </div>
+                    </div>
+                `);
+            }).join('')
+        }`);
+    }
+
+    payments.forEach(p => {
+        const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+        if (!this[`${mode}_control`]) {
+            const me = this;
+            this[`${mode}_control`] = frappe.ui.form.make_control({
+                df: {
+                    label: p.mode_of_payment,
+                    fieldtype: 'Currency',
+                    placeholder: __('Enter {0} amount.', [p.mode_of_payment]),
+                    onchange: function() {
+                        const current_value = frappe.model.get_value(p.doctype, p.name, 'amount');
+                        if (current_value != this.value) {
+                            frappe.model.set_value(p.doctype, p.name, 'amount', flt(this.value)).then(() => me.update_totals_section());
+                            const formatted_currency = format_currency(this.value, currency);
+                            me.$payment_modes.find(`.${mode}-amount`).html(formatted_currency);
+                        }
+                    }
+                },
+                parent: this.$payment_modes.find(`.${mode}.mode-of-payment-control`),
+                render_input: true,
+            });
+            this[`${mode}_control`].toggle_label(false);
+        }
+        this[`${mode}_control`].set_value(p.amount);
+    });
+
+    this.render_loyalty_points_payment_mode();
+    this.attach_cash_shortcuts(doc);
+    if (this.is_split_mode) this.add_split_buttons_to_payment_modes();
+}
+
+
+    focus_on_default_mop() {
+        const doc = this.events.get_frm().doc;
+        const payments = doc.payments;
+        if (this.is_split_mode) return;
+        payments.forEach(p => {
+            const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+            if (p.default) {
+                setTimeout(() => { this.$payment_modes.find(`.${mode}.mode-of-payment-control`).parent().click(); }, 100);
+            }
+        });
+    }
+
+    attach_cash_shortcuts(doc) {
+        const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
+        const currency = doc.currency;
+        const shortcuts = this.get_cash_shortcuts(flt(grand_total));
+
+        this.$payment_modes.find('.cash-shortcuts').remove();
+        let shortcuts_html = shortcuts.map(s => `<div class="shortcut" data-value="${s}">${format_currency(s, currency, 0)}</div>`).join('');
+        this.$payment_modes.find('[data-payment-type="Cash"]').find('.mode-of-payment-control').after(`<div class="cash-shortcuts">${shortcuts_html}</div>`);
+    }
+
+    get_cash_shortcuts(grand_total) {
+        let steps = [1, 5, 10];
+        const digits = String(Math.round(grand_total)).length;
+        steps = steps.map(x => x * (10 ** (digits - 2)));
+        const get_nearest = (amount, x) => {
+            let nearest_x = Math.ceil((amount / x)) * x;
+            return nearest_x === amount ? nearest_x + x : nearest_x;
+        };
+        return steps.reduce((finalArr, x) => {
+            let nearest_x = get_nearest(grand_total, x);
+            nearest_x = finalArr.indexOf(nearest_x) != -1 ? nearest_x + x : nearest_x;
+            return [...finalArr, nearest_x];
+        }, []);
+    }
+
+    render_loyalty_points_payment_mode() {
+        const me = this;
+        const doc = this.events.get_frm().doc;
+        const { loyalty_program, loyalty_points, conversion_factor } = this.events.get_customer_details();
+        this.$payment_modes.find(`.mode-of-payment[data-mode="loyalty-amount"]`).parent().remove();
+        if (!loyalty_program) return;
+
+        let description, read_only, max_redeemable_amount;
+        if (!loyalty_points) {
+            description = __("You don't have enough points to redeem.");
+            read_only = true;
+        } else {
+            max_redeemable_amount = flt(flt(loyalty_points) * flt(conversion_factor), precision("loyalty_amount", doc));
+            description = __("You can redeem upto {0}.", [format_currency(max_redeemable_amount)]);
+            read_only = false;
+        }
+
+        const amount = doc.loyalty_amount > 0 ? format_currency(doc.loyalty_amount, doc.currency) : '';
+        this.$payment_modes.append(
+            `<div class="payment-mode-wrapper">
+                <div class="mode-of-payment loyalty-card" data-mode="loyalty-amount" data-payment-type="loyalty-amount">
+                    Redeem Loyalty Points
+                    <div class="loyalty-amount-amount pay-amount">${amount}</div>
+                    <div class="loyalty-amount-name">${loyalty_program}</div>
+                    <div class="loyalty-amount mode-of-payment-control"></div>
+                </div>
+            </div>`
+        );
+
+        this['loyalty-amount_control'] = frappe.ui.form.make_control({
+            df: {
+                label: __("Redeem Loyalty Points"),
+                fieldtype: 'Currency',
+                placeholder: __("Enter amount to be redeemed."),
+                options: 'company:currency',
+                read_only,
+                onchange: async function() {
+                    if (!loyalty_points) return;
+                    if (this.value > max_redeemable_amount) {
+                        frappe.show_alert({ message: __("You cannot redeem more than {0}.", [format_currency(max_redeemable_amount)]), indicator: "red" });
+                        frappe.utils.play_sound("submit");
+                        me['loyalty-amount_control'].set_value(0);
+                        return;
+                    }
+                    const redeem_loyalty_points = this.value > 0 ? 1 : 0;
+                    await frappe.model.set_value(doc.doctype, doc.name, 'redeem_loyalty_points', redeem_loyalty_points);
+                    frappe.model.set_value(doc.doctype, doc.name, 'loyalty_points', parseInt(this.value / conversion_factor));
+                },
+                description
+            },
+            parent: this.$payment_modes.find(`.loyalty-amount.mode-of-payment-control`),
+            render_input: true,
+        });
+        this['loyalty-amount_control'].toggle_label(false);
+    }
+
+    render_add_payment_method_dom() {
+        const docstatus = this.events.get_frm().doc.docstatus;
+        if (docstatus === 0) {
+            this.$payment_modes.append(
+                `<div class="w-full pr-2">
+                    <div class="add-mode-of-payment w-half text-grey mb-4 no-select pointer">+ Add Payment Method</div>
+                </div>`
+            );
+        }
+    }
+
+    update_totals_section(doc) {
+        if (!doc) doc = this.events.get_frm().doc;
+        const paid_amount = doc.paid_amount;
+        const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
+        const remaining = grand_total - doc.paid_amount;
+        const change = doc.change_amount || remaining <= 0 ? -1 * remaining : undefined;
+        const currency = doc.currency;
+        const label = change ? __('Change') : __('To Be Paid');
+
+        this.$totals.html(
+            `<div class="col">
+                <div class="total-label">${__('Grand Total')}</div>
+                <div class="value">${format_currency(grand_total, currency)}</div>
+            </div>
+            <div class="seperator-y"></div>
+            <div class="col">
+                <div class="total-label">${__('Paid Amount')}</div>
+                <div class="value">${format_currency(paid_amount, currency)}</div>
+            </div>
+            <div class="seperator-y"></div>
+            <div class="col">
+                <div class="total-label">${label}</div>
+                <div class="value">${format_currency(change || remaining, currency)}</div>
+            </div>`
+        );
+    }
+
+    toggle_component(show) {
+        show ? this.$component.css('display', 'flex') : this.$component.css('display', 'none');
+    }
+};
