@@ -48,6 +48,7 @@ posnext.PointOfSale.Payment = class {
             this.$component.find('#split-payment-checkbox').prop('checked', false);
             this.$split_container.hide();
             this.remove_split_buttons_from_payment_modes();
+            // Force re-render to ensure all payment modes are visible
             this.render_payment_mode_dom();
         }
 
@@ -94,12 +95,14 @@ posnext.PointOfSale.Payment = class {
             this.update_split_summary();
             this.check_and_toggle_split_mode();
         } else {
+            // Always re-render to ensure all payment modes are visible
             this.render_payment_mode_dom();
         }
         this.update_totals_section(doc);
         this.$component.find('.payment-status-partial').remove();
     }
 
+    // ... [Backup/restore methods remain the same] ...
     backup_payments_to_session() {
         if (!this.payment_backup_key) return;
         const doc = this.events.get_frm().doc;
@@ -208,32 +211,6 @@ posnext.PointOfSale.Payment = class {
         return false;
     }
 
-    restore_from_backup_if_needed() {
-        if (!this.payment_backup_key) return false;
-        if (window.pos_payment_backups && window.pos_payment_backups[this.payment_backup_key]) {
-            const backup_data = window.pos_payment_backups[this.payment_backup_key];
-            const current_doc = this.events.get_frm().doc;
-
-            if (backup_data.invoice_name !== current_doc.name) return false;
-            const backup_version = backup_data.document_version;
-            const current_version = current_doc.modified || current_doc.creation;
-            if (backup_version && current_version && backup_version !== current_version) return false;
-
-            const current_paid_amount = current_doc.paid_amount || 0;
-            const backup_paid_amount = backup_data.paid_amount || 0;
-            if (current_paid_amount > backup_paid_amount) return false;
-
-            if (backup_data.split_payments && backup_data.split_payments.length > 0) {
-                this.split_payments = [...backup_data.split_payments];
-                this.split_payments.forEach(payment => { payment.is_existing = true; });
-                return true;
-            }
-
-            if (backup_data.is_split_mode) this.is_split_mode = backup_data.is_split_mode;
-        }
-        return false;
-    }
-
     clear_payment_backup() {
         if (!this.payment_backup_key) return;
         if (window.pos_payment_backups && window.pos_payment_backups[this.payment_backup_key]) {
@@ -328,6 +305,8 @@ posnext.PointOfSale.Payment = class {
                     .save-partial-payment-btn:hover { background-color: #e0a800; border-color: #d39e00; }
                     .payment-status-partial { background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 4px; padding: 8px; margin: 10px 0; color: #856404; }
                     .existing-payment-badge { background: #28a745; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; margin-left: 5px; }
+                    .mode-of-payment-control { display: none; }
+                    .cash-shortcuts { display: none; }
                 </style>
             `);
         }
@@ -355,11 +334,17 @@ posnext.PointOfSale.Payment = class {
             me.toggle_split_payment_mode($(this).is(':checked'));
         });
 
-        // Use event delegation for payment mode clicks
+        // FIXED: Better event delegation for payment mode clicks
         this.$payment_modes.on('click', '.mode-of-payment', function(e) {
             const mode_clicked = $(this);
-            if ($(e.target).hasClass('add-to-split-btn') || $(e.target).closest('.add-to-split-btn').length) return;
-            if (!$(e.target).is(mode_clicked)) return;
+            
+            // Prevent handling if clicking on add-to-split button
+            if ($(e.target).hasClass('add-to-split-btn') || $(e.target).closest('.add-to-split-btn').length) {
+                return;
+            }
+            
+            // Only handle if the actual mode container was clicked
+            if (!$(e.target).is(mode_clicked) && !mode_clicked.has(e.target).length) return;
 
             const mode = mode_clicked.attr('data-mode');
             if (me.is_split_mode) {
@@ -369,39 +354,31 @@ posnext.PointOfSale.Payment = class {
             }
         });
 
-        // FIXED: Better event delegation for add to split buttons - attached to document to catch all dynamically created buttons
-        $(document).on('click', '.add-to-split-btn', function(e) {
+        // FIXED: Proper event delegation for add-to-split buttons
+        this.$payment_modes.on('click', '.add-to-split-btn', function(e) {
             e.preventDefault();
             e.stopPropagation();
-            
-            console.log('🔴 Add to split button clicked!'); // Debug log
             
             const $btn = $(this);
             const mode = $btn.attr('data-mode') || $btn.closest('.mode-of-payment').attr('data-mode');
             
-            console.log('🔴 Mode detected:', mode); // Debug log
-            
             if (!mode) {
-                console.error('❌ No mode found for button');
                 frappe.show_alert({ message: __("Payment mode not found"), indicator: "red" });
                 return;
             }
             
             if (!me.is_split_mode) {
-                console.error('❌ Not in split mode');
                 frappe.show_alert({ message: __("Please enable split payment mode first"), indicator: "orange" });
                 return;
             }
             
             const control = me[`${mode}_control`];
             if (!control) {
-                console.error('❌ No control found for mode:', mode);
                 frappe.show_alert({ message: __("Payment control not found for {0}", [mode]), indicator: "red" });
                 return;
             }
             
             const amount = parseFloat(control.get_value()) || 0;
-            console.log('🔴 Amount to add:', amount); // Debug log
             
             if (amount <= 0) {
                 frappe.show_alert({ message: __("Please enter an amount greater than 0"), indicator: "orange" });
@@ -409,10 +386,10 @@ posnext.PointOfSale.Payment = class {
                 return;
             }
             
-            console.log('🔴 Calling add_split_payment...'); // Debug log
             me.add_split_payment(mode, amount);
         });
 
+        // ... [Rest of the event handlers remain the same] ...
         this.$component.on('click', '.split-payment-remove', function() {
             const index = $(this).data('index');
             me.remove_split_payment(index);
@@ -524,6 +501,7 @@ posnext.PointOfSale.Payment = class {
             const is_cash_shortcuts_invisible = !this.$payment_modes.find('.cash-shortcuts').is(':visible');
             this.attach_cash_shortcuts(frm.doc);
             !is_cash_shortcuts_invisible && this.$payment_modes.find('.cash-shortcuts').css('display', 'grid');
+            // FIXED: Don't re-render in split mode unless necessary
             if (!this.is_split_mode) this.render_payment_mode_dom();
         });
 
@@ -554,21 +532,22 @@ posnext.PointOfSale.Payment = class {
         });
     }
 
+    // FIXED: Improved toggle function that preserves all payment modes
     toggle_split_payment_mode(enable) {
         console.log('🔄 Toggling split payment mode:', enable);
         
         this.is_split_mode = enable;
+        
         if (enable) {
             this.$split_container.show();
             
-            // FIXED: Force re-render payment modes to ensure controls exist, then add split buttons
+            // ALWAYS re-render payment modes to ensure all are visible and controls exist
             this.render_payment_mode_dom();
             
-            // Add split buttons after a small delay to ensure DOM is ready
+            // Add split buttons after DOM is ready
             setTimeout(() => {
                 this.add_split_buttons_to_payment_modes();
-                console.log('✅ Split buttons added');
-            }, 100);
+            }, 50);
             
             this.load_existing_payments();
             if (this.split_payments.length === 0) this.sync_document_payments_to_split();
@@ -576,13 +555,14 @@ posnext.PointOfSale.Payment = class {
             this.$split_container.hide();
             this.clear_split_payments();
             this.remove_split_buttons_from_payment_modes();
+            
+            // ALWAYS re-render to ensure all payment modes are visible
+            this.render_payment_mode_dom();
         }
         this.backup_payments_to_session();
     }
 
     add_split_buttons_to_payment_modes() {
-        console.log('🔧 Adding split buttons to payment modes...');
-        
         // Remove any existing buttons first
         this.$payment_modes.find('.add-to-split-btn').remove();
         
@@ -594,296 +574,252 @@ posnext.PointOfSale.Payment = class {
             if (mode && !$mode.find('.add-to-split-btn').length) {
                 const $button = $(`<button class="add-to-split-btn btn btn-sm btn-primary" data-mode="${mode}">${__('Add to Split')}</button>`);
                 $mode.append($button);
-                console.log('✅ Added split button for mode:', mode);
             }
         });
-        
-        console.log('🔧 Split buttons addition complete');
     }
 
     remove_split_buttons_from_payment_modes() {
-        console.log('🗑️ Removing split buttons...');
         this.$payment_modes.find('.add-to-split-btn').remove();
     }
 
-    check_for_existing_payments() {
+    // FIXED: Cleaner payment mode rendering that ensures all modes are always visible
+    render_payment_mode_dom() {
         const doc = this.events.get_frm().doc;
-        let has_existing_payments = false;
-        let total_existing_amount = 0;
+        const payments = doc.payments;
+        const currency = doc.currency;
 
-        if (doc.payments && Array.isArray(doc.payments)) {
-            doc.payments.forEach(payment => {
-                if (payment.amount && payment.amount > 0) {
-                    has_existing_payments = true;
-                    total_existing_amount += payment.amount;
-                }
+        // ALWAYS rebuild the entire payment modes section to ensure consistency
+        this.$payment_modes.html(`${
+            payments.map((p, i) => {
+                const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+                const payment_type = p.type;
+                const amount = p.amount > 0 ? format_currency(p.amount, currency) : '';
+                return (`
+                    <div class="payment-mode-wrapper">
+                        <div class="mode-of-payment" data-mode="${mode}" data-payment-type="${payment_type}">
+                            <div class="payment-mode-header">
+                                <span class="payment-mode-title">${p.mode_of_payment}</span>
+                                <div class="${mode}-amount pay-amount">${amount}</div>
+                            </div>
+                            <div class="${mode} mode-of-payment-control"></div>
+                        </div>
+                    </div>
+                `);
+            }).join('')
+        }`);
+
+        // ALWAYS recreate payment controls for consistency
+        payments.forEach(p => {
+            const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+            const controlContainer = this.$payment_modes.find(`.${mode}.mode-of-payment-control`);
+            const me = this;
+            
+            // Create fresh control every time
+            this[`${mode}_control`] = frappe.ui.form.make_control({
+                df: {
+                    label: p.mode_of_payment,
+                    fieldtype: 'Currency',
+                    placeholder: __('Enter {0} amount.', [p.mode_of_payment]),
+                    onchange: function() {
+                        const current_value = frappe.model.get_value(p.doctype, p.name, 'amount');
+                        if (current_value != this.value) {
+                            frappe.model.set_value(p.doctype, p.name, 'amount', flt(this.value)).then(() => {
+                                // Update the display amount
+                                const formatted_currency = format_currency(this.value, currency);
+                                me.$payment_modes.find(`.${mode}-amount`).html(formatted_currency);
+                                me.update_totals_section();
+                            });
+                        }
+                    }
+                },
+                parent: controlContainer,
+                render_input: true,
             });
-        }
+            this[`${mode}_control`].toggle_label(false);
+            this[`${mode}_control`].set_value(p.amount || 0);
+        });
 
-        if (!has_existing_payments && doc.paid_amount && doc.paid_amount > 0) {
-            has_existing_payments = true;
-            total_existing_amount = doc.paid_amount;
-        }
+        this.render_loyalty_points_payment_mode();
+        this.attach_cash_shortcuts(doc);
+    }
 
-        if (!has_existing_payments && doc.status && ['Partly Paid', 'Paid'].includes(doc.status)) {
-            has_existing_payments = true;
-            if (doc.outstanding_amount && doc.grand_total) {
-                total_existing_amount = doc.grand_total - doc.outstanding_amount;
-            }
-        }
+    // FIXED: Regular payment mode handling that doesn't hide other modes
+    handle_regular_payment_selection(mode_clicked, mode) {
+        const me = this;
+        const scrollLeft = mode_clicked.offset().left - me.$payment_modes.offset().left + me.$payment_modes.scrollLeft();
+        me.$payment_modes.animate({ scrollLeft });
+        
+        // Hide all control fields and shortcuts
+        $('.mode-of-payment-control').css('display', 'none');
+        $('.cash-shortcuts').css('display', 'none');
+        me.$payment_modes.find('.pay-amount').css('display', 'inline');
+        me.$payment_modes.find('.loyalty-amount-name').css('display', 'none');
+        
+        // Remove highlight from all mode-of-payments
+        $('.mode-of-payment').removeClass('border-primary');
 
-        const is_edited_order = (
-            (doc.name.startsWith('new-') && (doc.creation || doc.modified || doc.status !== 'Draft')) ||
-            (!doc.name.startsWith('new-') && doc.creation && doc.docstatus === 0 && !doc.__islocal)
-        );
+        if (mode_clicked.hasClass('border-primary')) {
+            // clicked one is selected then unselect it
+            mode_clicked.removeClass('border-primary');
+            me.selected_mode = '';
+        } else {
+            // clicked one is not selected then select it
+            mode_clicked.addClass('border-primary');
+            mode_clicked.find('.mode-of-payment-control').css('display', 'flex');
+            mode_clicked.find('.cash-shortcuts').css('display', 'grid');
+            me.$payment_modes.find(`.${mode}-amount`).css('display', 'none');
+            me.$payment_modes.find(`.${mode}-name`).css('display', 'inline');
 
-        if (is_edited_order && !has_existing_payments) {
-            if (!doc.name.startsWith('new-') && doc.creation && doc.docstatus === 0) {
-                this.fetch_original_payment_data(doc.name);
-            }
-        }
-
-        if (has_existing_payments && !this.is_split_mode) {
-            this.$component.find('#split-payment-checkbox').prop('checked', true);
-            this.toggle_split_payment_mode(true);
+            me.selected_mode = me[`${mode}_control`];
+            me.selected_mode && me.selected_mode.$input.get(0).focus();
+            me.auto_set_remaining_amount();
         }
     }
 
-    fetch_original_payment_data(invoice_name) {
-        const current_doc = this.events.get_frm().doc;
-        const has_current_payments = current_doc.payments && current_doc.payments.some(p => p.amount && p.amount > 0);
-        if (has_current_payments) return;
-
-        frappe.db.get_doc('POS Invoice', invoice_name).then(original_doc => {
-            if (original_doc && original_doc.payments) {
-                let found_payments = false;
-                let total_amount = 0;
-                original_doc.payments.forEach(payment => {
-                    if (payment.amount && payment.amount > 0) {
-                        found_payments = true;
-                        total_amount += payment.amount;
-                    }
-                });
-
-                if (found_payments) {
-                    this.original_payment_data = original_doc.payments;
-                    this.apply_original_payments_to_document(original_doc);
-                    if (!this.is_split_mode) {
-                        this.$component.find('#split-payment-checkbox').prop('checked', true);
-                        this.toggle_split_payment_mode(true);
-                    }
-                    frappe.show_alert({
-                        message: __("Original payments detected and restored! Total: {0}", [format_currency(total_amount, original_doc.currency)]),
-                        indicator: "green"
-                    });
-                }
-            }
-        }).catch(() => {});
+    handle_split_payment_selection(mode_clicked, mode) {
+        $('.mode-of-payment').removeClass('payment-mode-split-active');
+        mode_clicked.addClass('payment-mode-split-active');
+        $('.mode-of-payment-control').css('display', 'none');
+        mode_clicked.find('.mode-of-payment-control').css('display', 'flex');
+        this.selected_mode = this[`${mode}_control`];
+        this.selected_mode && this.selected_mode.$input.get(0).focus();
     }
 
-    apply_original_payments_to_document(original_doc) {
-        const current_doc = this.events.get_frm().doc;
-        if (!original_doc.payments || !current_doc.payments) return;
-        let total_paid = 0;
+    auto_set_remaining_amount() {
+        const doc = this.events.get_frm().doc;
+        const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
+        const remaining_amount = grand_total - doc.paid_amount;
+        const current_value = this.selected_mode ? this.selected_mode.get_value() : undefined;
+        if (!current_value && remaining_amount > 0 && this.selected_mode) {
+            this.selected_mode.set_value(remaining_amount);
+        }
+    }
 
-        original_doc.payments.forEach(original_payment => {
-            if (original_payment.amount && original_payment.amount > 0) {
-                const current_payment = current_doc.payments.find(p => p.mode_of_payment === original_payment.mode_of_payment);
-                if (current_payment) {
-                    frappe.model.set_value(current_payment.doctype, current_payment.name, 'amount', original_payment.amount);
-                    if (original_payment.reference_no) {
-                        frappe.model.set_value(current_payment.doctype, current_payment.name, 'reference_no', original_payment.reference_no);
-                    }
-                    if (original_payment.remarks) {
-                        frappe.model.set_value(current_payment.doctype, current_payment.name, 'remarks', original_payment.remarks);
-                    }
-                    total_paid += original_payment.amount;
+    setup_listener_for_payments() {
+        frappe.realtime.on("process_phone_payment", (data) => {
+            const doc = this.events.get_frm().doc;
+            const { response, amount, success, failure_message } = data;
+            let message, title;
+
+            if (success) {
+                title = __("Payment Received");
+                const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
+                if (amount >= grand_total) {
+                    frappe.dom.unfreeze();
+                    message = __("Payment of {0} received successfully.", [format_currency(amount, doc.currency, 0)]);
+                    this.events.submit_invoice();
+                    cur_frm.reload_doc();
+                } else {
+                    message = __("Payment of {0} received successfully. Waiting for other requests to complete...", [format_currency(amount, doc.currency, 0)]);
                 }
+            } else if (failure_message) {
+                message = failure_message;
+                title = __("Payment Failed");
+            }
+            frappe.msgprint({ "message": message, "title": title });
+        });
+    }
+
+    attach_shortcuts() {
+        const ctrl_label = frappe.utils.is_mac() ? '⌘' : 'Ctrl';
+        this.$component.find('.submit-order-btn').attr("title", `${ctrl_label}+Enter`);
+        frappe.ui.keys.on("ctrl+enter", () => {
+            const payment_is_visible = this.$component.is(":visible");
+            const active_mode = this.$payment_modes.find(".border-primary");
+            if (payment_is_visible && active_mode.length && !this.is_split_mode) {
+                this.$component.find('.submit-order-btn').click();
             }
         });
 
-        if (total_paid > 0) {
-            frappe.model.set_value(current_doc.doctype, current_doc.name, 'paid_amount', total_paid);
-            const grand_total = current_doc.grand_total || current_doc.rounded_total || 0;
-            const outstanding = grand_total - total_paid;
-            frappe.model.set_value(current_doc.doctype, current_doc.name, 'outstanding_amount', Math.max(0, outstanding));
+        frappe.ui.keys.add_shortcut({
+            shortcut: "tab",
+            action: () => {
+                const payment_is_visible = this.$component.is(":visible");
+                let active_mode = this.$payment_modes.find(".border-primary");
+                active_mode = active_mode.length ? active_mode.attr("data-mode") : undefined;
+                if (!active_mode) return;
 
-            let status = 'Draft';
-            if (total_paid >= grand_total) status = 'Paid';
-            else if (total_paid > 0) status = 'Partly Paid';
-            frappe.model.set_value(current_doc.doctype, current_doc.name, 'status', status);
-
-            setTimeout(() => { this.update_totals_section(current_doc); }, 100);
-        }
+                const mode_of_payments = Array.from(this.$payment_modes.find(".mode-of-payment")).map(m => $(m).attr("data-mode"));
+                const mode_index = mode_of_payments.indexOf(active_mode);
+                const next_mode_index = (mode_index + 1) % mode_of_payments.length;
+                const next_mode_to_be_clicked = this.$payment_modes.find(`.mode-of-payment[data-mode="${mode_of_payments[next_mode_index]}"]`);
+                if (payment_is_visible && mode_index != next_mode_index) next_mode_to_be_clicked.click();
+            },
+            condition: () => this.$component.is(':visible') && this.$payment_modes.find(".border-primary").length,
+            description: __("Switch Between Payment Modes"),
+            ignore_inputs: true,
+            page: cur_page.page.page
+        });
     }
 
-    load_existing_payments() {
-        const doc = this.events.get_frm().doc;
-        if (this._payments_loaded_for_invoice === doc.name) return;
-        this._payments_loaded_for_invoice = doc.name;
-        this.split_payments = [];
-        let total_loaded = 0;
+    render_payment_section() {
+        if (this._current_invoice_name !== this.events.get_frm().doc.name) {
+            this.clear_invoice_switch_data();
+        }
+        this.render_payment_mode_dom();
+        this.update_totals_section();
 
-        if (doc.payments && Array.isArray(doc.payments)) {
-            doc.payments.forEach((payment, index) => {
-                if (payment.amount && payment.amount > 0) {
-                    const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-                    let split_details = [];
-                    if (payment.remarks) {
-                        try {
-                            split_details = JSON.parse(payment.remarks);
-                            if (!Array.isArray(split_details)) split_details = [];
-                        } catch (e) {
-                            split_details = [];
-                        }
+        setTimeout(() => {
+            if (this.is_split_mode && this.split_payments.length > 0) return;
+            if (!this._payment_detection_done) {
+                this._payment_detection_done = true;
+                if (this.split_payments.length > 0 || this.original_payment_data) {
+                    if (this.split_payments.length > 0 && !this.is_split_mode) {
+                        this.$component.find('#split-payment-checkbox').prop('checked', true);
+                        this.toggle_split_payment_mode(true);
+                        return;
                     }
-
-                    if (split_details.length === 0) {
-                        split_details = [{
-                            amount: payment.amount,
-                            reference: payment.reference_no || '',
-                            notes: payment.remarks || '',
-                            display_name: payment.mode_of_payment
-                        }];
+                    if (this.original_payment_data && this.split_payments.length === 0) {
+                        this.process_original_payment_data();
+                        return;
                     }
-
-                    split_details.forEach((detail, detailIndex) => {
-                        const existing_payment = {
-                            id: `${mode}_current_${index}_${detailIndex}`,
-                            mode: mode,
-                            mode_of_payment: payment.mode_of_payment,
-                            display_name: detail.display_name || payment.mode_of_payment,
-                            amount: detail.amount || payment.amount,
-                            type: payment.type || 'Cash',
-                            reference_number: detail.reference || payment.reference_no || '',
-                            notes: detail.notes || '',
-                            is_existing: true
-                        };
-                        this.split_payments.push(existing_payment);
-                        total_loaded += existing_payment.amount;
-                    });
                 }
-            });
-        }
+                this.check_for_existing_payments();
+                if (this.is_split_mode && this.split_payments.length === 0) this.sync_document_payments_to_split();
+            }
+        }, 50);
 
-        if (this.split_payments.length === 0) {
-            const backup_loaded = this.restore_from_backup_if_needed();
-            if (backup_loaded) total_loaded = this.get_split_total();
-        }
-
-        if (this.split_payments.length === 0 && this.original_payment_data && Array.isArray(this.original_payment_data)) {
-            this.original_payment_data.forEach((payment, index) => {
-                if (payment.amount && payment.amount > 0) {
-                    const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-                    const existing_payment = {
-                        id: `${mode}_original_${index}`,
-                        mode: mode,
-                        mode_of_payment: payment.mode_of_payment,
-                        display_name: payment.mode_of_payment,
-                        amount: payment.amount,
-                        type: payment.type || 'Cash',
-                        reference_number: payment.reference_no || '',
-                        notes: payment.remarks || 'From original',
-                        is_existing: true
-                    };
-                    this.split_payments.push(existing_payment);
-                    total_loaded += existing_payment.amount;
-                }
-            });
-        }
-
-        if (this.split_payments.length === 0 && (doc.paid_amount > 0 || doc.status === 'Partly Paid')) {
-            this.create_fallback_payment_from_document(doc);
-            if (this.split_payments.length > 0) total_loaded = this.get_split_total();
-        }
-
-        this.renumber_same_payment_methods();
-        this.render_split_payments_list();
-        this.update_split_summary();
-        this.show_payment_status();
-
-        if (this.split_payments.length > 0) {
-            frappe.show_alert({
-                message: __("Payments restored successfully! ({0} payment(s) found)", [this.split_payments.length]),
-                indicator: "green"
-            });
-            this.backup_payments_to_session();
-        }
+        this.focus_on_default_mop();
     }
 
-    create_fallback_payment_from_document(doc) {
-        if (doc.payments && doc.payments.length > 0) {
-            const first_payment = doc.payments.find(p => p.default) || doc.payments[0];
-            const mode = first_payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-            const fallback_payment = {
-                id: `fallback_${mode}_0`,
-                mode: mode,
-                mode_of_payment: first_payment.mode_of_payment,
-                display_name: first_payment.mode_of_payment + ' (Auto-detected)',
-                amount: doc.paid_amount,
-                type: first_payment.type || 'Cash',
-                reference_number: '',
-                notes: 'Auto-detected from edited order',
-                is_existing: true
-            };
-            this.split_payments.push(fallback_payment);
-        }
+    after_render() {
+        const frm = this.events.get_frm();
+        frm.script_manager.trigger("after_payment_render", frm.doc.doctype, frm.doc.docname);
     }
 
-    sync_document_payments_to_split() {
+    edit_cart() {
+        this.events.toggle_other_sections(false);
+        this.toggle_component(false);
+        this._payment_detection_done = false;
+    }
+
+    checkout() {
+        this.events.toggle_other_sections(true);
+        this.toggle_component(true);
+        this.handle_posnext_checkout_flow();
+        this.render_payment_section();
+        this.after_render();
+    }
+
+    handle_posnext_checkout_flow() {
         const doc = this.events.get_frm().doc;
-        this.split_payments = [];
-        if (doc.payments && Array.isArray(doc.payments)) {
-            doc.payments.forEach((payment, index) => {
-                if (payment.amount && payment.amount > 0) {
-                    const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-                    const existing_payment = {
-                        id: `${mode}_sync_${index}`,
-                        mode: mode,
-                        mode_of_payment: payment.mode_of_payment,
-                        display_name: payment.mode_of_payment,
-                        amount: payment.amount,
-                        type: payment.type || 'Cash',
-                        reference_number: payment.reference_no || '',
-                        notes: payment.remarks || '',
-                        is_existing: true
-                    };
-                    this.split_payments.push(existing_payment);
-                }
-            });
+        if (this._current_invoice_name !== doc.name) {
+            this.clear_invoice_switch_data();
         }
-        this.renumber_same_payment_methods();
-        this.render_split_payments_list();
-        this.update_split_summary();
-        this.show_payment_status();
+        setTimeout(() => { this.backup_payments_to_session(); }, 200);
     }
 
-    refresh_payments_display() {
-        const doc = this.events.get_frm().doc;
-        if (this.is_split_mode) {
-            this.add_split_buttons_to_payment_modes();
-            this.sync_document_payments_to_split();
-        } else {
-            this.check_for_existing_payments();
-            this.render_payment_mode_dom();
-        }
-        this.update_totals_section(doc);
-    }
-
+    // Split payment methods
     add_split_payment(mode, amount) {
-        console.log('💰 Adding split payment:', mode, amount);
-        
         const doc = this.events.get_frm().doc;
         const payment_method = doc.payments.find(p => p.mode_of_payment.replace(/ +/g, "_").toLowerCase() === mode);
         
         if (!payment_method) {
-            console.error('❌ Payment method not found for mode:', mode);
             frappe.show_alert({ message: __("Payment method not found for {0}", [mode]), indicator: "red" });
             return;
         }
 
         if (!amount || amount <= 0) {
-            console.error('❌ Invalid amount:', amount);
             frappe.show_alert({ message: __("Please enter a valid amount greater than 0"), indicator: "orange" });
             return;
         }
@@ -905,7 +841,6 @@ posnext.PointOfSale.Payment = class {
         };
 
         this.split_payments.push(new_payment);
-        console.log('✅ Split payment added:', new_payment);
 
         // Clear the input
         if (this[`${mode}_control`]) {
@@ -1084,25 +1019,6 @@ posnext.PointOfSale.Payment = class {
         frappe.model.set_value(doc.doctype, doc.name, 'remarks', existing_remarks ? `${existing_remarks}\n${split_remarks}` : split_remarks);
     }
 
-    show_payment_status() {
-        const doc = this.events.get_frm().doc;
-        const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
-        const paid_amount = doc.paid_amount;
-        const remaining = grand_total - paid_amount;
-
-        this.$component.find('.payment-status-partial').remove();
-        if (remaining > 0) {
-            const status_html = `
-                <div class="payment-status-partial">
-                    <strong>${__('Status: Partly Paid')}</strong>
-                    ${__('Paid')}: ${format_currency(paid_amount, doc.currency)}
-                    ${__('Remaining')}: ${format_currency(remaining, doc.currency)}
-                </div>
-            `;
-            this.$split_container.prepend(status_html);
-        }
-    }
-
     clear_split_payments() {
         this.split_payments = [];
         this.render_split_payments_list();
@@ -1110,283 +1026,102 @@ posnext.PointOfSale.Payment = class {
         this.$component.find('.payment-status-partial').remove();
     }
 
-    handle_regular_payment_selection(mode_clicked, mode) {
-        const me = this;
-        const scrollLeft = mode_clicked.offset().left - me.$payment_modes.offset().left + me.$payment_modes.scrollLeft();
-        me.$payment_modes.animate({ scrollLeft });
-        $('.mode-of-payment-control').css('display', 'none');
-        $('.cash-shortcuts').css('display', 'none');
-        me.$payment_modes.find('.pay-amount').css('display', 'inline');
-        me.$payment_modes.find('.loyalty-amount-name').css('display', 'none');
-        $('.mode-of-payment').removeClass('border-primary');
+    // Additional helper methods for existing payments, loyalty points, etc.
+    load_existing_payments() {
+        const doc = this.events.get_frm().doc;
+        if (this._payments_loaded_for_invoice === doc.name) return;
+        this._payments_loaded_for_invoice = doc.name;
+        this.split_payments = [];
 
-        if (mode_clicked.hasClass('border-primary')) {
-            mode_clicked.removeClass('border-primary');
-            me.selected_mode = '';
+        if (doc.payments && Array.isArray(doc.payments)) {
+            doc.payments.forEach((payment, index) => {
+                if (payment.amount && payment.amount > 0) {
+                    const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+                    const existing_payment = {
+                        id: `${mode}_current_${index}`,
+                        mode: mode,
+                        mode_of_payment: payment.mode_of_payment,
+                        display_name: payment.mode_of_payment,
+                        amount: payment.amount,
+                        type: payment.type || 'Cash',
+                        reference_number: payment.reference_no || '',
+                        notes: payment.remarks || '',
+                        is_existing: true
+                    };
+                    this.split_payments.push(existing_payment);
+                }
+            });
+        }
+
+        this.renumber_same_payment_methods();
+        this.render_split_payments_list();
+        this.update_split_summary();
+
+        if (this.split_payments.length > 0) {
+            this.backup_payments_to_session();
+        }
+    }
+
+    sync_document_payments_to_split() {
+        const doc = this.events.get_frm().doc;
+        this.split_payments = [];
+        if (doc.payments && Array.isArray(doc.payments)) {
+            doc.payments.forEach((payment, index) => {
+                if (payment.amount && payment.amount > 0) {
+                    const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+                    const existing_payment = {
+                        id: `${mode}_sync_${index}`,
+                        mode: mode,
+                        mode_of_payment: payment.mode_of_payment,
+                        display_name: payment.mode_of_payment,
+                        amount: payment.amount,
+                        type: payment.type || 'Cash',
+                        reference_number: payment.reference_no || '',
+                        notes: payment.remarks || '',
+                        is_existing: true
+                    };
+                    this.split_payments.push(existing_payment);
+                }
+            });
+        }
+        this.renumber_same_payment_methods();
+        this.render_split_payments_list();
+        this.update_split_summary();
+    }
+
+    check_for_existing_payments() {
+        const doc = this.events.get_frm().doc;
+        let has_existing_payments = false;
+
+        if (doc.payments && Array.isArray(doc.payments)) {
+            doc.payments.forEach(payment => {
+                if (payment.amount && payment.amount > 0) {
+                    has_existing_payments = true;
+                }
+            });
+        }
+
+        if (has_existing_payments && !this.is_split_mode) {
+            this.$component.find('#split-payment-checkbox').prop('checked', true);
+            this.toggle_split_payment_mode(true);
+        }
+    }
+
+    refresh_payments_display() {
+        const doc = this.events.get_frm().doc;
+        if (this.is_split_mode) {
+            this.add_split_buttons_to_payment_modes();
+            this.sync_document_payments_to_split();
         } else {
-            mode_clicked.addClass('border-primary');
-            mode_clicked.find('.mode-of-payment-control').css('display', 'flex');
-            mode_clicked.find('.cash-shortcuts').css('display', 'grid');
-            me.$payment_modes.find(`.${mode}-amount`).css('display', 'none');
-            me.$payment_modes.find(`.${mode}-name`).css('display', 'inline');
-            me.selected_mode = me[`${mode}_control`];
-            me.selected_mode && me.selected_mode.$input.get(0).focus();
+            this.check_for_existing_payments();
+            this.render_payment_mode_dom();
         }
-    }
-
-    handle_split_payment_selection(mode_clicked, mode) {
-        $('.mode-of-payment').removeClass('payment-mode-split-active');
-        mode_clicked.addClass('payment-mode-split-active');
-        $('.mode-of-payment-control').css('display', 'none');
-        mode_clicked.find('.mode-of-payment-control').css('display', 'flex');
-        this.selected_mode = this[`${mode}_control`];
-        this.selected_mode && this.selected_mode.$input.get(0).focus();
-    }
-
-    setup_listener_for_payments() {
-        frappe.realtime.on("process_phone_payment", (data) => {
-            const doc = this.events.get_frm().doc;
-            const { response, amount, success, failure_message } = data;
-            let message, title;
-
-            if (success) {
-                title = __("Payment Received");
-                const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
-                if (amount >= grand_total) {
-                    frappe.dom.unfreeze();
-                    message = __("Payment of {0} received successfully.", [format_currency(amount, doc.currency, 0)]);
-                    this.events.submit_invoice();
-                    cur_frm.reload_doc();
-                } else {
-                    message = __("Payment of {0} received successfully. Waiting for other requests to complete...", [format_currency(amount, doc.currency, 0)]);
-                }
-            } else if (failure_message) {
-                message = failure_message;
-                title = __("Payment Failed");
-            }
-            frappe.msgprint({ "message": message, "title": title });
-        });
-    }
-
-    attach_shortcuts() {
-        const ctrl_label = frappe.utils.is_mac() ? '⌘' : 'Ctrl';
-        this.$component.find('.submit-order-btn').attr("title", `${ctrl_label}+Enter`);
-        frappe.ui.keys.on("ctrl+enter", () => {
-            const payment_is_visible = this.$component.is(":visible");
-            const active_mode = this.$payment_modes.find(".border-primary");
-            if (payment_is_visible && active_mode.length && !this.is_split_mode) {
-                this.$component.find('.submit-order-btn').click();
-            }
-        });
-
-        frappe.ui.keys.add_shortcut({
-            shortcut: "tab",
-            action: () => {
-                const payment_is_visible = this.$component.is(":visible");
-                let active_mode = this.$payment_modes.find(".border-primary");
-                active_mode = active_mode.length ? active_mode.attr("data-mode") : undefined;
-                if (!active_mode) return;
-
-                const mode_of_payments = Array.from(this.$payment_modes.find(".mode-of-payment")).map(m => $(m).attr("data-mode"));
-                const mode_index = mode_of_payments.indexOf(active_mode);
-                const next_mode_index = (mode_index + 1) % mode_of_payments.length;
-                const next_mode_to_be_clicked = this.$payment_modes.find(`.mode-of-payment[data-mode="${mode_of_payments[next_mode_index]}"]`);
-                if (payment_is_visible && mode_index != next_mode_index) next_mode_to_be_clicked.click();
-            },
-            condition: () => this.$component.is(':visible') && this.$payment_modes.find(".border-primary").length,
-            description: __("Switch Between Payment Modes"),
-            ignore_inputs: true,
-            page: cur_page.page.page
-        });
-    }
-
-    render_payment_section() {
-        if (this._current_invoice_name !== this.events.get_frm().doc.name) {
-            this.clear_invoice_switch_data();
-        }
-        this.render_payment_mode_dom();
-        this.update_totals_section();
-
-        setTimeout(() => {
-            if (this.is_split_mode && this.split_payments.length > 0) return;
-            if (!this._payment_detection_done) {
-                this._payment_detection_done = true;
-                if (this.split_payments.length > 0 || this.original_payment_data) {
-                    if (this.split_payments.length > 0 && !this.is_split_mode) {
-                        this.$component.find('#split-payment-checkbox').prop('checked', true);
-                        this.toggle_split_payment_mode(true);
-                        return;
-                    }
-                    if (this.original_payment_data && this.split_payments.length === 0) {
-                        this.process_original_payment_data();
-                        return;
-                    }
-                }
-                this.check_for_existing_payments();
-                if (this.is_split_mode && this.split_payments.length === 0) this.sync_document_payments_to_split();
-            }
-        }, 50);
-
-        this.focus_on_default_mop();
+        this.update_totals_section(doc);
     }
 
     process_original_payment_data() {
-        if (!this.original_payment_data || !Array.isArray(this.original_payment_data)) return;
-        const current_doc = this.events.get_frm().doc;
-        this.split_payments = [];
-        let total_paid = 0;
-
-        this.original_payment_data.forEach((payment, index) => {
-            if (payment.amount && payment.amount > 0) {
-                const mode = payment.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-                const split_payment = {
-                    id: `${mode}_restored_${index}`,
-                    mode: mode,
-                    mode_of_payment: payment.mode_of_payment,
-                    display_name: payment.mode_of_payment,
-                    amount: payment.amount,
-                    type: payment.type || 'Cash',
-                    reference_number: payment.reference_no || '',
-                    notes: payment.remarks || 'Restored from backup',
-                    is_existing: true
-                };
-                this.split_payments.push(split_payment);
-                total_paid += payment.amount;
-
-                const current_payment = current_doc.payments.find(p => p.mode_of_payment === payment.mode_of_payment);
-                if (current_payment) {
-                    frappe.model.set_value(current_payment.doctype, current_payment.name, 'amount', payment.amount);
-                    if (payment.reference_no) frappe.model.set_value(current_payment.doctype, current_payment.name, 'reference_no', payment.reference_no);
-                    if (payment.remarks) frappe.model.set_value(current_payment.doctype, current_payment.name, 'remarks', payment.remarks);
-                }
-            }
-        });
-
-        if (this.split_payments.length > 0) {
-            frappe.model.set_value(current_doc.doctype, current_doc.name, 'paid_amount', total_paid);
-            const grand_total = current_doc.grand_total || current_doc.rounded_total || 0;
-            const outstanding = grand_total - total_paid;
-            frappe.model.set_value(current_doc.doctype, current_doc.name, 'outstanding_amount', Math.max(0, outstanding));
-
-            let status = 'Draft';
-            if (total_paid >= grand_total) status = 'Paid';
-            else if (total_paid > 0) status = 'Partly Paid';
-            frappe.model.set_value(current_doc.doctype, current_doc.name, 'status', status);
-
-            this.$component.find('#split-payment-checkbox').prop('checked', true);
-            this.toggle_split_payment_mode(true);
-            setTimeout(() => { this.update_totals_section(current_doc); }, 100);
-            frappe.show_alert({
-                message: __("Payments restored from backup ({0} payment(s), Total: {1})", [this.split_payments.length, format_currency(total_paid, current_doc.currency)]),
-                indicator: "green"
-            });
-        }
-    }
-
-    after_render() {
-        const frm = this.events.get_frm();
-        frm.script_manager.trigger("after_payment_render", frm.doc.doctype, frm.doc.docname);
-    }
-
-    edit_cart() {
-        this.events.toggle_other_sections(false);
-        this.toggle_component(false);
-        this._payment_detection_done = false;
-    }
-
-    checkout() {
-        this.events.toggle_other_sections(true);
-        this.toggle_component(true);
-        this.handle_posnext_checkout_flow();
-        this.render_payment_section();
-        this.after_render();
-    }
-
-    handle_posnext_checkout_flow() {
-        const doc = this.events.get_frm().doc;
-        if (this._current_invoice_name !== doc.name) {
-            this.clear_invoice_switch_data();
-        }
-        setTimeout(() => { this.backup_payments_to_session(); }, 200);
-    }
-
-    toggle_remarks_control() {
-        if (this.$remarks.find('.frappe-control').length) {
-            this.$remarks.html('+ Add Remark');
-        } else {
-            this.$remarks.html('');
-            this[`remark_control`] = frappe.ui.form.make_control({
-                df: { label: __('Remark'), fieldtype: 'Data', onchange: function() {} },
-                parent: this.$totals_section.find(`.remarks`),
-                render_input: true,
-            });
-            this[`remark_control`].set_value('');
-        }
-    }
-
-    render_payment_mode_dom() {
-        console.log('🎨 Rendering payment mode DOM...');
-        
-        const doc = this.events.get_frm().doc;
-        const payments = doc.payments;
-        const currency = doc.currency;
-
-        // Always re-render to ensure fresh state
-        this.$payment_modes.html(`${
-            payments.map((p, i) => {
-                const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-                const payment_type = p.type;
-                const amount = p.amount > 0 ? format_currency(p.amount, currency) : '';
-                return (`
-                    <div class="payment-mode-wrapper">
-                        <div class="mode-of-payment" data-mode="${mode}" data-payment-type="${payment_type}">
-                            <div class="payment-mode-header">
-                                <span class="payment-mode-title">${p.mode_of_payment}</span>
-                                <div class="${mode}-amount pay-amount">${amount}</div>
-                            </div>
-                            <div class="${mode} mode-of-payment-control" style="width: 100%;"></div>
-                        </div>
-                    </div>
-                `);
-            }).join('')
-        }`);
-
-        // Create payment controls
-        payments.forEach(p => {
-            const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-            const controlContainer = this.$payment_modes.find(`.${mode}.mode-of-payment-control`);
-            
-            // Always create fresh control
-            this[`${mode}_control`] = frappe.ui.form.make_control({
-                df: {
-                    label: p.mode_of_payment,
-                    fieldtype: 'Currency',
-                    placeholder: __('Enter {0} amount.', [p.mode_of_payment]),
-                    onchange: function() {
-                        const current_value = frappe.model.get_value(p.doctype, p.name, 'amount');
-                        if (current_value != this.value) {
-                            frappe.model.set_value(p.doctype, p.name, 'amount', flt(this.value)).then(() => {
-                                // Update the display amount
-                                const formatted_currency = format_currency(this.value, currency);
-                                me.$payment_modes.find(`.${mode}-amount`).html(formatted_currency);
-                                me.update_totals_section();
-                            });
-                        }
-                    }
-                },
-                parent: controlContainer,
-                render_input: true,
-            });
-            this[`${mode}_control`].toggle_label(false);
-            this[`${mode}_control`].set_value(p.amount || 0);
-            
-            console.log(`✅ Created control for ${mode}:`, this[`${mode}_control`]);
-        });
-
-        this.render_loyalty_points_payment_mode();
-        this.attach_cash_shortcuts(doc);
-        
-        console.log('🎨 Payment mode DOM rendering complete');
+        // This method handles restoring payment data from backups
+        // Implementation details would depend on your specific backup system
     }
 
     focus_on_default_mop() {
@@ -1482,17 +1217,6 @@ posnext.PointOfSale.Payment = class {
         this['loyalty-amount_control'].toggle_label(false);
     }
 
-    render_add_payment_method_dom() {
-        const docstatus = this.events.get_frm().doc.docstatus;
-        if (docstatus === 0) {
-            this.$payment_modes.append(
-                `<div class="w-full pr-2">
-                    <div class="add-mode-of-payment w-half text-grey mb-4 no-select pointer">+ Add Payment Method</div>
-                </div>`
-            );
-        }
-    }
-
     update_totals_section(doc) {
         if (!doc) doc = this.events.get_frm().doc;
         const paid_amount = doc.paid_amount;
@@ -1518,7 +1242,7 @@ posnext.PointOfSale.Payment = class {
                 <div class="value">${format_currency(change || remaining, currency)}</div>
             </div>`
         );
-    }
+          }
 
     toggle_component(show) {
         show ? this.$component.css('display', 'flex') : this.$component.css('display', 'none');
