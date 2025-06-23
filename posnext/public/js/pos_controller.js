@@ -704,7 +704,7 @@ make_new_invoice(from_held = false) {
 	}
 
 	async on_cart_update(args) {
-		frappe.dom.freeze();
+		//frappe.dom.freeze();
 		let item_row = undefined;
 		try {
 			let { field, value, item } = args;
@@ -772,7 +772,7 @@ make_new_invoice(from_held = false) {
 		} catch (error) {
 			console.log(error);
 		} finally {
-			frappe.dom.unfreeze();
+			//frappe.dom.unfreeze();
 			return item_row; // eslint-disable-line no-unsafe-finally
 		}
 	}

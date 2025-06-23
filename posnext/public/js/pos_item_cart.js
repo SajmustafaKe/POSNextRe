@@ -528,7 +528,7 @@ make_cart_totals_section() {
                         args: {
                             secret_key: values['secret_key']
                         },
-                        freeze: true,
+                        //freeze: true,
                         freeze_message: "Validating Secret Key...",
                         callback: function(r) {
                             if (r.message) {
@@ -634,7 +634,7 @@ make_cart_totals_section() {
 async handle_successful_hold(invoice_name, creator_name) {
     console.log('Handling successful hold:', invoice_name, creator_name);
     try {
-        frappe.dom.freeze();
+        //frappe.dom.freeze();
         // Show recent order list
         await this.events.show_recent_order_list();
         // Refresh PastOrderList with held invoice
@@ -655,7 +655,7 @@ async handle_successful_hold(invoice_name, creator_name) {
         }
         // Reset cart state after list is shown
         await this.reset_cart_state(true); // Pass from_held=true
-        frappe.dom.unfreeze();
+        //frappe.dom.unfreeze();
     } catch (error) {
         console.error('Error in handle_successful_hold:', error);
         frappe.show_alert({
@@ -663,7 +663,7 @@ async handle_successful_hold(invoice_name, creator_name) {
             indicator: 'red'
         });
         frappe.utils.play_sound("error");
-        frappe.dom.unfreeze();
+        //frappe.dom.unfreeze();
     }
 }
 
