@@ -469,7 +469,6 @@ make_cart_totals_section() {
                         message: __('Save draft invoice function is not available. Please check POS configuration.'),
                         indicator: 'red'
                     });
-                    frappe.dom.unfreeze();
                     secret_dialog.hide();
                     return;
                 }
@@ -500,11 +499,9 @@ make_cart_totals_section() {
                                             message: __('Failed to save draft invoice: {0}', [error.message]),
                                             indicator: 'red'
                                         });
-                                        frappe.dom.unfreeze();
                                     });
                                 }).catch(error => {
                                     console.error('Error triggering created_by_name (existing):', error);
-                                    frappe.dom.unfreeze();
                                 });
                                 secret_dialog.hide();
                             } else {
@@ -512,13 +509,11 @@ make_cart_totals_section() {
                                     message: __(`You did not create this invoice, hence you cannot edit it. Only the creator (${r.message.created_by_name}) can edit it.`),
                                     indicator: 'red'
                                 });
-                                frappe.dom.unfreeze();
                                 secret_dialog.hide();
                             }
                         },
                         error: (xhr, status, error) => {
                             console.error('Error validating secret key (existing):', error);
-                            frappe.dom.unfreeze();
                             frappe.show_alert({
                                 message: __("Failed to validate secret key. Please try again or contact support."),
                                 indicator: 'red'
@@ -551,11 +546,9 @@ make_cart_totals_section() {
                                             message: __('Failed to save draft invoice: {0}', [error.message]),
                                             indicator: 'red'
                                         });
-                                        frappe.dom.unfreeze();
                                     });
                                 }).catch(error => {
                                     console.error('Error triggering created_by_name (new):', error);
-                                    frappe.dom.unfreeze();
                                 });
                                 secret_dialog.hide();
                             } else {
@@ -563,13 +556,11 @@ make_cart_totals_section() {
                                     message: __("Invalid secret key"),
                                     indicator: 'red'
                                 });
-                                frappe.dom.unfreeze();
                                 secret_dialog.hide();
                             }
                         },
                         error: (xhr, status, error) => {
                             console.error('Error validating secret key (new):', error);
-                            frappe.dom.unfreeze();
                             frappe.show_alert({
                                 message: __("Failed to validate secret key. Please try again or contact support."),
                                 indicator: 'red'
@@ -603,7 +594,6 @@ make_cart_totals_section() {
                                 () => me.fetch_customer_details(values['mobile_number']),
                                 () => me.events.customer_details_updated(me.customer_info),
                                 () => me.update_customer_section(),
-                                () => frappe.dom.unfreeze(),
                                 () => show_secret_key_popup(values['mobile_number'])
                             ]);
                         });
@@ -783,15 +773,13 @@ reset_cart_state(from_held = false) {
 				onchange: function() {
 					if (this.value) {
 						const frm = me.events.get_frm();
-						frappe.dom.freeze();
 						frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'customer', this.value);
 						frm.script_manager.trigger('customer', frm.doc.doctype, frm.doc.name).then(() => {
 							frappe.run_serially([
 								() => me.fetch_customer_details(this.value),
 								() => me.events.customer_details_updated(me.customer_info),
 								() => me.update_customer_section(),
-								() => me.update_totals_section(),
-								() => frappe.dom.unfreeze()
+								() => me.update_totals_section()
 							]);
 						})
 					}
@@ -1577,4 +1565,4 @@ reset_cart_state(from_held = false) {
 		show ? this.$component.css('display', 'flex') : this.$component.css('display', 'none');
 	}
 
-}
+};

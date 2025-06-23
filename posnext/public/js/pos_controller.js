@@ -247,7 +247,6 @@ save_draft_invoice() {
             message: __("POS interface is not visible."),
             indicator: 'red'
         });
-        frappe.dom.unfreeze();
         return Promise.reject(new Error("POS interface is not visible"));
     }
     const frm = this.frm;
@@ -256,7 +255,6 @@ save_draft_invoice() {
             message: __("Form not initialized. Please try again."),
             indicator: 'red'
         });
-        frappe.dom.unfreeze();
         return Promise.reject(new Error("Form not initialized"));
     }
     if (!frm.doc.items.length) {
@@ -265,7 +263,6 @@ save_draft_invoice() {
             indicator: 'red'
         });
         frappe.utils.play_sound("error");
-        frappe.dom.unfreeze();
         return Promise.reject(new Error("No items in invoice"));
     }
     if (!frm.doc.pos_profile) {
@@ -273,7 +270,6 @@ save_draft_invoice() {
             message: __("POS Profile is required for draft invoice"),
             indicator: 'red'
         });
-        frappe.dom.unfreeze();
         return Promise.reject(new Error("POS Profile required"));
     }
     if (!frm.doc.customer) {
@@ -281,7 +277,6 @@ save_draft_invoice() {
             message: __("Customer is required for draft invoice"),
             indicator: 'red'
         });
-        frappe.dom.unfreeze();
         return Promise.reject(new Error("Customer required"));
     }
     console.log("Saving draft with doc:", frm.doc);
@@ -308,7 +303,6 @@ save_draft_invoice() {
             },
             callback: (r) => {
                 console.log("Save draft response:", r);
-                frappe.dom.unfreeze();
                 if (r.exc) {
                     let error_msg = r.exc;
                     try {
@@ -349,7 +343,6 @@ save_draft_invoice() {
             },
             error: (xhr, status, error) => {
                 console.error("Save draft AJAX error:", status, error);
-                frappe.dom.unfreeze();
                 frappe.show_alert({
                     message: __("Failed to save draft. Please check your connection or contact support."),
                     indicator: 'red'
@@ -711,7 +704,7 @@ make_new_invoice(from_held = false) {
 	}
 
 	async on_cart_update(args) {
-		//frappe.dom.freeze();
+		frappe.dom.freeze();
 		let item_row = undefined;
 		try {
 			let { field, value, item } = args;
@@ -779,13 +772,12 @@ make_new_invoice(from_held = false) {
 		} catch (error) {
 			console.log(error);
 		} finally {
-			//frappe.dom.unfreeze();
+			frappe.dom.unfreeze();
 			return item_row; // eslint-disable-line no-unsafe-finally
 		}
 	}
 
 	raise_customer_selection_alert() {
-		//frappe.dom.unfreeze();
 		frappe.show_alert({
 			message: __('You must select a customer before adding an item.'),
 			indicator: 'orange'
@@ -851,7 +843,6 @@ make_new_invoice(from_held = false) {
 		const available_qty = resp[0];
 		const is_stock_item = resp[1];
 
-		//frappe.dom.unfreeze();
 		console.log(item_row)
 		const bold_uom = item_row.uom.bold();
 		const bold_item_code = item_row.item_code.bold();
@@ -874,7 +865,6 @@ make_new_invoice(from_held = false) {
 			});
 			frappe.utils.play_sound("error");
 		}
-		//frappe.dom.freeze();
 	}
 
 	async check_serial_no_availablilty(item_code, warehouse, serial_no) {
@@ -920,7 +910,7 @@ make_new_invoice(from_held = false) {
 	}
 
 	remove_item_from_cart() {
-		//frappe.dom.freeze();
+		frappe.dom.freeze();
 		const { doctype, name, current_item } = this.item_details;
 
 		return frappe.model.set_value(doctype, name, 'qty', 0)
@@ -928,7 +918,7 @@ make_new_invoice(from_held = false) {
 				frappe.model.clear_doc(doctype, name);
 				this.update_cart_html(current_item, true);
 				this.item_details.toggle_item_details_section(null);
-				//frappe.dom.unfreeze();
+				frappe.dom.unfreeze();
 			})
 			.catch(e => console.log(e));
 	}
@@ -942,7 +932,7 @@ make_new_invoice(from_held = false) {
 			// show checkout button on error
 			save_error && setTimeout(() => {
 				this.cart.toggle_checkout_btn(true);
-			}, 3); // wait for save to finish
+			}, 300); // wait for save to finish
 		} else {
 			this.payment.checkout();
 		}
