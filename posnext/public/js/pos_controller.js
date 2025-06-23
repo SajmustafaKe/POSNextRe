@@ -247,6 +247,7 @@ save_draft_invoice() {
             message: __("POS interface is not visible."),
             indicator: 'red'
         });
+        frappe.dom.unfreeze();
         return Promise.reject(new Error("POS interface is not visible"));
     }
     const frm = this.frm;
@@ -255,6 +256,7 @@ save_draft_invoice() {
             message: __("Form not initialized. Please try again."),
             indicator: 'red'
         });
+        frappe.dom.unfreeze();
         return Promise.reject(new Error("Form not initialized"));
     }
     if (!frm.doc.items.length) {
@@ -263,6 +265,7 @@ save_draft_invoice() {
             indicator: 'red'
         });
         frappe.utils.play_sound("error");
+        frappe.dom.unfreeze();
         return Promise.reject(new Error("No items in invoice"));
     }
     if (!frm.doc.pos_profile) {
@@ -270,6 +273,7 @@ save_draft_invoice() {
             message: __("POS Profile is required for draft invoice"),
             indicator: 'red'
         });
+        frappe.dom.unfreeze();
         return Promise.reject(new Error("POS Profile required"));
     }
     if (!frm.doc.customer) {
@@ -277,6 +281,7 @@ save_draft_invoice() {
             message: __("Customer is required for draft invoice"),
             indicator: 'red'
         });
+        frappe.dom.unfreeze();
         return Promise.reject(new Error("Customer required"));
     }
     console.log("Saving draft with doc:", frm.doc);
@@ -303,6 +308,7 @@ save_draft_invoice() {
             },
             callback: (r) => {
                 console.log("Save draft response:", r);
+                frappe.dom.unfreeze();
                 if (r.exc) {
                     let error_msg = r.exc;
                     try {
@@ -343,6 +349,7 @@ save_draft_invoice() {
             },
             error: (xhr, status, error) => {
                 console.error("Save draft AJAX error:", status, error);
+                frappe.dom.unfreeze();
                 frappe.show_alert({
                     message: __("Failed to save draft. Please check your connection or contact support."),
                     indicator: 'red'
@@ -416,15 +423,32 @@ init_item_cart() {
         settings: this.settings,
         events: {
             get_frm: () => this.frm,
-            cart_item_clicked: (item) => { /* ... */ },
+            cart_item_clicked: (item) => {
+                // Find the item in the form
+                const item_row = this.frm.doc.items.find(i => i.name === item.name);
+                if (item_row) {
+                    // Ensure item details component is visible
+                    if (!this.item_details.$component.is(':visible')) {
+                        this.item_details.toggle_component(true);
+                    }
+                    // Open item details for editing
+                    this.item_details.toggle_item_details_section(item_row);
+                    // Set global selected_item for persistence
+                    selected_item = item_row;
+                    
+                    // Optionally minimize item selector to give more space for item details
+                    this.item_selector.resize_selector(true);
+                    this.cart.toggle_numpad(true);
+                }
+            },
             numpad_event: (value, action) => this.update_item_field(value, action),
             checkout: () => this.save_and_checkout(),
             edit_cart: () => this.payment.edit_cart(),
             save_draft_invoice: () => this.save_draft_invoice(),
             toggle_recent_order: () => this.toggle_recent_order(),
             show_recent_order_list: () => this.show_recent_order_list(),
-            customer_details_updated: (details) => { /* ... */ },
-            load_new_invoice: (from_held) => this.make_new_invoice(from_held) // Add from_held
+            customer_details_updated: (details) => { /* Handle customer details update */ },
+            load_new_invoice: (from_held) => this.make_new_invoice(from_held)
         }
     });
 }
@@ -778,6 +802,7 @@ make_new_invoice(from_held = false) {
 	}
 
 	raise_customer_selection_alert() {
+		frappe.dom.unfreeze();
 		frappe.show_alert({
 			message: __('You must select a customer before adding an item.'),
 			indicator: 'orange'
@@ -843,6 +868,7 @@ make_new_invoice(from_held = false) {
 		const available_qty = resp[0];
 		const is_stock_item = resp[1];
 
+		frappe.dom.unfreeze();
 		console.log(item_row)
 		const bold_uom = item_row.uom.bold();
 		const bold_item_code = item_row.item_code.bold();
@@ -865,6 +891,7 @@ make_new_invoice(from_held = false) {
 			});
 			frappe.utils.play_sound("error");
 		}
+		frappe.dom.freeze();
 	}
 
 	async check_serial_no_availablilty(item_code, warehouse, serial_no) {
