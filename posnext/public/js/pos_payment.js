@@ -305,8 +305,17 @@ posnext.PointOfSale.Payment = class {
                     .save-partial-payment-btn:hover { background-color: #e0a800; border-color: #d39e00; }
                     .payment-status-partial { background-color: #fff3cd; border: 1px solid #ffeaa7; border-radius: 4px; padding: 8px; margin: 10px 0; color: #856404; }
                     .existing-payment-badge { background: #28a745; color: white; padding: 2px 6px; border-radius: 3px; font-size: 10px; margin-left: 5px; }
-                    .mode-of-payment-control { display: none; }
-                    .cash-shortcuts { display: none; }
+                    
+                    /* Payment mode control visibility - default hidden */
+                    .mode-of-payment-control { display: none !important; }
+                    .cash-shortcuts { display: none !important; }
+                    
+                    /* Show controls when payment mode is selected */
+                    .mode-of-payment.border-primary .mode-of-payment-control { display: flex !important; }
+                    .mode-of-payment.border-primary .cash-shortcuts { display: grid !important; }
+                    
+                    /* Show controls when in split mode and active */
+                    .mode-of-payment.payment-mode-split-active .mode-of-payment-control { display: flex !important; }
                 </style>
             `);
         }
@@ -582,13 +591,14 @@ posnext.PointOfSale.Payment = class {
         this.$payment_modes.find('.add-to-split-btn').remove();
     }
 
-    // FIXED: Cleaner payment mode rendering that ensures all modes are always visible
     render_payment_mode_dom() {
+        console.log('🎨 Rendering payment mode DOM...');
+        
         const doc = this.events.get_frm().doc;
         const payments = doc.payments;
         const currency = doc.currency;
 
-        // ALWAYS rebuild the entire payment modes section to ensure consistency
+        // Always re-render to ensure fresh state
         this.$payment_modes.html(`${
             payments.map((p, i) => {
                 const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
@@ -601,20 +611,20 @@ posnext.PointOfSale.Payment = class {
                                 <span class="payment-mode-title">${p.mode_of_payment}</span>
                                 <div class="${mode}-amount pay-amount">${amount}</div>
                             </div>
-                            <div class="${mode} mode-of-payment-control"></div>
+                            <div class="${mode} mode-of-payment-control" style="width: 100%;"></div>
                         </div>
                     </div>
                 `);
             }).join('')
         }`);
 
-        // ALWAYS recreate payment controls for consistency
+        // Create payment controls
         payments.forEach(p => {
             const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
             const controlContainer = this.$payment_modes.find(`.${mode}.mode-of-payment-control`);
             const me = this;
             
-            // Create fresh control every time
+            // Always create fresh control
             this[`${mode}_control`] = frappe.ui.form.make_control({
                 df: {
                     label: p.mode_of_payment,
@@ -637,10 +647,14 @@ posnext.PointOfSale.Payment = class {
             });
             this[`${mode}_control`].toggle_label(false);
             this[`${mode}_control`].set_value(p.amount || 0);
+            
+            console.log(`✅ Created control for ${mode}:`, this[`${mode}_control`]);
         });
 
         this.render_loyalty_points_payment_mode();
         this.attach_cash_shortcuts(doc);
+        
+        console.log('🎨 Payment mode DOM rendering complete');
     }
 
     // FIXED: Regular payment mode handling that doesn't hide other modes
