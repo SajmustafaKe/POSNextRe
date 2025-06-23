@@ -597,6 +597,7 @@ posnext.PointOfSale.Payment = class {
         const doc = this.events.get_frm().doc;
         const payments = doc.payments;
         const currency = doc.currency;
+        const me = this; // FIXED: Add me reference at the top of the method
 
         // Always re-render to ensure fresh state
         this.$payment_modes.html(`${
@@ -622,7 +623,6 @@ posnext.PointOfSale.Payment = class {
         payments.forEach(p => {
             const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
             const controlContainer = this.$payment_modes.find(`.${mode}.mode-of-payment-control`);
-            const me = this;
             
             // Always create fresh control
             this[`${mode}_control`] = frappe.ui.form.make_control({
