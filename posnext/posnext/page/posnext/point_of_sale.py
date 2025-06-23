@@ -1307,8 +1307,8 @@ def create_new_invoice_with_payments(original_doc, split_items, invoice_number, 
         default_mode = get_default_payment_mode(new_doc.pos_profile)
         if default_mode:
             new_payment = new_doc.append('payments')
-            new_payment.mode_of_payment = default_mode.mode_of_payment
-            new_payment.account = default_mode['default_account']
+            new_payment.mode_of_payment = default_mode["mode_of_payment"]  # Fixed: use bracket notation
+            new_payment.account = default_mode["default_account"]  # Fixed: use bracket notation
             new_payment.amount = allocated_payment
             new_payment.base_amount = flt(allocated_payment * new_doc.conversion_rate)
         elif original_doc.payments:
@@ -1335,6 +1335,7 @@ def create_new_invoice_with_payments(original_doc, split_items, invoice_number, 
     new_doc.insert()
     
     return new_doc
+
 
 def update_original_invoice_with_payments(original_doc, invoice_groups, payment_distribution):
     """Update original invoice by removing/reducing split items and adjusting payments"""
@@ -1388,8 +1389,8 @@ def update_original_invoice_with_payments(original_doc, invoice_groups, payment_
             default_mode = get_default_payment_mode(original_doc.pos_profile)
             if default_mode:
                 new_payment = original_doc.append('payments')
-                new_payment.mode_of_payment = default_mode.mode_of_payment
-                new_payment.account = default_mode['default_account']
+                new_payment.mode_of_payment = default_mode["mode_of_payment"]  # Fixed: use bracket notation
+                new_payment.account = default_mode["default_account"]  # Fixed: use bracket notation
                 new_payment.amount = 0
                 new_payment.base_amount = 0
         
@@ -1429,8 +1430,8 @@ def update_original_invoice_with_payments(original_doc, invoice_groups, payment_
             default_mode = get_default_payment_mode(original_doc.pos_profile)
             if default_mode:
                 new_payment = original_doc.append('payments')
-                new_payment.mode_of_payment = default_mode.mode_of_payment
-                new_payment.account = default_mode['default_account']
+                new_payment.mode_of_payment = default_mode["mode_of_payment"]  # Fixed: use bracket notation
+                new_payment.account = default_mode["default_account"]  # Fixed: use bracket notation
                 new_payment.amount = max(0, remaining_payment)
                 new_payment.base_amount = flt(new_payment.amount * original_doc.conversion_rate)
         
@@ -1459,8 +1460,8 @@ def update_original_invoice_with_payments(original_doc, invoice_groups, payment_
         default_mode = get_default_payment_mode(original_doc.pos_profile)
         if default_mode:
             new_payment = original_doc.append('payments')
-            new_payment.mode_of_payment = default_mode.mode_of_payment
-            new_payment.account = default_mode['default_account']
+            new_payment.mode_of_payment = default_mode["mode_of_payment"]  # Fixed: use bracket notation
+            new_payment.account = default_mode["default_account"]  # Fixed: use bracket notation
             new_payment.amount = 0
             new_payment.base_amount = 0
         
@@ -1478,7 +1479,11 @@ def get_default_payment_mode(pos_profile):
         if pos_profile:
             pos_doc = frappe.get_doc("POS Profile", pos_profile)
             if pos_doc.payments:
-                return pos_doc.payments[0]
+                payment_method = pos_doc.payments[0]  # This is a POSPaymentMethod object
+                return {
+                    "mode_of_payment": payment_method.mode_of_payment,
+                    "default_account": payment_method.default_account
+                }
         
         # Fallback to any available mode of payment
         mode_of_payment = frappe.get_all("Mode of Payment", 
@@ -1494,8 +1499,8 @@ def get_default_payment_mode(pos_profile):
                 "mode_of_payment": mode_of_payment[0].name,
                 "default_account": account
             }
-    except Exception:
-        pass
+    except Exception as e:
+        frappe.log_error(f"Error getting default payment mode: {str(e)}", "Payment Mode Error")
     
     return None
 # Add these functions to your existing posnext/posnext/page/posnext/point-of-sale.py file
