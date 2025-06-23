@@ -1307,7 +1307,7 @@ def create_new_invoice_with_payments(original_doc, split_items, invoice_number, 
         default_mode = get_default_payment_mode(new_doc.pos_profile)
         if default_mode:
             new_payment = new_doc.append('payments')
-            new_payment.mode_of_payment = default_mode.mode_of_payment
+            new_payment.mode_of_payment = default_mode['mode_of_payment']
             new_payment.account = default_mode['default_account']
             new_payment.amount = allocated_payment
             new_payment.base_amount = flt(allocated_payment * new_doc.conversion_rate)
@@ -1388,7 +1388,7 @@ def update_original_invoice_with_payments(original_doc, invoice_groups, payment_
             default_mode = get_default_payment_mode(original_doc.pos_profile)
             if default_mode:
                 new_payment = original_doc.append('payments')
-                new_payment.mode_of_payment = default_mode.mode_of_payment
+                new_payment.mode_of_payment = default_mode['mode_of_payment']
                 new_payment.account = default_mode['default_account']
                 new_payment.amount = 0
                 new_payment.base_amount = 0
@@ -1429,7 +1429,7 @@ def update_original_invoice_with_payments(original_doc, invoice_groups, payment_
             default_mode = get_default_payment_mode(original_doc.pos_profile)
             if default_mode:
                 new_payment = original_doc.append('payments')
-                new_payment.mode_of_payment = default_mode.mode_of_payment
+                new_payment.mode_of_payment = default_mode['mode_of_payment']
                 new_payment.account = default_mode['default_account']
                 new_payment.amount = max(0, remaining_payment)
                 new_payment.base_amount = flt(new_payment.amount * original_doc.conversion_rate)
