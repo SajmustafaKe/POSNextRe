@@ -241,73 +241,79 @@ posnext.PointOfSale.PastOrderList = class {
 		this.status_field.set_value('Draft');
 	}
 
-	refresh_list(search_term = '', status = 'Draft', created_by = '') {
-		frappe.dom.freeze();
-		this.events.reset_summary();
-		
-		// Handle pending created_by filter
-		if (this._pending_created_by) {
-			created_by = this._pending_created_by;
-			this.created_by_field.set_value(created_by);
-			this._pending_created_by = null;
-		}
-		
-		// Get current values from form controls if not provided
-		if (!search_term && this.search_field) {
-			search_term = this.search_field.get_value() || '';
-		}
-		if (!status && this.status_field) {
-			status = this.status_field.get_value() || 'Draft';
-		}
-		if (!created_by && this.created_by_field) {
-			created_by = this.created_by_field.get_value() || '';
-		}
-		
-		// Clear selected invoices when refreshing
-		this.selected_invoices.clear();
-		this.update_merge_section();
-		this.$invoices_container.html('');
-
-		console.log('Refreshing list with filters:', {
-			search_term: search_term,
-			status: status, 
-			created_by: created_by
-		});
-
-		return frappe.call({
-			method: "posnext.posnext.page.posnext.point_of_sale.get_past_order_list",
-			freeze: true,
-			args: { 
-				search_term: search_term || '', 
-				status: status || 'Draft',
-				created_by: created_by === 'All' ? '' : created_by,
-				_force_refresh: this._just_held_invoice ? Date.now() : undefined
-			},
-			callback: (response) => {
-				frappe.dom.unfreeze();
-				console.log('Server response:', response.message);
-				this.invoices = response.message || [];
-				invoicess = response.message || [];
-				
-				if (response.message && response.message.length > 0) {
-					response.message.forEach(invoice => {
-						const invoice_html = this.get_invoice_html(invoice);
-						this.$invoices_container.append(invoice_html);
-					});
-				} else {
-					this.$invoices_container.html('<div style="padding: 20px; text-align: center; color: #999;">No invoices found matching the current filters.</div>');
-				}
-				
-				this.auto_load_most_recent_summary(response.message);
-			},
-			error: (error) => {
-				frappe.dom.unfreeze();
-				console.error('Error fetching past orders:', error);
-				frappe.msgprint(__('Error loading past orders. Please try again.'));
-			}
-		});
+refresh_list(search_term = '', status = 'Draft', created_by = '') {
+	// Always clear the container first, before any other operations
+	this.$invoices_container.html('');
+	
+	frappe.dom.freeze();
+	this.events.reset_summary();
+	
+	// Handle pending created_by filter
+	if (this._pending_created_by) {
+		created_by = this._pending_created_by;
+		this.created_by_field.set_value(created_by);
+		this._pending_created_by = null;
 	}
-
+	
+	// Get current values from form controls if not provided
+	if (!search_term && this.search_field) {
+		search_term = this.search_field.get_value() || '';
+	}
+	if (!status && this.status_field) {
+		status = this.status_field.get_value() || 'Draft';
+	}
+	if (!created_by && this.created_by_field) {
+		created_by = this.created_by_field.get_value() || '';
+	}
+	
+	// Clear selected invoices when refreshing
+	this.selected_invoices.clear();
+	this.update_merge_section();
+	return frappe.call({
+		method: "posnext.posnext.page.posnext.point_of_sale.get_past_order_list",
+		freeze: true,
+		args: { 
+			search_term: search_term || '', 
+			status: status || 'Draft',
+			created_by: created_by === 'All' ? '' : created_by,
+			_force_refresh: this._just_held_invoice ? Date.now() : undefined
+		},
+		callback: (response) => {
+			frappe.dom.unfreeze();
+			console.log('Server response:', response.message);
+			
+			// Double-check container is empty before adding new content
+			this.$invoices_container.empty();
+			
+			this.invoices = response.message || [];
+			invoicess = response.message || [];
+			
+			if (response.message && response.message.length > 0) {
+				// Use a document fragment for better performance and to avoid multiple DOM updates
+				const fragment = document.createDocumentFragment();
+				
+				response.message.forEach(invoice => {
+					const invoice_html = this.get_invoice_html(invoice);
+					const temp_div = document.createElement('div');
+					temp_div.innerHTML = invoice_html;
+					fragment.appendChild(temp_div.firstChild);
+				});
+				
+				this.$invoices_container.append(fragment);
+			} else {
+				this.$invoices_container.html('<div style="padding: 20px; text-align: center; color: #999;">No invoices found matching the current filters.</div>');
+			}
+			
+			this.auto_load_most_recent_summary(response.message);
+		},
+		error: (error) => {
+			frappe.dom.unfreeze();
+			console.error('Error fetching past orders:', error);
+			this.$invoices_container.html('<div style="padding: 20px; text-align: center; color: #f56565;">Error loading past orders. Please try again.</div>');
+			frappe.msgprint(__('Error loading past orders. Please try again.'));
+		}
+	});
+}
 	auto_load_most_recent_summary(invoices) {
 		if (!invoices || invoices.length === 0) {
 			this.events.reset_summary();
