@@ -606,31 +606,45 @@ posnext.PointOfSale.PastOrderSummary = class {
 		);
 	}
 
-	calculate_payment_distribution(selected_items, invoice_groups) {
-		const total_split_amount = selected_items.reduce((sum, item) => sum + (item.split_qty * item.rate), 0);
-		const original_total_paid = this.doc.paid_amount || 0;
+calculate_payment_distribution(selected_items, invoice_groups) {
+	const total_split_amount = selected_items.reduce((sum, item) => sum + (item.split_qty * item.rate), 0);
+	const original_total_paid = this.doc.paid_amount || 0;
+	
+	// Get the default payment method from the original document
+	const default_payment_method = this.doc.payments && this.doc.payments.length > 0 ? 
+		{
+			mode_of_payment: this.doc.payments[0].mode_of_payment,
+			account: this.doc.payments[0].account,
+			type: this.doc.payments[0].type
+		} : 
+		{
+			mode_of_payment: "Cash",
+			account: "",
+			type: "Cash"
+		};
+	
+	const payment_distribution = {};
+	
+	Object.keys(invoice_groups).forEach(invoice_key => {
+		const group_items = invoice_groups[invoice_key];
+		const group_amount = group_items.reduce((sum, group_item) => {
+			const item_data = selected_items.find(item => item.item_code === group_item.item_code);
+			return sum + (group_item.split_qty * item_data.rate);
+		}, 0);
 		
-		const payment_distribution = {};
+		const payment_ratio = group_amount / total_split_amount;
+		const allocated_payment = original_total_paid * payment_ratio;
 		
-		Object.keys(invoice_groups).forEach(invoice_key => {
-			const group_items = invoice_groups[invoice_key];
-			const group_amount = group_items.reduce((sum, group_item) => {
-				const item_data = selected_items.find(item => item.item_code === group_item.item_code);
-				return sum + (group_item.split_qty * item_data.rate);
-			}, 0);
-			
-			const payment_ratio = group_amount / total_split_amount;
-			const allocated_payment = original_total_paid * payment_ratio;
-			
-			payment_distribution[invoice_key] = {
-				amount: group_amount,
-				payment_amount: allocated_payment,
-				payment_ratio: payment_ratio
-			};
-		});
-		
-		return payment_distribution;
-	}
+		payment_distribution[invoice_key] = {
+			amount: group_amount,
+			payment_amount: allocated_payment,
+			payment_ratio: payment_ratio,
+			payment_method: default_payment_method
+		};
+	});
+	
+	return payment_distribution;
+}
 
 	process_split_order(invoice_groups, payment_distribution) {
 		frappe.dom.freeze(__('Splitting order...'));
