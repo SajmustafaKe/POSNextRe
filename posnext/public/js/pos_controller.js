@@ -728,7 +728,7 @@ make_new_invoice(from_held = false) {
 	}
 
 	async on_cart_update(args) {
-		frappe.dom.freeze();
+		//frappe.dom.freeze();
 		let item_row = undefined;
 		try {
 			let { field, value, item } = args;
