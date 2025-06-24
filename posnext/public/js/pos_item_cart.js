@@ -751,45 +751,50 @@ reset_cart_state(from_held = false) {
 	}
 
 	make_customer_selector() {
-		this.$customer_section.html(`
-			<div class="customer-field"></div>
-		`);
-		const me = this;
-		const query = { query: 'posnext.controllers.queries.customer_query' };
-		const allowed_customer_group = this.allowed_customer_groups || [];
-		if (allowed_customer_group.length) {
-			query.filters = {
-				customer_group: ['in', allowed_customer_group]
-			}
-		}
-		this.customer_field = frappe.ui.form.make_control({
-			df: {
-				label: __('Customer'),
-				fieldtype: 'Link',
-				options: 'Customer',
-				placeholder: __('Search by customer name, phone, email.'),
-				read_only: this.mobile_number_based_customer,
-				get_query: () => query,
-				onchange: function() {
-					if (this.value) {
-						const frm = me.events.get_frm();
-						frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'customer', this.value);
-						frm.script_manager.trigger('customer', frm.doc.doctype, frm.doc.name).then(() => {
-							frappe.run_serially([
-								() => me.fetch_customer_details(this.value),
-								() => me.events.customer_details_updated(me.customer_info),
-								() => me.update_customer_section(),
-								() => me.update_totals_section()
-							]);
-						})
-					}
-				},
-			},
-			parent: this.$customer_section.find('.customer-field'),
-			render_input: true,
-		});
-		this.customer_field.toggle_label(false);
-	}
+    this.$customer_section.html(`
+        <div class="customer-field"></div>
+    `);
+    const me = this;
+    const query = { query: 'posnext.controllers.queries.customer_query' };
+    const allowed_customer_group = this.allowed_customer_groups || [];
+    if (allowed_customer_group.length) {
+        query.filters = {
+            customer_group: ['in', allowed_customer_group]
+        }
+    }
+    this.customer_field = frappe.ui.form.make_control({
+        df: {
+            label: __('Customer'),
+            fieldtype: 'Link',
+            options: 'Customer',
+            placeholder: __('Search by customer name, phone, email.'),
+            read_only: this.mobile_number_based_customer,
+            get_query: () => query,
+            onchange: function() {
+                if (this.value) {
+                    const frm = me.events.get_frm();
+                    
+                    // ADD FREEZING HERE FOR CUSTOMER SELECTION
+                    frappe.dom.freeze();
+                    
+                    frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'customer', this.value);
+                    frm.script_manager.trigger('customer', frm.doc.doctype, frm.doc.name).then(() => {
+                        frappe.run_serially([
+                            () => me.fetch_customer_details(this.value),
+                            () => me.events.customer_details_updated(me.customer_info),
+                            () => me.update_customer_section(),
+                            () => me.update_totals_section(),
+                            () => frappe.dom.unfreeze()  // UNFREEZE AFTER CUSTOMER OPERATIONS
+                        ]);
+                    })
+                }
+            },
+        },
+        parent: this.$customer_section.find('.customer-field'),
+        render_input: true,
+    });
+    this.customer_field.toggle_label(false);
+}
 
 	fetch_customer_details(customer) {
 		if (customer) {
