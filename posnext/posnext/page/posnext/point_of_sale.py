@@ -322,7 +322,7 @@ def get_past_order_list(search_term='', status='', created_by='', limit=20):
 			filters=customer_filters,
 			fields=fields,
 			page_length=limit,
-			order_by="creation desc"
+			order_by="modified desc"
 		)
 		
 		# Search by invoice name
@@ -334,7 +334,7 @@ def get_past_order_list(search_term='', status='', created_by='', limit=20):
 			filters=name_filters,
 			fields=fields,
 			page_length=limit,
-			order_by="creation desc"
+			order_by="modified desc"
 		)
 		
 		# Combine results and remove duplicates
@@ -352,7 +352,7 @@ def get_past_order_list(search_term='', status='', created_by='', limit=20):
 			filters=base_filters, 
 			fields=fields, 
 			page_length=limit,
-			order_by="creation desc"
+			order_by="modified desc"
 		)
 	else:
 		# No filters - get all invoices
@@ -360,7 +360,7 @@ def get_past_order_list(search_term='', status='', created_by='', limit=20):
 			"POS Invoice", 
 			fields=fields, 
 			page_length=limit,
-			order_by="creation desc"
+			order_by="modified desc"
 		)
 	
 	# Sort by creation date (most recent first) and limit results
