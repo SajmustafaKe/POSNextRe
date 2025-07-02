@@ -244,9 +244,6 @@ find_available_opening_entry() {
 		frappe.set_route("Form", this.frm.doc.doctype, this.frm.doc.name);
 	}
 
-	show_recent_order_list() {
-    return this.toggle_recent_order_list(true); // Force show=true
-	}
 	toggle_recent_order() {
 		const show = this.recent_order_list.$component.is(':hidden');
 		this.toggle_recent_order_list(show);
@@ -372,7 +369,6 @@ find_available_opening_entry() {
 				edit_cart: () => this.payment.edit_cart(),
 				save_draft_invoice: () => this.save_draft_invoice(),
 				toggle_recent_order: () => this.toggle_recent_order(),
-				show_recent_order_list: () => this.show_recent_order_list(),
 				customer_details_updated: (details) => {
 					this.customer_details = details;
 					// will add/remove LP payment method

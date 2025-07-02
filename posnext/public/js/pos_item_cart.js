@@ -700,11 +700,16 @@ async create_customer_and_proceed(mobile_number, next_action) {
 
 async handle_successful_hold(invoice_name, creator_name) {
     console.log('Handling successful hold:', invoice_name, creator_name);
-	this.toggle_component(false);
-	await this.events.toggle_recent_order();
-   
+    
+    // Simulate clicking the F3 button instead of calling the method directly
+    const orderButton = document.querySelector('.checkout-btn-order');
+    if (orderButton) {
+        orderButton.click();
+    } else {
+        // Fallback to direct method call
+        await this.events.toggle_recent_order();
+    }
 }
-
 
 	attach_shortcuts() {
 		for (let row of this.number_pad.keys) {
