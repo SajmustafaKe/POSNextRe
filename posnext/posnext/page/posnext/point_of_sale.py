@@ -634,3 +634,23 @@ def check_edit_permission(invoice_name, secret_key):
     except Exception as e:
         frappe.log_error(f"Permission Check Failed: {str(e)[:100]}", "POSNext")
         raise
+
+@frappe.whitelist()
+def get_available_opening_entry():
+	"""
+	Get any available POS Opening Entry for waiters to use
+	Returns the most recent opening entry that hasn't been closed
+	"""
+	# Get all open POS Opening Entries (not closed)
+	open_vouchers = frappe.db.get_all(
+		"POS Opening Entry",
+		filters={
+			"pos_closing_entry": ["in", ["", None]], 
+			"docstatus": 1
+		},
+		fields=["name", "company", "pos_profile", "period_start_date", "user"],
+		order_by="period_start_date desc",
+		limit=1  # Get the most recent one
+	)
+	
+	return open_vouchers
