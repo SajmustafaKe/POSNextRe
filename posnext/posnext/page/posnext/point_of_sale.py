@@ -533,9 +533,9 @@ def save_draft_invoice(doc):
         invoice_name = doc.get("name")
         input_created_by_name = doc.get("created_by_name")
         
-        if invoice_name and frappe.db.exists("POS Invoice", {"name": invoice_name, "docstatus": 0}):
+        if invoice_name and frappe.db.exists("Sales Invoice", {"name": invoice_name, "docstatus": 0}):
             
-            invoice = frappe.get_doc("POS Invoice", invoice_name)
+            invoice = frappe.get_doc("Sales Invoice", invoice_name)
             
              
             if invoice.created_by_name != input_created_by_name:
@@ -576,7 +576,7 @@ def save_draft_invoice(doc):
         else:
             
             invoice = frappe.get_doc({
-                "doctype": "POS Invoice",
+                "doctype": "Sales Invoice",
                 "customer": doc.get("customer"),
                 "items": [
                     {
@@ -610,7 +610,7 @@ def save_draft_invoice(doc):
 @frappe.whitelist()
 def check_edit_permission(invoice_name, secret_key):
     try:
-        if not frappe.db.exists("POS Invoice", {"name": invoice_name, "docstatus": 0}):
+        if not frappe.db.exists("Sales Invoice", {"name": invoice_name, "docstatus": 0}):
             frappe.throw("Invoice not found or is not in draft status")
         
         
@@ -618,7 +618,7 @@ def check_edit_permission(invoice_name, secret_key):
         if not user:
             frappe.throw("Invalid secret key", frappe.AuthenticationError)
         
-        invoice = frappe.get_doc("POS Invoice", invoice_name)
+        invoice = frappe.get_doc("Sales Invoice", invoice_name)
         
         
         if invoice.created_by_name != user:
