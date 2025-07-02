@@ -249,34 +249,137 @@ find_available_opening_entry() {
 		this.toggle_recent_order_list(show);
 	}
 
-	save_draft_invoice(skip_new_invoice = false) {
-    if (!this.$components_wrapper.is(":visible")) return;
-    console.log(this.frm.doc.items)
-    if (this.frm.doc.items.length == 0) {
+save_draft_invoice(from_hold = false) {
+    // Validate POS interface visibility
+    if (!this.$components_wrapper.is(":visible")) {
+        const error = new Error("POS interface is not visible");
         frappe.show_alert({
-            message: __("You must add atleast one item to save it as draft."),
-            indicator:'red'
+            message: __("POS interface is not visible."),
+            indicator: 'red'
         });
-        frappe.utils.play_sound("error");
-        return;
+        return Promise.reject(error);
     }
 
-    this.frm.save(undefined, undefined, undefined, () => {
+    const frm = this.frm;
+    
+    // Validate form initialization
+    if (!frm) {
+        const error = new Error("Form not initialized");
         frappe.show_alert({
-            message: __("There was an error saving the document."),
+            message: __("Form not initialized. Please try again."),
+            indicator: 'red'
+        });
+        return Promise.reject(error);
+    }
+
+    // Validate items exist
+    if (!frm.doc.items.length) {
+        const error = new Error("No items in invoice");
+        frappe.show_alert({
+            message: __("You must add at least one item to save it as draft."),
             indicator: 'red'
         });
         frappe.utils.play_sound("error");
-    }).then(() => {
-        if (!skip_new_invoice) {
-            // Only create new invoice if not skipping (normal draft save)
-            frappe.run_serially([
-                () => frappe.dom.freeze(),
-                () => this.make_new_invoice(false),
-                () => frappe.dom.unfreeze()
-            ]);
-        }
-        // If skip_new_invoice is true (hold operation), don't create new invoice
+        return Promise.reject(error);
+    }
+
+    // Validate POS Profile
+    if (!frm.doc.pos_profile) {
+        const error = new Error("POS Profile required");
+        frappe.show_alert({
+            message: __("POS Profile is required for draft invoice"),
+            indicator: 'red'
+        });
+        return Promise.reject(error);
+    }
+
+    // Note: Customer validation removed since hold operations don't require customer
+
+    console.log("Saving draft with doc:", frm.doc);
+
+    return new Promise((resolve, reject) => {
+        frappe.call({
+            method: "posnext.posnext.page.posnext.point_of_sale.save_draft_invoice",
+            args: {
+                doc: {
+                    name: frm.doc.name,
+                    customer: frm.doc.customer,
+                    items: frm.doc.items.map(item => ({
+                        item_code: item.item_code,
+                        qty: item.qty,
+                        rate: item.rate,
+                        uom: item.uom,
+                        warehouse: item.warehouse,
+                        serial_no: item.serial_no,
+                        batch_no: item.batch_no
+                    })),
+                    created_by_name: frm.doc.created_by_name || frappe.session.user,
+                    pos_profile: frm.doc.pos_profile,
+                    company: frm.doc.company
+                },
+                from_hold: from_hold
+            },
+            callback: (r) => {
+                console.log("Save draft response:", r);
+                
+                if (r.exc) {
+                    // Parse error message
+                    let error_msg = r.exc;
+                    try {
+                        const exc = JSON.parse(r.exc);
+                        error_msg = exc._error_message || exc.message || r.exc;
+                    } catch (e) {
+                        // Use original error if parsing fails
+                    }
+                    
+                    frappe.show_alert({
+                        message: __(`Error saving draft: ${error_msg}`),
+                        indicator: 'red'
+                    });
+                    frappe.utils.play_sound("error");
+                    reject(new Error(error_msg));
+                    return;
+                }
+
+                if (r.message) {
+                    frappe.show_alert({
+                        message: __("Draft invoice saved successfully"),
+                        indicator: 'green'
+                    });
+                    
+                    // Update form document with saved data
+                    frm.doc.name = r.message.name || frm.doc.name;
+                    frm.doc.created_by_name = r.message.created_by_name || frm.doc.created_by_name;
+                    
+                    const result = {
+                        invoice_name: frm.doc.name,
+                        created_by_name: frm.doc.created_by_name
+                    };
+                    
+                    // Only create new invoice if NOT called from hold operation
+                    if (!from_hold) {
+                        frappe.run_serially([
+                            () => frappe.dom.freeze(),
+                            () => this.make_new_invoice(true),
+                            () => frappe.dom.unfreeze()
+                        ]);
+                    }
+                    
+                    resolve(result);
+                } else {
+                    reject(new Error("No response from server"));
+                }
+            },
+            error: (xhr, status, error) => {
+                console.error("Save draft AJAX error:", status, error);
+                frappe.show_alert({
+                    message: __("Failed to save draft. Please check your connection or contact support."),
+                    indicator: 'red'
+                });
+                frappe.utils.play_sound("error");
+                reject(new Error("Failed to save draft: " + error));
+            }
+        });
     });
 }
 

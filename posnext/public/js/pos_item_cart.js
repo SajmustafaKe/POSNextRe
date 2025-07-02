@@ -531,18 +531,21 @@ show_secret_key_popup_for_hold() {
                     if (r.message.can_edit) {
                         console.log('Permission validated, saving existing invoice');
                         
-                        // Call save_draft_invoice synchronously (no .then())
-                        me.events.save_draft_invoice(true);
-                        
-                        const saved_invoice_name = frm.doc.name;
-                        const creator_name = r.message.created_by_name || frappe.session.user;
-                        
-                        console.log('Existing draft saved successfully:', saved_invoice_name);
-                        secret_dialog.hide();
-                        
-                        // Call handle_successful_hold
-                        console.log('About to call handle_successful_hold');
-                        me.handle_successful_hold(saved_invoice_name, creator_name);
+                        // Call save_draft_invoice with from_hold=true and handle Promise
+                        me.events.save_draft_invoice(true).then((result) => {
+                            const saved_invoice_name = result.invoice_name;
+                            const creator_name = result.created_by_name || r.message.created_by_name || frappe.session.user;
+                            
+                            console.log('Existing draft saved successfully:', saved_invoice_name);
+                            secret_dialog.hide();
+                            
+                            console.log('About to call handle_successful_hold');
+                            me.handle_successful_hold(saved_invoice_name, creator_name);
+                            
+                        }).catch(error => {
+                            console.error('Error saving existing draft invoice:', error);
+                            secret_dialog.hide();
+                        });
                         
                     } else {
                         frappe.show_alert({
@@ -568,17 +571,21 @@ show_secret_key_popup_for_hold() {
                         // Set created_by_name
                         frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', created_by_name);
                         
-                        // Call save_draft_invoice synchronously (no .then())
-                        me.events.save_draft_invoice(true);
-                        
-                        const saved_invoice_name = frm.doc.name;
-                        
-                        console.log('New draft saved successfully:', saved_invoice_name);
-                        secret_dialog.hide();
-                        
-                        // Call handle_successful_hold
-                        console.log('About to call handle_successful_hold');
-                        me.handle_successful_hold(saved_invoice_name, created_by_name);
+                        // Call save_draft_invoice with from_hold=true and handle Promise
+                        me.events.save_draft_invoice(true).then((result) => {
+                            const saved_invoice_name = result.invoice_name;
+                            const creator_name = result.created_by_name;
+                            
+                            console.log('New draft saved successfully:', saved_invoice_name);
+                            secret_dialog.hide();
+                            
+                            console.log('About to call handle_successful_hold');
+                            me.handle_successful_hold(saved_invoice_name, creator_name);
+                            
+                        }).catch(error => {
+                            console.error('Error saving new draft invoice:', error);
+                            secret_dialog.hide();
+                        });
                         
                     } else {
                         frappe.show_alert({
@@ -700,6 +707,7 @@ async create_customer_and_proceed(mobile_number, next_action) {
 
 async handle_successful_hold(invoice_name, creator_name) {
     console.log('Handling successful hold:', invoice_name, creator_name);
+    
     await this.events.toggle_recent_order();
 }
 
@@ -2015,7 +2023,7 @@ async handle_successful_hold(invoice_name, creator_name) {
 				frm.doc.custom_reference_name = values.reference_name;
 				
 				dialog.hide();
-				await me.events.save_draft_invoice(true);
+				await me.events.save_draft_invoice();
 			}
 		});
 		dialog.show();
