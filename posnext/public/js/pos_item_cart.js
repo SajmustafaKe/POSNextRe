@@ -348,8 +348,7 @@ this.highlight_checkout_btn(true);
         frappe.msgprint(__('Error during checkout. Please try again.'));
     }
 });
-
-		this.$component.on('click', '.checkout-btn-held', function() {
+	this.$component.on('click', '.checkout-btn-held', function() {
     if ($(this).attr('style').indexOf('--blue-500') == -1) return;
     if (!cur_frm.doc.items.length) {
         frappe.throw("Cannot save empty invoice");
@@ -397,6 +396,7 @@ this.highlight_checkout_btn(true);
                                     const saved_invoice_name = result.invoice_name || frm.doc.name;
                                     const creator_name = result.created_by_name || r.message.created_by_name || frappe.session.user;
                                     console.log('Hold successful, invoice:', saved_invoice_name, 'creator:', creator_name);
+                                    // ✅ ADD THIS: Call handle_successful_hold for existing invoice path
                                     me.handle_successful_hold(saved_invoice_name, creator_name);
                                 }).catch(error => {
                                     console.error('Error saving draft invoice (existing):', error);
@@ -443,6 +443,7 @@ this.highlight_checkout_btn(true);
                                 me.events.save_draft_invoice().then((result) => {
                                     const saved_invoice_name = result.invoice_name || frm.doc.name;
                                     console.log('Hold successful, invoice:', saved_invoice_name, 'creator:', created_by_name);
+                                    // ✅ ADD THIS: Call handle_successful_hold for new invoice path
                                     me.handle_successful_hold(saved_invoice_name, created_by_name);
                                 }).catch(error => {
                                     console.error('Error saving draft invoice (new):', error);
@@ -514,7 +515,6 @@ this.highlight_checkout_btn(true);
         show_secret_key_popup();
     }
 });
-		
 
 		this.$component.on('click', '.checkout-btn-order', () => {
 			this.events.toggle_recent_order();
