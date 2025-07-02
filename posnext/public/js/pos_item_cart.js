@@ -700,6 +700,7 @@ async create_customer_and_proceed(mobile_number, next_action) {
 
 async handle_successful_hold(invoice_name, creator_name) {
     console.log('Handling successful hold:', invoice_name, creator_name);
+	this.toggle_component(false);
 	await this.events.toggle_recent_order();
    
 }
