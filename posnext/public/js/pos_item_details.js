@@ -6,6 +6,7 @@ posnext.PointOfSale.ItemDetails = class {
 		this.hide_images = settings.hide_images;
 		this.allow_rate_change = settings.allow_rate_change;
 		this.allow_discount_change = settings.allow_discount_change;
+		this.custom_edit_rate_and_uom = settings.custom_edit_rate_and_uom;
 		this.current_item = {};
 
 		this.init_component();
@@ -29,7 +30,7 @@ posnext.PointOfSale.ItemDetails = class {
 	init_child_components() {
 		this.$component.html(
 			`<div class="item-details-header">
-				<div class="label">${__('Item Details')}</div>
+				<div class="label">${__('Item Detailss')}</div>
 				<div class="close-btn">
 					<svg width="32" height="32" viewBox="0 0 14 14" fill="none">
 						<path d="M4.93764 4.93759L7.00003 6.99998M9.06243 9.06238L7.00003 6.99998M7.00003 6.99998L4.93764 9.06238L9.06243 4.93759" stroke="#8D99A6"/>
@@ -74,9 +75,11 @@ posnext.PointOfSale.ItemDetails = class {
 			// in both cases, if the current item is a serialized item, then validate and remove the item
 			await this.validate_serial_batch_item();
 		}
+		if(!this.custom_edit_rate_and_uom){
+			this.events.toggle_item_selector(!hide_item_details);
+			this.toggle_component(!hide_item_details);
+		}
 
-		this.events.toggle_item_selector(!hide_item_details);
-		this.toggle_component(!hide_item_details);
 
 		if (item && current_item_changed) {
 			this.doctype = item.doctype;
@@ -173,13 +176,26 @@ posnext.PointOfSale.ItemDetails = class {
 			const field_meta = this.item_meta.fields.find(df => df.fieldname === fieldname);
 			fieldname === 'discount_percentage' ? (field_meta.label = __('Discount (%)')) : '';
 			const me = this;
-
+			var uoms = []
+			frappe.db.get_doc("Item",me.current_item.item_code).then(doc => {
+				uoms = doc.uoms.map(item => item.uom);
+			})
 			this[`${fieldname}_control`] = frappe.ui.form.make_control({
 				df: {
 					...field_meta,
 					onchange: function() {
 						me.events.form_updated(me.current_item, fieldname, this.value);
-					}
+					},
+					get_query:function () {
+						if(fieldname === 'uom'){
+							return {
+								filters: {
+									name: ['in',uoms]
+								}
+							}
+						}
+						return
+                    }
 				},
 				parent: this.$form_container.find(`.${fieldname}-control`),
 				render_input: true,

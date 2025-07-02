@@ -1503,12 +1503,7 @@ def get_default_payment_mode(pos_profile):
         frappe.log_error(f"Error getting default payment mode: {str(e)}", "Payment Mode Error")
     
     return None
-# Add these functions to your existing posnext/posnext/page/posnext/point-of-sale.py file
 
-# Split Payment Backend Functions
-# Add these imports at the top of your file if not already present
-
-# Split Payment Validation and Processing Functions
 
 @frappe.whitelist()
 def validate_split_payments(pos_invoice_name):
@@ -2059,7 +2054,6 @@ def get_split_payment_settings():
             'enable_split_payment_audit': True
         }
 
-# Error handling and logging functions
 
 def log_split_payment_error(error_message, pos_invoice=None, additional_data=None):
     """Log split payment related errors"""
@@ -2081,7 +2075,7 @@ def log_split_payment_error(error_message, pos_invoice=None, additional_data=Non
         # Fallback logging
         frappe.log_error(f"Split payment error logging failed: {str(e)}")
 
-# Hook function to be called when POS Invoice is submitted
+
 def on_submit_pos_invoice(doc, method):
     """Hook called when POS Invoice is submitted"""
     try:
@@ -2135,9 +2129,7 @@ SPLIT PAYMENT SUMMARY:
         # Log error but don't fail the main transaction
         frappe.log_error(f"Failed to create split payment log: {str(e)}", "Split Payment Log Error")
 
-# Add these functions to your posnext/posnext/page/posnext/point-of-sale.py file
 
-# Partial Payment Backend Functions
 
 @frappe.whitelist()
 def save_partial_payment_invoice(invoice_name, partial_payments):
@@ -2899,7 +2891,6 @@ def bulk_send_payment_reminders(invoice_names, reminder_type="email"):
         frappe.log_error(f"Error in bulk payment reminders: {str(e)}", "Bulk Payment Reminders")
         return {'success': False, 'message': str(e)}
 
-# Utility functions for partial payment management
 
 def calculate_partial_payment_aging(from_date=None, to_date=None):
     """Calculate aging analysis for partial payments"""
@@ -2967,7 +2958,6 @@ def get_partial_payment_aging_report(from_date=None, to_date=None):
         frappe.log_error(f"Error getting aging report: {str(e)}", "Partial Payment Aging")
         return {'aging_summary': {}, 'detailed_data': []}
 
-# Hook functions for automation
 
 def schedule_payment_reminders():
     """Scheduled function to send automatic payment reminders"""
@@ -3007,7 +2997,6 @@ def schedule_payment_reminders():
     except Exception as e:
         frappe.log_error(f"Error in scheduled payment reminders: {str(e)}", "Payment Reminder Scheduler")
 
-# Configuration and settings for partial payments
 
 @frappe.whitelist()
 def get_partial_payment_settings():
