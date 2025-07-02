@@ -424,6 +424,8 @@ init_item_cart() {
         events: {
             get_frm: () => this.frm,
             cart_item_clicked: (item) => {
+				if (frappe.user_roles.includes("Waiter")) {
+				}else{
                 // Find the item in the form
                 const item_row = this.frm.doc.items.find(i => i.name === item.name);
                 if (item_row) {
@@ -439,7 +441,7 @@ init_item_cart() {
                     // Optionally minimize item selector to give more space for item details
                     this.item_selector.resize_selector(true);
                     this.cart.toggle_numpad(true);
-                }
+                }}
             },
             numpad_event: (value, action) => this.update_item_field(value, action),
             checkout: () => this.save_and_checkout(),
