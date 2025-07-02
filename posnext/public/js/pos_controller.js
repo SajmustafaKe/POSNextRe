@@ -249,37 +249,36 @@ find_available_opening_entry() {
 		this.toggle_recent_order_list(show);
 	}
 
-	save_draft_invoice() {
-		if (!this.$components_wrapper.is(":visible")) return;
-		console.log(this.frm.doc.items)
-		if (this.frm.doc.items.length == 0) {
-			frappe.show_alert({
-				message: __("You must add atleast one item to save it as draft."),
-				indicator:'red'
-			});
-			frappe.utils.play_sound("error");
-			return;
-		}
+	save_draft_invoice(skip_new_invoice = false) {
+    if (!this.$components_wrapper.is(":visible")) return;
+    console.log(this.frm.doc.items)
+    if (this.frm.doc.items.length == 0) {
+        frappe.show_alert({
+            message: __("You must add atleast one item to save it as draft."),
+            indicator:'red'
+        });
+        frappe.utils.play_sound("error");
+        return;
+    }
 
-		this.frm.save(undefined, undefined, undefined, () => {
-			frappe.show_alert({
-				message: __("There was an error saving the document."),
-				indicator: 'red'
-			});
-			frappe.utils.play_sound("error");
-		}).then(() => {
-			frappe.run_serially([
-				() => frappe.dom.freeze(),
-				() => this.make_new_invoice(true),
-				() => frappe.dom.unfreeze()
-
-
-			]);
-
-
-
-		});
-	}
+    this.frm.save(undefined, undefined, undefined, () => {
+        frappe.show_alert({
+            message: __("There was an error saving the document."),
+            indicator: 'red'
+        });
+        frappe.utils.play_sound("error");
+    }).then(() => {
+        if (!skip_new_invoice) {
+            // Only create new invoice if not skipping (normal draft save)
+            frappe.run_serially([
+                () => frappe.dom.freeze(),
+                () => this.make_new_invoice(false),
+                () => frappe.dom.unfreeze()
+            ]);
+        }
+        // If skip_new_invoice is true (hold operation), don't create new invoice
+    });
+}
 
 	close_pos() {
 		if (!this.$components_wrapper.is(":visible")) return;

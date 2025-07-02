@@ -532,7 +532,7 @@ show_secret_key_popup_for_hold() {
                         console.log('Permission validated, saving existing invoice');
                         
                         // Call save_draft_invoice synchronously (no .then())
-                        me.events.save_draft_invoice();
+                        me.events.save_draft_invoice(true);
                         
                         const saved_invoice_name = frm.doc.name;
                         const creator_name = r.message.created_by_name || frappe.session.user;
@@ -569,7 +569,7 @@ show_secret_key_popup_for_hold() {
                         frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', created_by_name);
                         
                         // Call save_draft_invoice synchronously (no .then())
-                        me.events.save_draft_invoice();
+                        me.events.save_draft_invoice(true);
                         
                         const saved_invoice_name = frm.doc.name;
                         
@@ -700,15 +700,7 @@ async create_customer_and_proceed(mobile_number, next_action) {
 
 async handle_successful_hold(invoice_name, creator_name) {
     console.log('Handling successful hold:', invoice_name, creator_name);
-    
-    // Simulate clicking the F3 button instead of calling the method directly
-    const orderButton = document.querySelector('.checkout-btn-order');
-    if (orderButton) {
-        orderButton.click();
-    } else {
-        // Fallback to direct method call
-        await this.events.toggle_recent_order();
-    }
+    await this.events.toggle_recent_order();
 }
 
 	attach_shortcuts() {
@@ -2023,7 +2015,7 @@ async handle_successful_hold(invoice_name, creator_name) {
 				frm.doc.custom_reference_name = values.reference_name;
 				
 				dialog.hide();
-				await me.events.save_draft_invoice();
+				await me.events.save_draft_invoice(true);
 			}
 		});
 		dialog.show();
