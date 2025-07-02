@@ -760,34 +760,8 @@ async create_customer_and_proceed(mobile_number, next_action) {
 
 async handle_successful_hold(invoice_name, creator_name) {
     console.log('Handling successful hold:', invoice_name, creator_name);
-    try {
-        // Show recent order list
-        await this.events.show_recent_order_list();
-        // Refresh PastOrderList with held invoice
-        if (posnext.PointOfSale.PastOrderList.current_instance) {
-            //await posnext.PointOfSale.PastOrderList.current_instance.set_filter_and_refresh_with_held_invoice(creator_name, invoice_name);
-            // Load held invoice into PastOrderSummary
-            if (posnext.PointOfSale.PastOrderSummary.current_instance) {
-                await frappe.db.get_doc('Sales Invoice', invoice_name).then(doc => {
-                    posnext.PointOfSale.PastOrderSummary.current_instance.load_summary_of(doc);
-                });
-            }
-        } else {
-            console.warn('PastOrderList not initialized');
-            frappe.show_alert({
-                message: __('Recent order list is not available. Please refresh the page.'),
-                indicator: 'orange'
-            });
-        }
-
-    } catch (error) {
-        console.error('Error in handle_successful_hold:', error);
-        frappe.show_alert({
-            message: __('Failed to show the held invoice in the orders list: {0}', [error.message]),
-            indicator: 'red'
-        });
-        frappe.utils.play_sound("error");
-    }
+	await this.events.toggle_recent_order();
+   
 }
 
 
