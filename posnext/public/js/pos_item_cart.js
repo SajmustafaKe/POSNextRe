@@ -765,7 +765,7 @@ async handle_successful_hold(invoice_name, creator_name) {
         await this.events.show_recent_order_list();
         // Refresh PastOrderList with held invoice
         if (posnext.PointOfSale.PastOrderList.current_instance) {
-            await posnext.PointOfSale.PastOrderList.current_instance.set_filter_and_refresh_with_held_invoice(creator_name, invoice_name);
+            //await posnext.PointOfSale.PastOrderList.current_instance.set_filter_and_refresh_with_held_invoice(creator_name, invoice_name);
             // Load held invoice into PastOrderSummary
             if (posnext.PointOfSale.PastOrderSummary.current_instance) {
                 await frappe.db.get_doc('Sales Invoice', invoice_name).then(doc => {
@@ -779,8 +779,7 @@ async handle_successful_hold(invoice_name, creator_name) {
                 indicator: 'orange'
             });
         }
-        // Reset cart state after list is shown
-        await this.reset_cart_state(true); // Pass from_held=true
+
     } catch (error) {
         console.error('Error in handle_successful_hold:', error);
         frappe.show_alert({
@@ -791,13 +790,7 @@ async handle_successful_hold(invoice_name, creator_name) {
     }
 }
 
-reset_cart_state(from_held = false) {
-    this.$cart_items_wrapper.html('');
-    this.update_totals_section();
-    this.toggle_checkout_btn(true);
-    this.toggle_numpad(false);
-    this.events.load_new_invoice(from_held); 
-}
+
 	attach_shortcuts() {
 		for (let row of this.number_pad.keys) {
 			for (let btn of row) {
