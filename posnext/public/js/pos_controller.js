@@ -270,7 +270,7 @@ find_available_opening_entry() {
 		}).then(() => {
 			frappe.run_serially([
 				() => frappe.dom.freeze(),
-				() => this.make_new_invoice(false),
+				() => this.make_new_invoice(true),
 				() => frappe.dom.unfreeze()
 
 
