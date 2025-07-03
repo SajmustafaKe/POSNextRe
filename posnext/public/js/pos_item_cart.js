@@ -349,7 +349,7 @@ this.highlight_checkout_btn(true);
     }
 });
 
-	this.$component.on('click', '.checkout-btn-held', function() {
+this.$component.on('click', '.checkout-btn-held', function() {
     if ($(this).attr('style').indexOf('--blue-500') == -1) return;
     if (!cur_frm.doc.items.length) {
         frappe.throw("Cannot save empty invoice");
@@ -358,170 +358,53 @@ this.highlight_checkout_btn(true);
 
     console.log('Hold button clicked');
 
-    const show_secret_key_popup = (mobile_number = null) => {
-        const secret_dialog = me.create_secret_dialog(function(values) {
-            const frm = me.events.get_frm();
-            const invoice_name = frm.doc.name;
-            
-            // Set created_by_name before saving
-            frm.doc.created_by_name = frm.doc.created_by_name || frappe.session.user;
-            console.log('Setting created_by_name before hold:', frm.doc.created_by_name);
-
-            // Check if save_draft_invoice is defined
-            if (!me.events.save_draft_invoice) {
-                console.error('save_draft_invoice is undefined');
-                frappe.show_alert({
-                    message: __('Save draft invoice function is not available. Please check POS configuration.'),
-                    indicator: 'red'
-                });
-                secret_dialog.hide();
-                return;
-            }
-
-            if (invoice_name && !frm.doc.__islocal) {
-                // Existing draft invoice
-                frappe.call({
-                    method: "posnext.posnext.page.posnext.point_of_sale.check_edit_permission",
-                    args: {
-                        invoice_name: invoice_name,
-                        secret_key: values['secret_key']
-                    },
-                    freeze: true,
-                    freeze_message: "Validating Secret Key...",
-                    callback: function(r) {
-                        if (r.message.can_edit) {
-                            frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', r.message.created_by_name || frappe.session.user);
-                            frm.script_manager.trigger('created_by_name', frm.doc.doctype, frm.doc.name).then(() => {
-                                console.log('Calling save_draft_invoice for existing invoice:', invoice_name);
-                                
-                                // FIXED: Properly handle the promise and call handle_successful_hold
-                                me.events.save_draft_invoice().then((result) => {
-                                    console.log('Save draft result:', result);
-                                    const saved_invoice_name = result?.invoice_name || frm.doc.name;
-                                    const creator_name = result?.created_by_name || r.message.created_by_name || frappe.session.user;
-                                    console.log('Hold successful, calling handle_successful_hold with:', saved_invoice_name, creator_name);
-                                    
-                                    // FIXED: Actually call the method and handle the promise
-                                    me.handle_successful_hold(saved_invoice_name, creator_name).then(() => {
-                                        console.log('handle_successful_hold completed');
-                                    }).catch(error => {
-                                        console.error('Error in handle_successful_hold:', error);
-                                    });
-                                    
-                                }).catch(error => {
-                                    console.error('Error saving draft invoice (existing):', error);
-                                    frappe.show_alert({
-                                        message: __('Failed to save draft invoice: {0}', [error.message]),
-                                        indicator: 'red'
-                                    });
-                                });
-                            }).catch(error => {
-                                console.error('Error triggering created_by_name (existing):', error);
-                            });
-                            secret_dialog.hide();
-                        } else {
-                            frappe.show_alert({
-                                message: __(`You did not create this invoice, hence you cannot edit it. Only the creator (${r.message.created_by_name}) can edit it.`),
-                                indicator: 'red'
-                            });
-                            secret_dialog.hide();
-                        }
-                    },
-                    error: (xhr, status, error) => {
-                        console.error('Error validating secret key (existing):', error);
-                        frappe.show_alert({
-                            message: __("Failed to validate secret key. Please try again or contact support."),
-                            indicator: 'red'
-                        });
-                        secret_dialog.hide();
-                    }
-                });
-            } else {
-                // New invoice
-                frappe.call({
-                    method: "posnext.posnext.page.posnext.point_of_sale.get_user_name_from_secret_key",
-                    args: {
-                        secret_key: values['secret_key']
-                    },
-                    freeze_message: "Validating Secret Key...",
-                    callback: function(r) {
-                        if (r.message) {
-                            const created_by_name = r.message;
-                            frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', created_by_name);
-                            frm.script_manager.trigger('created_by_name', frm.doc.doctype, frm.doc.name).then(() => {
-                                console.log('Calling save_draft_invoice for new invoice:', frm.doc.name);
-                                
-                                // FIXED: Properly handle the promise and call handle_successful_hold
-                                me.events.save_draft_invoice().then((result) => {
-                                    console.log('Save draft result:', result);
-                                    const saved_invoice_name = result?.invoice_name || frm.doc.name;
-                                    console.log('Hold successful, calling handle_successful_hold with:', saved_invoice_name, created_by_name);
-                                    
-                                    // FIXED: Actually call the method and handle the promise
-                                    me.handle_successful_hold(saved_invoice_name, created_by_name).then(() => {
-                                        console.log('handle_successful_hold completed');
-                                    }).catch(error => {
-                                        console.error('Error in handle_successful_hold:', error);
-                                    });
-                                    
-                                }).catch(error => {
-                                    console.error('Error saving draft invoice (new):', error);
-                                    frappe.show_alert({
-                                        message: __('Failed to save draft invoice: {0}', [error.message]),
-                                        indicator: 'red'
-                                    });
-                                });
-                            }).catch(error => {
-                                console.error('Error triggering created_by_name (new):', error);
-                            });
-                            secret_dialog.hide();
-                        } else {
-                            frappe.show_alert({
-                                message: __("Invalid secret key"),
-                                indicator: 'red'
-                            });
-                            secret_dialog.hide();
-                        }
-                    },
-                    error: (xhr, status, error) => {
-                        console.error('Error validating secret key (new):', error);
-                        frappe.show_alert({
-                            message: __("Failed to validate secret key. Please try again or contact support."),
-                            indicator: 'red'
-                        });
-                        secret_dialog.hide();
-                    }
-                });
-            }
-        });
-        secret_dialog.show();
-    };
-
+    // FIXED: Handle mobile number based customer properly
     if (!cur_frm.doc.customer && me.mobile_number_based_customer) {
         const mobile_dialog = me.create_mobile_dialog(function(values) {
-            if (values['mobile_number'].length !== me.settings.custom_mobile_number_length) {
-                frappe.throw("Mobile Number Length is " + me.settings.custom_mobile_number_length.toString());
+            // FIXED: Use proper mobile number length validation
+            const mobile_number = values['mobile_number'] || '';
+            const required_length = me.settings.custom_mobile_number_length || 10;
+            
+            if (!mobile_number) {
+                frappe.throw(__("Please enter a mobile number"));
                 return;
             }
+            
+            if (mobile_number.length !== required_length) {
+                frappe.throw(__("Mobile Number must be exactly {0} digits long. Currently entered: {1} digits", [required_length, mobile_number.length]));
+                return;
+            }
+            
+            if (!/^\d+$/.test(mobile_number)) {
+                frappe.throw(__("Mobile Number must contain only digits"));
+                return;
+            }
+            
+            // Create customer first
             frappe.call({
                 method: "posnext.posnext.page.posnext.point_of_sale.create_customer",
-                args: {
-                    customer: values['mobile_number']
-                },
+                args: { customer: mobile_number },
                 freeze: true,
                 freeze_message: "Creating Customer....",
                 callback: function() {
                     const frm = me.events.get_frm();
-                    frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'customer', values['mobile_number']);
+                    frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'customer', mobile_number);
                     frm.script_manager.trigger('customer', frm.doc.doctype, frm.doc.name).then(() => {
                         frappe.run_serially([
-                            () => me.fetch_customer_details(values['mobile_number']),
+                            () => me.fetch_customer_details(mobile_number),
                             () => me.events.customer_details_updated(me.customer_info),
                             () => me.update_customer_section(),
-                            () => show_secret_key_popup(values['mobile_number'])
+                            () => me.show_secret_key_popup_for_hold() // FIXED: Use new popup method
                         ]);
                     });
                     mobile_dialog.hide();
+                },
+                error: function(r) {
+                    console.error('Error creating customer:', r);
+                    frappe.show_alert({
+                        message: __('Failed to create customer. Please try again.'),
+                        indicator: 'red'
+                    });
                 }
             });
         });
@@ -531,10 +414,10 @@ this.highlight_checkout_btn(true);
             frappe.throw("Please select a customer before holding the invoice");
             return;
         }
-        show_secret_key_popup();
+        // FIXED: Use new popup method
+        me.show_secret_key_popup_for_hold();
     }
 });
-
 		this.$component.on('click', '.checkout-btn-order', () => {
 			this.events.toggle_recent_order();
 		});
@@ -671,7 +554,148 @@ create_mobile_dialog(callback) {
 
     return dialog;
 }
+show_secret_key_popup_for_hold() {
+    const me = this;
+    const secret_dialog = me.create_secret_dialog(function(values) {
+        const frm = me.events.get_frm();
+        const invoice_name = frm.doc.name;
+        
+        console.log('Secret key entered, validating and saving...');
+        
+        if (!me.events.save_draft_invoice) {
+            console.error('save_draft_invoice is undefined');
+            frappe.show_alert({
+                message: __('Save draft invoice function is not available. Please check POS configuration.'),
+                indicator: 'red'
+            });
+            secret_dialog.hide();
+            return;
+        }
 
+        if (invoice_name && !frm.doc.__islocal) {
+            // Existing draft invoice - validate permission
+            console.log('Validating permission for existing invoice:', invoice_name);
+            frappe.call({
+                method: "posnext.posnext.page.posnext.point_of_sale.check_edit_permission",
+                args: {
+                    invoice_name: invoice_name,
+                    secret_key: values['secret_key']
+                },
+                freeze: true,
+                freeze_message: "Validating Secret Key...",
+                callback: function(r) {
+                    if (r.message.can_edit) {
+                        console.log('Permission validated, saving existing invoice');
+                        
+                        // Store invoice info before save_draft_invoice potentially changes context
+                        const invoice_info = {
+                            name: frm.doc.name,
+                            customer: frm.doc.customer,
+                            created_by_name: r.message.created_by_name || frappe.session.user
+                        };
+                        
+                        // Set created_by_name
+                        frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', invoice_info.created_by_name);
+                        
+                        // FIXED: Wait for save_draft_invoice to complete properly
+                        Promise.resolve(me.events.save_draft_invoice()).then(() => {
+                            console.log('Existing draft saved successfully:', invoice_info.name);
+                            secret_dialog.hide();
+                            
+                            // Show success message immediately
+                            frappe.show_alert({
+                                message: __('Invoice {0} held successfully by {1}', [invoice_info.name, invoice_info.created_by_name]),
+                                indicator: 'green'
+                            });
+                            frappe.utils.play_sound("submit");
+                            
+                            // FIXED: Use setTimeout to ensure POS has finished internal processes
+                            setTimeout(() => {
+                                console.log('About to call handle_successful_hold with delay');
+                                me.handle_successful_hold(invoice_info.name, invoice_info.created_by_name);
+                            }, 500);
+                            
+                        }).catch(error => {
+                            console.error('Error saving existing draft:', error);
+                            frappe.show_alert({
+                                message: __('Failed to save draft invoice: {0}', [error.message]),
+                                indicator: 'red'
+                            });
+                            secret_dialog.hide();
+                        });
+                        
+                    } else {
+                        frappe.show_alert({
+                            message: __(`You did not create this invoice, hence you cannot edit it. Only the creator (${r.message.created_by_name}) can edit it.`),
+                            indicator: 'red'
+                        });
+                        secret_dialog.hide();
+                    }
+                }
+            });
+        } else {
+            // New invoice - validate secret key and save
+            console.log('Validating secret key for new invoice');
+            frappe.call({
+                method: "posnext.posnext.page.posnext.point_of_sale.get_user_name_from_secret_key",
+                args: { secret_key: values['secret_key'] },
+                freeze_message: "Validating Secret Key...",
+                callback: function(r) {
+                    if (r.message) {
+                        const created_by_name = r.message;
+                        console.log('Secret key validated, saving new invoice');
+                        
+                        // Store invoice info before save_draft_invoice potentially changes context
+                        const invoice_info = {
+                            name: frm.doc.name,
+                            customer: frm.doc.customer,
+                            created_by_name: created_by_name
+                        };
+                        
+                        // Set created_by_name
+                        frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', created_by_name);
+                        
+                        // FIXED: Wait for save_draft_invoice to complete properly
+                        Promise.resolve(me.events.save_draft_invoice()).then(() => {
+                            console.log('New draft saved successfully:', invoice_info.name);
+                            secret_dialog.hide();
+                            
+                            // Show success message immediately
+                            frappe.show_alert({
+                                message: __('Invoice {0} held successfully by {1}', [invoice_info.name, invoice_info.created_by_name]),
+                                indicator: 'green'
+                            });
+                            frappe.utils.play_sound("submit");
+                            
+                            // FIXED: Use setTimeout to ensure POS has finished internal processes
+                            setTimeout(() => {
+                                console.log('About to call handle_successful_hold with delay');
+                                me.handle_successful_hold(invoice_info.name, invoice_info.created_by_name);
+                            }, 500);
+                            
+                        }).catch(error => {
+                            console.error('Error saving new draft:', error);
+                            frappe.show_alert({
+                                message: __('Failed to save draft invoice: {0}', [error.message]),
+                                indicator: 'red'
+                            });
+                            secret_dialog.hide();
+                        });
+                        
+                    } else {
+                        frappe.show_alert({
+                            message: __("Invalid secret key"),
+                            indicator: 'red'
+                        });
+                        secret_dialog.hide();
+                    }
+                }
+            });
+        }
+    });
+    
+    secret_dialog.show();
+}
 // Optimized secret key dialog creation
 create_secret_dialog(callback) {
     let dialog = new frappe.ui.Dialog({
@@ -780,24 +804,35 @@ async create_customer_and_proceed(mobile_number, next_action) {
 async handle_successful_hold(invoice_name, creator_name) {
     console.log('handle_successful_hold called with:', invoice_name, creator_name);
     
-    // Show success message
-    frappe.show_alert({
-        message: __('Invoice {0} held successfully by {1}', [invoice_name, creator_name]),
-        indicator: 'green'
-    });
-    
-    // Play success sound
-    frappe.utils.play_sound("submit");
-    
     try {
-        console.log('Calling toggle_recent_order...');
+        // FIXED: Don't show success message here (already shown in popup)
+        // Just handle the post-save actions
+        
+        console.log('Opening order list to show held invoice...');
+        
+        // FIXED: Ensure the item cart is hidden when showing recent orders
+        if (this.$component && this.$component.length) {
+            this.$component.css('display', 'none');
+        }
+        
+        // Open the recent orders list
         await this.events.toggle_recent_order();
-        console.log('toggle_recent_order completed');
+        
+        console.log('Order list opened successfully');
+        
+        // FIXED: Show additional info about the held invoice
+        setTimeout(() => {
+            frappe.show_alert({
+                message: __('Find your held invoice "{0}" in the order list', [invoice_name]),
+                indicator: 'blue'
+            });
+        }, 1000);
+        
     } catch (error) {
-        console.error('Error in toggle_recent_order:', error);
+        console.error('Error in handle_successful_hold:', error);
         frappe.show_alert({
-            message: __('Error opening order list: {0}', [error.message]),
-            indicator: 'red'
+            message: __('Invoice held successfully, but error opening order list: {0}', [error.message]),
+            indicator: 'orange'
         });
     }
 }
