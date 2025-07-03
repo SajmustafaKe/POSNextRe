@@ -349,7 +349,7 @@ this.highlight_checkout_btn(true);
     }
 });
 
-		this.$component.on('click', '.checkout-btn-held', function() {
+	this.$component.on('click', '.checkout-btn-held', function() {
     if ($(this).attr('style').indexOf('--blue-500') == -1) return;
     if (!cur_frm.doc.items.length) {
         frappe.throw("Cannot save empty invoice");
@@ -393,11 +393,21 @@ this.highlight_checkout_btn(true);
                             frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', r.message.created_by_name || frappe.session.user);
                             frm.script_manager.trigger('created_by_name', frm.doc.doctype, frm.doc.name).then(() => {
                                 console.log('Calling save_draft_invoice for existing invoice:', invoice_name);
+                                
+                                // FIXED: Properly handle the promise and call handle_successful_hold
                                 me.events.save_draft_invoice().then((result) => {
-                                    const saved_invoice_name = result.invoice_name || frm.doc.name;
-                                    const creator_name = result.created_by_name || r.message.created_by_name || frappe.session.user;
-                                    console.log('Hold successful, invoice:', saved_invoice_name, 'creator:', creator_name);
-                                    me.handle_successful_hold(saved_invoice_name, creator_name);
+                                    console.log('Save draft result:', result);
+                                    const saved_invoice_name = result?.invoice_name || frm.doc.name;
+                                    const creator_name = result?.created_by_name || r.message.created_by_name || frappe.session.user;
+                                    console.log('Hold successful, calling handle_successful_hold with:', saved_invoice_name, creator_name);
+                                    
+                                    // FIXED: Actually call the method and handle the promise
+                                    me.handle_successful_hold(saved_invoice_name, creator_name).then(() => {
+                                        console.log('handle_successful_hold completed');
+                                    }).catch(error => {
+                                        console.error('Error in handle_successful_hold:', error);
+                                    });
+                                    
                                 }).catch(error => {
                                     console.error('Error saving draft invoice (existing):', error);
                                     frappe.show_alert({
@@ -440,10 +450,20 @@ this.highlight_checkout_btn(true);
                             frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', created_by_name);
                             frm.script_manager.trigger('created_by_name', frm.doc.doctype, frm.doc.name).then(() => {
                                 console.log('Calling save_draft_invoice for new invoice:', frm.doc.name);
+                                
+                                // FIXED: Properly handle the promise and call handle_successful_hold
                                 me.events.save_draft_invoice().then((result) => {
-                                    const saved_invoice_name = result.invoice_name || frm.doc.name;
-                                    console.log('Hold successful, invoice:', saved_invoice_name, 'creator:', created_by_name);
-                                    me.handle_successful_hold(saved_invoice_name, created_by_name);
+                                    console.log('Save draft result:', result);
+                                    const saved_invoice_name = result?.invoice_name || frm.doc.name;
+                                    console.log('Hold successful, calling handle_successful_hold with:', saved_invoice_name, created_by_name);
+                                    
+                                    // FIXED: Actually call the method and handle the promise
+                                    me.handle_successful_hold(saved_invoice_name, created_by_name).then(() => {
+                                        console.log('handle_successful_hold completed');
+                                    }).catch(error => {
+                                        console.error('Error in handle_successful_hold:', error);
+                                    });
+                                    
                                 }).catch(error => {
                                     console.error('Error saving draft invoice (new):', error);
                                     frappe.show_alert({
@@ -758,8 +778,28 @@ async create_customer_and_proceed(mobile_number, next_action) {
 }
 
 async handle_successful_hold(invoice_name, creator_name) {
-    console.log('Handling successful hold:', invoice_name, creator_name);
-	await this.events.toggle_recent_order();    
+    console.log('handle_successful_hold called with:', invoice_name, creator_name);
+    
+    // Show success message
+    frappe.show_alert({
+        message: __('Invoice {0} held successfully by {1}', [invoice_name, creator_name]),
+        indicator: 'green'
+    });
+    
+    // Play success sound
+    frappe.utils.play_sound("submit");
+    
+    try {
+        console.log('Calling toggle_recent_order...');
+        await this.events.toggle_recent_order();
+        console.log('toggle_recent_order completed');
+    } catch (error) {
+        console.error('Error in toggle_recent_order:', error);
+        frappe.show_alert({
+            message: __('Error opening order list: {0}', [error.message]),
+            indicator: 'red'
+        });
+    }
 }
 
 	attach_shortcuts() {
