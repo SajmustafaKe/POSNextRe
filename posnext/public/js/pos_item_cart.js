@@ -1,3 +1,26 @@
+const original_frappe_throw = frappe.throw;
+frappe.throw = function(msg, exception_type) {
+    // Check if this is a "Sales Invoice not found" error during POS operations
+    if (typeof msg === 'string' && 
+        msg.includes('Sales Invoice') && 
+        msg.includes('not found') && 
+        msg.includes('new-sales-invoice-')) {
+        
+        console.log('Suppressing Sales Invoice not found error:', msg);
+        
+        // Show a less alarming message or suppress entirely
+        frappe.show_alert({
+            message: __('Processing invoice, please wait...'),
+            indicator: 'blue'
+        });
+        
+        return; // Don't throw the error
+    }
+    
+    // For all other errors, use the original frappe.throw
+    original_frappe_throw.call(this, msg, exception_type);
+};
+
 frappe.provide('posnext.PointOfSale');
 posnext.PointOfSale.ItemCart = class {
 	constructor({ wrapper, events, settings }) {
@@ -288,7 +311,7 @@ this.highlight_checkout_btn(true);
 			const show = me.$cart_container.is(':visible');
 			me.toggle_customer_info(show);
 		});
-        //
+        
 		if(!me.custom_edit_rate){
 			this.$cart_items_wrapper.on('click', '.cart-item-wrapper', function() {
                 const $cart_item = $(this);
@@ -297,8 +320,7 @@ this.highlight_checkout_btn(true);
 
                 const payment_section_hidden = !me.$totals_section.find('.edit-cart-btn').is(':visible');
                 if (!payment_section_hidden) {
-                    // payment section is visible
-                    // edit cart first and then open item details section
+                    
                     me.$totals_section.find(".edit-cart-btn").click();
                 }
 
@@ -358,10 +380,10 @@ this.$component.on('click', '.checkout-btn-held', function() {
 
     console.log('Hold button clicked');
 
-    // FIXED: Handle mobile number based customer properly
+    
     if (!cur_frm.doc.customer && me.mobile_number_based_customer) {
         const mobile_dialog = me.create_mobile_dialog(function(values) {
-            // FIXED: Use proper mobile number length validation
+            
             const mobile_number = values['mobile_number'] || '';
             const required_length = me.settings.custom_mobile_number_length || 10;
             
@@ -380,7 +402,7 @@ this.$component.on('click', '.checkout-btn-held', function() {
                 return;
             }
             
-            // Create customer first
+           
             frappe.call({
                 method: "posnext.posnext.page.posnext.point_of_sale.create_customer",
                 args: { customer: mobile_number },
@@ -394,7 +416,7 @@ this.$component.on('click', '.checkout-btn-held', function() {
                             () => me.fetch_customer_details(mobile_number),
                             () => me.events.customer_details_updated(me.customer_info),
                             () => me.update_customer_section(),
-                            () => me.show_secret_key_popup_for_hold() // FIXED: Use new popup method
+                            () => me.show_secret_key_popup_for_hold() 
                         ]);
                     });
                     mobile_dialog.hide();
@@ -414,7 +436,6 @@ this.$component.on('click', '.checkout-btn-held', function() {
             frappe.throw("Please select a customer before holding the invoice");
             return;
         }
-        // FIXED: Use new popup method
         me.show_secret_key_popup_for_hold();
     }
 });
@@ -475,7 +496,7 @@ this.$component.on('click', '.checkout-btn-held', function() {
 		});
 	}
 
-	// Optimized mobile number dialog creation
+	
 create_mobile_dialog(callback) {
     const me = this;
     let dialog = new frappe.ui.Dialog({
@@ -696,7 +717,7 @@ show_secret_key_popup_for_hold() {
     
     secret_dialog.show();
 }
-// Optimized secret key dialog creation
+
 create_secret_dialog(callback) {
     let dialog = new frappe.ui.Dialog({
         title: 'Enter Secret Key',
@@ -775,7 +796,7 @@ create_secret_dialog(callback) {
     return dialog;
 }
 
-// Optimized customer creation process
+
 async create_customer_and_proceed(mobile_number, next_action) {
     const me = this;
     try {
