@@ -458,9 +458,9 @@ make_cart_totals_section() {
                 const frm = me.events.get_frm();
                 const invoice_name = frm.doc.name;
                 
-                // Set custom_created_by before saving
-                frm.doc.custom_created_by = frm.doc.custom_created_by || frappe.session.user;
-                console.log('Setting custom_created_by before hold:', frm.doc.custom_created_by);
+                // Set created_by_name before saving
+                frm.doc.created_by_name = frm.doc.created_by_name || frappe.session.user;
+                console.log('Setting created_by_name before hold:', frm.doc.created_by_name);
 
                 // Check if save_draft_invoice is defined
                 if (!me.events.save_draft_invoice) {
@@ -485,12 +485,12 @@ make_cart_totals_section() {
                         freeze_message: "Validating Secret Key...",
                         callback: function(r) {
                             if (r.message.can_edit) {
-                                frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'custom_created_by', r.message.custom_created_by || frappe.session.user);
-                                frm.script_manager.trigger('custom_created_by', frm.doc.doctype, frm.doc.name).then(() => {
+                                frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', r.message.created_by_name || frappe.session.user);
+                                frm.script_manager.trigger('created_by_name', frm.doc.doctype, frm.doc.name).then(() => {
                                     console.log('Calling save_draft_invoice for existing invoice:', invoice_name);
                                     me.events.save_draft_invoice().then((result) => {
                                         const saved_invoice_name = result.invoice_name || frm.doc.name;
-                                        const creator_name = result.custom_created_by || r.message.custom_created_by || frappe.session.user;
+                                        const creator_name = result.created_by_name || r.message.created_by_name || frappe.session.user;
                                         console.log('Hold successful, invoice:', saved_invoice_name, 'creator:', creator_name);
                                         me.handle_successful_hold(saved_invoice_name, creator_name);
                                     }).catch(error => {
@@ -501,12 +501,12 @@ make_cart_totals_section() {
                                         });
                                     });
                                 }).catch(error => {
-                                    console.error('Error triggering custom_created_by (existing):', error);
+                                    console.error('Error triggering created_by_name (existing):', error);
                                 });
                                 secret_dialog.hide();
                             } else {
                                 frappe.show_alert({
-                                    message: __(`You did not create this invoice, hence you cannot edit it. Only the creator (${r.message.custom_created_by}) can edit it.`),
+                                    message: __(`You did not create this invoice, hence you cannot edit it. Only the creator (${r.message.created_by_name}) can edit it.`),
                                     indicator: 'red'
                                 });
                                 secret_dialog.hide();
@@ -532,14 +532,14 @@ make_cart_totals_section() {
                         freeze_message: "Validating Secret Key...",
                         callback: function(r) {
                             if (r.message) {
-                                const custom_created_by = r.message;
-                                frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'custom_created_by', custom_created_by);
-                                frm.script_manager.trigger('custom_created_by', frm.doc.doctype, frm.doc.name).then(() => {
+                                const created_by_name = r.message;
+                                frappe.model.set_value(frm.doc.doctype, frm.doc.name, 'created_by_name', created_by_name);
+                                frm.script_manager.trigger('created_by_name', frm.doc.doctype, frm.doc.name).then(() => {
                                     console.log('Calling save_draft_invoice for new invoice:', frm.doc.name);
                                     me.events.save_draft_invoice().then((result) => {
                                         const saved_invoice_name = result.invoice_name || frm.doc.name;
-                                        console.log('Hold successful, invoice:', saved_invoice_name, 'creator:', custom_created_by);
-                                        me.handle_successful_hold(saved_invoice_name, custom_created_by);
+                                        console.log('Hold successful, invoice:', saved_invoice_name, 'creator:', created_by_name);
+                                        me.handle_successful_hold(saved_invoice_name, created_by_name);
                                     }).catch(error => {
                                         console.error('Error saving draft invoice (new):', error);
                                         frappe.show_alert({
@@ -548,7 +548,7 @@ make_cart_totals_section() {
                                         });
                                     });
                                 }).catch(error => {
-                                    console.error('Error triggering custom_created_by (new):', error);
+                                    console.error('Error triggering created_by_name (new):', error);
                                 });
                                 secret_dialog.hide();
                             } else {

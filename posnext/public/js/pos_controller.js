@@ -301,7 +301,7 @@ save_draft_invoice() {
                         serial_no: item.serial_no,
                         batch_no: item.batch_no
                     })),
-                    custom_created_by: frm.doc.custom_created_by || frappe.session.user,
+                    created_by_name: frm.doc.created_by_name || frappe.session.user,
                     pos_profile: frm.doc.pos_profile,
                     company: frm.doc.company
                 }
@@ -332,10 +332,10 @@ save_draft_invoice() {
                     });
                     // Update frm.doc with saved data
                     frm.doc.name = r.message.name || frm.doc.name;
-                    frm.doc.custom_created_by = r.message.custom_created_by || frm.doc.custom_created_by;
+                    frm.doc.created_by_name = r.message.created_by_name || frm.doc.created_by_name;
                     resolve({
                         invoice_name: frm.doc.name,
-                        custom_created_by: frm.doc.custom_created_by
+                        created_by_name: frm.doc.created_by_name
                     });
                     // Only call make_new_invoice if not called by ItemCart.js
                     if (!r.message.from_hold) {

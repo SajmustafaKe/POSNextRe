@@ -157,7 +157,7 @@ posnext.PointOfSale.PastOrderList = class {
 		this.created_by_field.df.options = options;
 		this.created_by_field.refresh();
 		
-		// Get the most recent custom_created_by from invoices to set as default
+		// Get the most recent created_by_name from invoices to set as default
 		this.get_most_recent_creator();
 	}
 
@@ -172,7 +172,7 @@ posnext.PointOfSale.PastOrderList = class {
 			},
 			callback: (response) => {
 				if (response.message && response.message.length > 0) {
-					const most_recent_creator = response.message[0].custom_created_by;
+					const most_recent_creator = response.message[0].created_by_name;
 					if (most_recent_creator) {
 						this.created_by_field.set_value(most_recent_creator);
 					}
@@ -345,11 +345,11 @@ refresh_list(search_term = '', status = 'Draft', created_by = '') {
 		this.$invoices_container.find(`[data-invoice-name="${escape(invoice_name)}"]`).addClass('highlighted');
 	}
 
-	set_filter_and_refresh_with_held_invoice(custom_created_by, held_invoice_name = null) {
+	set_filter_and_refresh_with_held_invoice(created_by_name, held_invoice_name = null) {
 		if (held_invoice_name) {
 			this._just_held_invoice = held_invoice_name;
 		}
-		this._pending_created_by = custom_created_by; // Store pending filter
+		this._pending_created_by = created_by_name; // Store pending filter
 		return this.toggle_component(true); // Trigger refresh via toggle
 	}
 
@@ -363,12 +363,12 @@ refresh_list(search_term = '', status = 'Draft', created_by = '') {
 			</div>` : '';
 		
 		// Show created by info if available
-		const created_by_html = invoice.custom_created_by ? 
+		const created_by_html = invoice.created_by_name ? 
 			`<div class="invoice-creator" style="font-size: 11px; color: #8d99a6; margin-top: 2px;">
 				<svg style="width: 10px; height: 10px; margin-right: 3px;" viewBox="0 0 24 24" fill="currentColor">
 					<path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/>
 				</svg>
-				${frappe.ellipsis(invoice.custom_created_by, 15)}
+				${frappe.ellipsis(invoice.created_by_name, 15)}
 			</div>` : '';
 		
 		return (
