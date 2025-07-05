@@ -300,7 +300,7 @@ def create_opening_voucher(pos_profile, company, balance_details):
 def get_past_order_list(search_term='', status='', created_by='', limit=20):
 	# Convert limit to integer if it's passed as string
 	limit = int(limit) if limit else 20
-	fields = ["name", "grand_total", "currency", "customer", "posting_time", "posting_date", "created_by_name"]
+	fields = ["name", "grand_total", "currency", "customer", "posting_time", "posting_date", "custom_created_by"]
 	invoice_list = []
 	
 	# Build base filters
@@ -308,9 +308,9 @@ def get_past_order_list(search_term='', status='', created_by='', limit=20):
 	if status:
 		base_filters["status"] = status
 	if created_by:
-		# Filter by created_by_name field in POS Invoice
+		# Filter by custom_created_by field in POS Invoice
 		# This should match the user_name from User Secret Key
-		base_filters["created_by_name"] = created_by
+		base_filters["custom_created_by"] = created_by
 	
 	if search_term and (status or created_by):
 		# Search by customer name
@@ -466,7 +466,7 @@ def save_draft_invoice(doc):
             frappe.throw("Customer is required for draft invoice")
         if not doc.get("items"):
             frappe.throw("Items are required for draft invoice")
-        if not doc.get("created_by_name"):
+        if not doc.get("custom_created_by"):
             frappe.throw("Created By Name is required for draft invoice")
         
         # Fetch POS Profile
@@ -490,16 +490,16 @@ def save_draft_invoice(doc):
         
         # Check if invoice with the provided name exists and is in draft status
         invoice_name = doc.get("name")
-        input_created_by_name = doc.get("created_by_name")
+        input_custom_created_by = doc.get("custom_created_by")
         
         if invoice_name and frappe.db.exists("POS Invoice", {"name": invoice_name, "docstatus": 0}):
             # Load existing draft invoice
             invoice = frappe.get_doc("POS Invoice", invoice_name)
             
-            # Check if the input created_by_name matches the existing invoice's created_by_name
-            if invoice.created_by_name != input_created_by_name:
+            # Check if the input custom_created_by matches the existing invoice's custom_created_by
+            if invoice.custom_created_by != input_custom_created_by:
                 frappe.throw(
-                    f"You are not authorized to edit this invoice. Only the creator ({invoice.created_by_name}) can edit it.",
+                    f"You are not authorized to edit this invoice. Only the creator ({invoice.custom_created_by}) can edit it.",
                     frappe.PermissionError
                 )
             
@@ -526,9 +526,9 @@ def save_draft_invoice(doc):
                 "currency": pos_profile_doc.currency or frappe.defaults.get_global_default("currency"),
                 "docstatus": 0
             }
-            # Update created_by_name only if explicitly provided and valid
-            if doc.get("created_by_name"):
-                invoice_data["created_by_name"] = doc.get("created_by_name")
+            # Update custom_created_by only if explicitly provided and valid
+            if doc.get("custom_created_by"):
+                invoice_data["custom_created_by"] = doc.get("custom_created_by")
                 
             invoice.update(invoice_data)
             invoice.save()
@@ -548,7 +548,7 @@ def save_draft_invoice(doc):
                         "batch_no": item.get("batch_no")
                     } for item in doc.get("items", [])
                 ],
-                "created_by_name": input_created_by_name,
+                "custom_created_by": input_custom_created_by,
                 "is_pos": 1,
                 "pos_profile": doc.get("pos_profile"),
                 "company": doc.get("company") or pos_profile_doc.company,
@@ -579,16 +579,16 @@ def check_edit_permission(invoice_name, secret_key):
         
         invoice = frappe.get_doc("POS Invoice", invoice_name)
         
-        # Check if the user matches created_by_name
-        if invoice.created_by_name != user:
+        # Check if the user matches custom_created_by
+        if invoice.custom_created_by != user:
             frappe.throw(
-                f"You did not create this invoice, hence you cannot edit it. Only the creator ({invoice.created_by_name}) can edit it.",
+                f"You did not create this invoice, hence you cannot edit it. Only the creator ({invoice.custom_created_by}) can edit it.",
                 frappe.PermissionError
             )
         
         return {
             "can_edit": True,
-            "created_by_name": invoice.created_by_name
+            "custom_created_by": invoice.custom_created_by
         }
     except Exception as e:
         frappe.log_error(f"Permission Check Failed: {str(e)[:100]}", "POSNext")
@@ -783,7 +783,7 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
             "timestamp": now(),
             "is_captain_order_reprint": len(previously_printed_items) > 0,
             "print_count": (getattr(print_log, 'print_count', 0) or 0) + 1,
-            "created_by_name": original_invoice.created_by_name,
+            "custom_created_by": original_invoice.custom_created_by,
             "total_qty": total_qty,
             "total_amount": total_amount,
             "new_items_only": True  # Flag to indicate this contains only new items
@@ -882,9 +882,9 @@ def merge_invoices(invoice_names, customer):
         merged_invoice.is_pos = 1
         merged_invoice.is_return = 0
         
-        # Copy created_by_name from first invoice
-        if hasattr(first_invoice, 'created_by_name') and first_invoice.created_by_name:
-            merged_invoice.created_by_name = first_invoice.created_by_name
+        # Copy custom_created_by from first invoice
+        if hasattr(first_invoice, 'custom_created_by') and first_invoice.custom_created_by:
+            merged_invoice.custom_created_by = first_invoice.custom_created_by
         
         # Copy customer details
         merged_invoice.customer_name = first_invoice.customer_name
@@ -979,7 +979,7 @@ def merge_invoices(invoice_names, customer):
         merged_invoice.save()
         
         # Add comment showing all creators and original invoices
-        creators = list(set([inv.created_by_name for inv in invoices_to_merge if hasattr(inv, 'created_by_name') and inv.created_by_name]))
+        creators = list(set([inv.custom_created_by for inv in invoices_to_merge if hasattr(inv, 'custom_created_by') and inv.custom_created_by]))
         original_invoices = [inv.name for inv in invoices_to_merge]
         
         comment_parts = []
@@ -1211,15 +1211,15 @@ def create_new_invoice_with_payments(original_doc, split_items, invoice_number, 
         if hasattr(original_doc, field) and original_doc.get(field):
             new_doc.set(field, original_doc.get(field))
     
-    # Set created_by_name from original invoice or owner
-    if original_doc.get('created_by_name'):
-        new_doc.created_by_name = original_doc.created_by_name
+    # Set custom_created_by from original invoice or owner
+    if original_doc.get('custom_created_by'):
+        new_doc.custom_created_by = original_doc.custom_created_by
     else:
         # Try to get from original owner
         try:
             user_full_name = frappe.get_value("User", original_doc.owner, "full_name")
             if user_full_name:
-                new_doc.created_by_name = user_full_name
+                new_doc.custom_created_by = user_full_name
         except:
             pass
     
@@ -2460,7 +2460,7 @@ def get_outstanding_invoices(customer=None, from_date=None, to_date=None):
                 paid_amount,
                 outstanding_amount,
                 status,
-                created_by_name
+                custom_created_by
             FROM 
                 `tabPOS Invoice`
             WHERE 
@@ -2504,7 +2504,7 @@ def get_partial_payment_report(from_date=None, to_date=None, customer=None, comp
                 paid_amount,
                 outstanding_amount,
                 status,
-                created_by_name,
+                custom_created_by,
                 remarks
             FROM 
                 `tabPOS Invoice`
