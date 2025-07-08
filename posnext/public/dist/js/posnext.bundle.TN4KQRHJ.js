@@ -4823,7 +4823,7 @@ _printer_setting_dialog(doctype, current_print_format) {
       const recipients = this.email_dialog.get_values().email_id;
       const content = this.email_dialog.get_values().content;
       const doc = this.doc || frm.doc;
-      const print_format = frm.custom_sales_invoice_print_format;
+      const print_format = this.pos_profile.custom_sales_invoice_print_format || frm.pos_print_format;
       frappe.call({
         method: "frappe.core.doctype.communication.email.make",
         args: {
