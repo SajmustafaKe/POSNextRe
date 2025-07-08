@@ -265,113 +265,20 @@ posnext.PointOfSale.PastOrderSummary = class {
     }
 
 print_receipt() {
-		const frm = this.events.get_frm();
-		const print_format = frm.pos_print_format;
-		const doctype = this.doc.doctype;
-		const docname = this.doc.name;
-		const letterhead = this.doc.letter_head || __("No Letterhead");
-		const lang_code = this.doc.language || frappe.boot.lang;
-		
-		frappe.db.get_value("Print Settings", "Print Settings", "enable_raw_printing")
-			.then(({ message }) => {
-				if (message && message.enable_raw_printing === "1") {
-					this._print_via_qz(doctype, docname, print_format, letterhead, lang_code);
-				} else {
-					frappe.utils.print(
-						doctype,
-						docname,
-						print_format,
-						letterhead,
-						lang_code
-					);
-				}
-			});
-	}
-
-_print_via_qz(doctype, docname, print_format, letterhead, lang_code) {
-		const print_format_printer_map = this._get_print_format_printer_map();
-		const mapped_printer = this._get_mapped_printer(print_format_printer_map, doctype, print_format);
-		
-		if (mapped_printer.length === 1) {
-			this._print_with_mapped_printer(doctype, docname, print_format, letterhead, lang_code, mapped_printer[0]);
-		} else if (this._is_raw_printing(print_format)) {
-			frappe.show_alert({
-				message: __("Printer mapping not set."),
-				subtitle: __("Please set a printer mapping for this print format in the Printer Settings"),
-				indicator: "warning"
-			}, 14);
-			this._printer_setting_dialog(doctype, print_format);
-		} else {
-			this._render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code);
-		}
-	}
-
-	_print_with_mapped_printer(doctype, docname, print_format, letterhead, lang_code, printer_map) {
-		if (this._is_raw_printing(print_format)) {
-			this._get_raw_commands(doctype, docname, print_format, lang_code, (out) => {
-				frappe.ui.form.qz_connect()
-					.then(() => {
-						let config = qz.configs.create(printer_map.printer);
-						let data = [out.raw_commands];
-						return qz.print(config, data);
-					})
-					.then(frappe.ui.form.qz_success)
-					.catch((err) => {
-						frappe.ui.form.qz_fail(err);
-					});
-			});
-		} else {
-			frappe.show_alert({
-				message: __('PDF printing via "Raw Print" is not supported.'),
-				subtitle: __("Please remove the printer mapping in Printer Settings and try again."),
-				indicator: "info"
-			}, 14);
-			this._render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code);
-		}
-	}
-
-	_get_raw_commands(doctype, docname, print_format, lang_code, callback) {
-		frappe.call({
-			method: "frappe.www.printview.get_rendered_raw_commands",
-			args: {
-				doc: frappe.get_doc(doctype, docname),
-				print_format: print_format,
-				_lang: lang_code
-			},
-			callback: (r) => {
-				if (!r.exc) {
-					callback(r.message);
-				}
-			}
-		});
-	}
-
-	_is_raw_printing(format) {
-		let print_format = {};
-		if (locals["Print Format"] && locals["Print Format"][format]) {
-			print_format = locals["Print Format"][format];
-		}
-		return print_format.raw_printing === 1;
-	}
-
-	_get_print_format_printer_map() {
-		try {
-			return JSON.parse(localStorage.print_format_printer_map || "{}");
-		} catch (e) {
-			return {};
-		}
-	}
-
-	_get_mapped_printer(print_format_printer_map, doctype, print_format) {
-		if (print_format_printer_map[doctype]) {
-			return print_format_printer_map[doctype].filter(
-				(printer_map) => printer_map.print_format === print_format
-			);
-		}
-		return [];
-	}
-
-	_render_pdf_or_regular_print(doctype, docname, print_format, letterhead, lang_code) {
+	const frm = this.events.get_frm();
+	const doctype = this.doc.doctype;
+	const docname = this.doc.name;
+	const letterhead = this.doc.letter_head || __("No Letterhead");
+	const lang_code = this.doc.language || frappe.boot.lang;
+	
+	// Get the default print format for the doctype instead of pos_print_format
+	const print_format = this._get_default_print_format(doctype);
+	
+	// Check if the specific print format is raw printing, not just global setting
+	if (this._is_raw_printing(print_format)) {
+		this._print_via_qz(doctype, docname, print_format, letterhead, lang_code);
+	} else {
+		// Use regular PDF printing
 		frappe.utils.print(
 			doctype,
 			docname,
@@ -380,7 +287,73 @@ _print_via_qz(doctype, docname, print_format, letterhead, lang_code) {
 			lang_code
 		);
 	}
+}
 
+_get_default_print_format(doctype) {
+	// First check if there's a default print format set for this doctype
+	const meta = frappe.get_meta(doctype);
+	if (meta && meta.default_print_format) {
+		return meta.default_print_format;
+	}
+	
+	// If no default is set, return the standard format name
+	return "Standard";
+}
+
+_is_raw_printing(format) {
+	let print_format = {};
+	if (locals["Print Format"] && locals["Print Format"][format]) {
+		print_format = locals["Print Format"][format];
+	}
+	return print_format.raw_printing === 1;
+}
+
+_print_via_qz(doctype, docname, print_format, letterhead, lang_code) {
+	const print_format_printer_map = this._get_print_format_printer_map();
+	const mapped_printer = this._get_mapped_printer(print_format_printer_map, doctype, print_format);
+	
+	if (mapped_printer.length === 1) {
+		this._print_with_mapped_printer(doctype, docname, print_format, letterhead, lang_code, mapped_printer[0]);
+	} else {
+		frappe.show_alert({
+			message: __("Printer mapping not set."),
+			subtitle: __("Please set a printer mapping for this print format in the Printer Settings"),
+			indicator: "warning"
+		}, 14);
+		this._printer_setting_dialog(doctype, print_format);
+	}
+}
+
+_print_with_mapped_printer(doctype, docname, print_format, letterhead, lang_code, printer_map) {
+	this._get_raw_commands(doctype, docname, print_format, lang_code, (out) => {
+		frappe.ui.form.qz_connect()
+			.then(() => {
+				let config = qz.configs.create(printer_map.printer);
+				let data = [out.raw_commands];
+				return qz.print(config, data);
+			})
+			.then(frappe.ui.form.qz_success)
+			.catch((err) => {
+				frappe.ui.form.qz_fail(err);
+			});
+	});
+}
+
+_get_raw_commands(doctype, docname, print_format, lang_code, callback) {
+	frappe.call({
+		method: "frappe.www.printview.get_rendered_raw_commands",
+		args: {
+			doc: frappe.get_doc(doctype, docname),
+			print_format: print_format,
+			_lang: lang_code
+		},
+		callback: (r) => {
+			if (!r.exc) {
+				callback(r.message);
+			}
+		}
+	});
+}
 	_printer_setting_dialog(doctype, current_print_format) {
 		let print_format_printer_map = this._get_print_format_printer_map();
 		let data = print_format_printer_map[doctype] || [];
