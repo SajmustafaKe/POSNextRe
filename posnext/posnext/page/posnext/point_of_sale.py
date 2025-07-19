@@ -295,6 +295,12 @@ def create_opening_voucher(pos_profile, company, balance_details):
 
 	return new_pos_opening.as_dict()
 
+@frappe.whitelist()
+def make_sales_return(source_name, target_doc=None):
+	from erpnext.controllers.sales_and_purchase_return import make_return_doc
+
+	return make_return_doc("Sales Invoice", source_name, target_doc)
+
 
 @frappe.whitelist()
 def get_past_order_list(search_term='', status='', created_by='', limit=20):

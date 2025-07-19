@@ -699,12 +699,13 @@ make_new_invoice(from_held = false) {
 		this.frm = this.get_new_frm(this.frm);
 		this.frm.doc.items = [];
 		return frappe.call({
-			method: "erpnext.accounts.doctype.pos_invoice.pos_invoice.make_sales_return",
+			method: "posnext.posnext.page.posnext.point_of_sale.make_sales_return",
 			args: {
 				'source_name': doc.name,
 				'target_doc': this.frm.doc
 			},
 			callback: (r) => {
+				// console.log(r.message)
 				frappe.model.sync(r.message);
 				frappe.get_doc(r.message.doctype, r.message.name).__run_link_triggers = false;
 				this.set_pos_profile_data().then(() => {
