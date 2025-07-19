@@ -130,7 +130,8 @@ doctype_js = {"POS Profile" : "public/js/pos_profile.js",
 # Override standard doctype classes
 
 override_doctype_class = {
-	"Sales Invoice": "posnext.overrides.sales_invoice.PosnextSalesInvoice"
+	"Sales Invoice": "posnext.overrides.sales_invoice.PosnextSalesInvoice",
+    "POS Invoice Merge Log": "posnext.overrides.pos_invoice_merge_log.PosnextPOSInvoiceMergeLog"
 }
 
 # override_doctype_class = {
