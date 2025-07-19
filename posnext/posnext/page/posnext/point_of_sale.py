@@ -308,7 +308,7 @@ def get_past_order_list(search_term='', status='', created_by='', limit=20):
 	if status:
 		base_filters["status"] = status
 	if created_by:
-		# Filter by created_by_name field in POS Invoice
+		# Filter by created_by_name field in Sales Invoice
 		# This should match the user_name from User Secret Key
 		base_filters["created_by_name"] = created_by
 	
@@ -318,7 +318,7 @@ def get_past_order_list(search_term='', status='', created_by='', limit=20):
 		customer_filters["customer"] = ["like", "%{}%".format(search_term)]
 		
 		invoices_by_customer = frappe.db.get_all(
-			"POS Invoice",
+			"Sales Invoice",
 			filters=customer_filters,
 			fields=fields,
 			page_length=limit,
@@ -330,7 +330,7 @@ def get_past_order_list(search_term='', status='', created_by='', limit=20):
 		name_filters["name"] = ["like", "%{}%".format(search_term)]
 		
 		invoices_by_name = frappe.db.get_all(
-			"POS Invoice",
+			"Sales Invoice",
 			filters=name_filters,
 			fields=fields,
 			page_length=limit,
@@ -348,7 +348,7 @@ def get_past_order_list(search_term='', status='', created_by='', limit=20):
 	elif status or created_by:
 		# Filter by status and/or created_by only
 		invoice_list = frappe.db.get_all(
-			"POS Invoice", 
+			"Sales Invoice", 
 			filters=base_filters, 
 			fields=fields, 
 			page_length=limit,
@@ -357,7 +357,7 @@ def get_past_order_list(search_term='', status='', created_by='', limit=20):
 	else:
 		# No filters - get all invoices
 		invoice_list = frappe.db.get_all(
-			"POS Invoice", 
+			"Sales Invoice", 
 			fields=fields, 
 			page_length=limit,
 			order_by="modified desc"
@@ -492,9 +492,9 @@ def save_draft_invoice(doc):
         invoice_name = doc.get("name")
         input_created_by_name = doc.get("created_by_name")
         
-        if invoice_name and frappe.db.exists("POS Invoice", {"name": invoice_name, "docstatus": 0}):
+        if invoice_name and frappe.db.exists("Sales Invoice", {"name": invoice_name, "docstatus": 0}):
             # Load existing draft invoice
-            invoice = frappe.get_doc("POS Invoice", invoice_name)
+            invoice = frappe.get_doc("Sales Invoice", invoice_name)
             
             # Check if the input created_by_name matches the existing invoice's created_by_name
             if invoice.created_by_name != input_created_by_name:
@@ -533,9 +533,9 @@ def save_draft_invoice(doc):
             invoice.update(invoice_data)
             invoice.save()
         else:
-            # Create new POS Invoice
+            # Create new Sales Invoice
             invoice = frappe.get_doc({
-                "doctype": "POS Invoice",
+                "doctype": "Sales Invoice",
                 "customer": doc.get("customer"),
                 "items": [
                     {
@@ -569,7 +569,7 @@ def save_draft_invoice(doc):
 @frappe.whitelist()
 def check_edit_permission(invoice_name, secret_key):
     try:
-        if not frappe.db.exists("POS Invoice", {"name": invoice_name, "docstatus": 0}):
+        if not frappe.db.exists("Sales Invoice", {"name": invoice_name, "docstatus": 0}):
             frappe.throw("Invoice not found or is not in draft status")
         
         # Get the user associated with the secret key
@@ -577,7 +577,7 @@ def check_edit_permission(invoice_name, secret_key):
         if not user:
             frappe.throw("Invalid secret key", frappe.AuthenticationError)
         
-        invoice = frappe.get_doc("POS Invoice", invoice_name)
+        invoice = frappe.get_doc("Sales Invoice", invoice_name)
         
         # Check if the user matches created_by_name
         if invoice.created_by_name != user:
@@ -624,7 +624,7 @@ def get_user_name_from_secret_key(secret_key):
 @frappe.whitelist()
 def print_captain_order(invoice_name, current_items, print_format, _lang):
     """
-    Print only newly added items to a captain order (POS Invoice)
+    Print only newly added items to a captain order (Sales Invoice)
     """
     try:
         # Parse current_items if it's a string
@@ -761,10 +761,10 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
         
         # Get original invoice for context
         try:
-            original_invoice = frappe.get_doc("POS Invoice", invoice_name)
+            original_invoice = frappe.get_doc("Sales Invoice", invoice_name)
         except frappe.DoesNotExistError:
-            frappe.log_error(f"POS Invoice {invoice_name} not found", "Print Debug")
-            return {"success": False, "error": f"POS Invoice {invoice_name} not found"}
+            frappe.log_error(f"Sales Invoice {invoice_name} not found", "Print Debug")
+            return {"success": False, "error": f"Sales Invoice {invoice_name} not found"}
         
         # Calculate totals for new items only
         total_qty = sum(float(item.get('qty', 0)) for item in new_items_to_print)
@@ -838,7 +838,7 @@ def print_captain_order(invoice_name, current_items, print_format, _lang):
 @frappe.whitelist()
 def merge_invoices(invoice_names, customer):
     """
-    Merge multiple POS invoices into a single invoice
+    Merge multiple Sales Invoices into a single invoice
     """
     try:
         # Check if user has Waiter role - if they do, deny access
@@ -857,7 +857,7 @@ def merge_invoices(invoice_names, customer):
         # Get all invoices to merge
         invoices_to_merge = []
         for name in invoice_names:
-            invoice = frappe.get_doc("POS Invoice", name)
+            invoice = frappe.get_doc("Sales Invoice", name)
             if invoice.customer != customer:
                 return {"success": False, "error": f"Invoice {name} belongs to a different customer"}
             if invoice.docstatus != 0:  # Only draft invoices can be merged
@@ -866,7 +866,7 @@ def merge_invoices(invoice_names, customer):
         
         # Create new merged invoice
         first_invoice = invoices_to_merge[0]
-        merged_invoice = frappe.new_doc("POS Invoice")
+        merged_invoice = frappe.new_doc("Sales Invoice")
         
         # Copy header information from first invoice
         merged_invoice.customer = first_invoice.customer
@@ -1027,7 +1027,7 @@ def merge_invoices(invoice_names, customer):
             # Add a comment about the merge
             invoice.add_comment('Comment', f'Invoice merged into {merged_invoice.name}')
             # Delete the draft invoice
-            frappe.delete_doc("POS Invoice", invoice.name)
+            frappe.delete_doc("Sales Invoice", invoice.name)
         
         frappe.db.commit()
         
@@ -1055,7 +1055,7 @@ def merge_invoices(invoice_names, customer):
 @frappe.whitelist()
 def split_pos_invoice(original_invoice, invoice_groups, payment_distribution=None, distribute_evenly=False):
     """
-    Split a POS Invoice into multiple invoices with proper sequential payment distribution
+    Split a Sales Invoice into multiple invoices with proper sequential payment distribution
     
     Args:
         original_invoice: Name of the original invoice
@@ -1072,7 +1072,7 @@ def split_pos_invoice(original_invoice, invoice_groups, payment_distribution=Non
             payment_distribution = json.loads(payment_distribution)
         
         # Get the original invoice
-        original_doc = frappe.get_doc("POS Invoice", original_invoice)
+        original_doc = frappe.get_doc("Sales Invoice", original_invoice)
         
         # Basic validations
         if original_doc.docstatus != 0:
@@ -1197,7 +1197,7 @@ def create_new_invoice_with_payments(original_doc, split_items, invoice_number, 
     """Create a new invoice with split items and allocated payments"""
     
     # Create new document
-    new_doc = frappe.new_doc("POS Invoice")
+    new_doc = frappe.new_doc("Sales Invoice")
     
     # Copy essential fields from original
     copy_fields = [
@@ -1509,7 +1509,7 @@ def get_default_payment_mode(pos_profile):
 def validate_split_payments(pos_invoice_name):
     """Validate split payments if multiple payment methods are used"""
     try:
-        doc = frappe.get_doc('POS Invoice', pos_invoice_name)
+        doc = frappe.get_doc('Sales Invoice', pos_invoice_name)
         
         if not doc.payments:
             return {'valid': True, 'message': 'No payments to validate'}
@@ -1636,9 +1636,9 @@ def log_split_payment_details(doc, active_payments):
 
 @frappe.whitelist()
 def get_split_payment_summary(pos_invoice_name):
-    """Get split payment summary for a POS Invoice"""
+    """Get split payment summary for a Sales Invoice"""
     try:
-        doc = frappe.get_doc('POS Invoice', pos_invoice_name)
+        doc = frappe.get_doc('Sales Invoice', pos_invoice_name)
         
         active_payments = []
         total_split_entries = 0
@@ -1733,7 +1733,7 @@ def get_split_payment_report(from_date=None, to_date=None, company=None):
                     SEPARATOR ' || '
                 ) as split_details
             FROM 
-                `tabPOS Invoice` pi
+                `tabSales Invoice` pi
             INNER JOIN 
                 `tabSales Invoice Payment` sip ON pi.name = sip.parent
             {where_clause}
@@ -1778,7 +1778,7 @@ def get_payment_method_usage_stats(from_date=None, to_date=None, company=None):
                 MIN(sip.amount) as min_amount,
                 MAX(sip.amount) as max_amount
             FROM 
-                `tabPOS Invoice` pi
+                `tabSales Invoice` pi
             INNER JOIN 
                 `tabSales Invoice Payment` sip ON pi.name = sip.parent
             {where_clause}
@@ -1805,7 +1805,7 @@ def get_payment_method_usage_stats(from_date=None, to_date=None, company=None):
 def validate_split_payment_before_submit(pos_invoice_name):
     """Validate split payment before submitting the invoice"""
     try:
-        doc = frappe.get_doc('POS Invoice', pos_invoice_name)
+        doc = frappe.get_doc('Sales Invoice', pos_invoice_name)
         
         # Run validation
         validation_result = validate_split_payments(pos_invoice_name)
@@ -1847,7 +1847,7 @@ def get_split_payment_analytics(from_date=None, to_date=None, company=None):
                 SUM(pi.grand_total) as total_split_amount,
                 AVG(pi.grand_total) as avg_split_amount
             FROM 
-                `tabPOS Invoice` pi
+                `tabSales Invoice` pi
             {where_clause}
                 AND pi.name IN (
                     SELECT DISTINCT parent 
@@ -1865,7 +1865,7 @@ def get_split_payment_analytics(from_date=None, to_date=None, company=None):
                 COUNT(*) as frequency,
                 AVG(pi.grand_total) as avg_amount
             FROM 
-                `tabPOS Invoice` pi
+                `tabSales Invoice` pi
             INNER JOIN 
                 `tabSales Invoice Payment` sip ON pi.name = sip.parent
             {where_clause}
@@ -1891,7 +1891,7 @@ def get_split_payment_analytics(from_date=None, to_date=None, company=None):
                 COUNT(DISTINCT pi.name) as split_invoices,
                 SUM(pi.grand_total) as total_amount
             FROM 
-                `tabPOS Invoice` pi
+                `tabSales Invoice` pi
             {where_clause}
                 AND pi.name IN (
                     SELECT DISTINCT parent 
@@ -1925,7 +1925,7 @@ def get_split_payment_analytics(from_date=None, to_date=None, company=None):
 def reconcile_split_payments(pos_invoice_name):
     """Reconcile split payments if there are discrepancies"""
     try:
-        doc = frappe.get_doc('POS Invoice', pos_invoice_name)
+        doc = frappe.get_doc('Sales Invoice', pos_invoice_name)
         active_payments = [p for p in doc.payments if flt(p.amount) > 0]
         
         if len(active_payments) <= 1:
@@ -2077,9 +2077,9 @@ def log_split_payment_error(error_message, pos_invoice=None, additional_data=Non
 
 
 def on_submit_pos_invoice(doc, method):
-    """Hook called when POS Invoice is submitted"""
+    """Hook called when Sales Invoice is submitted"""
     try:
-        if doc.doctype == 'POS Invoice':
+        if doc.doctype == 'Sales Invoice':
             # Check if this is a split payment
             active_payments = [p for p in doc.payments if flt(p.amount) > 0]
             if len(active_payments) > 1:
@@ -2138,7 +2138,7 @@ def save_partial_payment_invoice(invoice_name, partial_payments):
         partial_payments = json.loads(partial_payments) if isinstance(partial_payments, str) else partial_payments
         
         # Get the invoice
-        doc = frappe.get_doc('POS Invoice', invoice_name)
+        doc = frappe.get_doc('Sales Invoice', invoice_name)
         
         if doc.docstatus != 0:
             frappe.throw("Cannot modify submitted invoice")
@@ -2328,7 +2328,7 @@ def create_partial_payment_notification(doc, paid_amount, outstanding):
             'subject': f'Partial Payment Received - {doc.name}',
             'for_user': user,
             'type': 'Alert',
-            'document_type': 'POS Invoice',
+            'document_type': 'Sales Invoice',
             'document_name': doc.name,
             'email_content': f"""
             Partial payment received for invoice {doc.name}:
@@ -2359,7 +2359,7 @@ def get_partial_payment_notification_users(company):
 def get_partial_payment_details(invoice_name):
     """Get partial payment details for an invoice"""
     try:
-        doc = frappe.get_doc('POS Invoice', invoice_name)
+        doc = frappe.get_doc('Sales Invoice', invoice_name)
         
         partial_payments = []
         
@@ -2407,7 +2407,7 @@ def complete_partial_payment(invoice_name, final_payments):
     try:
         final_payments = json.loads(final_payments) if isinstance(final_payments, str) else final_payments
         
-        doc = frappe.get_doc('POS Invoice', invoice_name)
+        doc = frappe.get_doc('Sales Invoice', invoice_name)
         
         if doc.docstatus != 0:
             frappe.throw("Cannot modify submitted invoice")
@@ -2462,7 +2462,7 @@ def get_outstanding_invoices(customer=None, from_date=None, to_date=None):
                 status,
                 created_by_name
             FROM 
-                `tabPOS Invoice`
+                `tabSales Invoice`
             WHERE 
                 {where_clause}
             ORDER BY 
@@ -2507,7 +2507,7 @@ def get_partial_payment_report(from_date=None, to_date=None, customer=None, comp
                 created_by_name,
                 remarks
             FROM 
-                `tabPOS Invoice`
+                `tabSales Invoice`
             WHERE 
                 {where_clause}
                 AND (
@@ -2537,7 +2537,7 @@ def get_partial_payment_report(from_date=None, to_date=None, customer=None, comp
 def send_payment_reminder(invoice_name, reminder_type="email"):
     """Send payment reminder to customer for outstanding amount"""
     try:
-        doc = frappe.get_doc('POS Invoice', invoice_name)
+        doc = frappe.get_doc('Sales Invoice', invoice_name)
         
         if doc.outstanding_amount <= 0:
             return {'success': False, 'message': 'No outstanding amount for this invoice'}
@@ -2662,7 +2662,7 @@ def get_partial_payment_analytics(from_date=None, to_date=None, company=None):
                 SUM(outstanding_amount) as total_outstanding_amount,
                 AVG(outstanding_amount) as avg_outstanding_amount
             FROM 
-                `tabPOS Invoice`
+                `tabSales Invoice`
             WHERE 
                 {where_clause}
                 AND docstatus >= 0
@@ -2675,7 +2675,7 @@ def get_partial_payment_analytics(from_date=None, to_date=None, company=None):
                 COUNT(CASE WHEN outstanding_amount > 0 THEN 1 END) as partial_payment_count,
                 SUM(outstanding_amount) as monthly_outstanding
             FROM 
-                `tabPOS Invoice`
+                `tabSales Invoice`
             WHERE 
                 {where_clause}
                 AND docstatus >= 0
@@ -2694,7 +2694,7 @@ def get_partial_payment_analytics(from_date=None, to_date=None, company=None):
                 COUNT(*) as invoice_count,
                 SUM(outstanding_amount) as total_outstanding
             FROM 
-                `tabPOS Invoice`
+                `tabSales Invoice`
             WHERE 
                 {where_clause}
                 AND outstanding_amount > 0
@@ -2721,9 +2721,9 @@ def get_partial_payment_analytics(from_date=None, to_date=None, company=None):
 
 @frappe.whitelist()
 def convert_to_sales_invoice(pos_invoice_name, submit_immediately=False):
-    """Convert POS Invoice with partial payments to regular Sales Invoice"""
+    """Convert Sales Invoice with partial payments to regular Sales Invoice"""
     try:
-        pos_doc = frappe.get_doc('POS Invoice', pos_invoice_name)
+        pos_doc = frappe.get_doc('Sales Invoice', pos_invoice_name)
         
         # Create new Sales Invoice
         sales_invoice = frappe.new_doc('Sales Invoice')
@@ -2778,8 +2778,8 @@ def convert_to_sales_invoice(pos_invoice_name, submit_immediately=False):
                 'paid_amount': pos_doc.paid_amount
             })
         
-        # Add reference to original POS Invoice
-        sales_invoice.remarks = f"{sales_invoice.remarks or ''}\n\nConverted from POS Invoice: {pos_invoice_name}"
+        # Add reference to original Sales Invoice
+        sales_invoice.remarks = f"{sales_invoice.remarks or ''}\n\nConverted from Sales Invoice: {pos_invoice_name}"
         
         # Save the sales invoice
         sales_invoice.insert()
@@ -2787,7 +2787,7 @@ def convert_to_sales_invoice(pos_invoice_name, submit_immediately=False):
         if submit_immediately and pos_doc.outstanding_amount <= 0:
             sales_invoice.submit()
         
-        # Cancel the POS Invoice
+        # Cancel the Sales Invoice
         pos_doc.add_comment('Info', f'Converted to Sales Invoice: {sales_invoice.name}')
         pos_doc.cancel()
         
@@ -2805,7 +2805,7 @@ def convert_to_sales_invoice(pos_invoice_name, submit_immediately=False):
 def get_payment_history(invoice_name):
     """Get complete payment history for an invoice"""
     try:
-        doc = frappe.get_doc('POS Invoice', invoice_name)
+        doc = frappe.get_doc('Sales Invoice', invoice_name)
         
         payment_history = []
         
@@ -2826,7 +2826,7 @@ def get_payment_history(invoice_name):
         # Get comments related to payments
         comments = frappe.get_all('Comment',
             filters={
-                'reference_doctype': 'POS Invoice',
+                'reference_doctype': 'Sales Invoice',
                 'reference_name': invoice_name,
                 'comment_type': 'Info'
             },
@@ -2919,7 +2919,7 @@ def calculate_partial_payment_aging(from_date=None, to_date=None):
                 ELSE '90+ days'
             END as aging_bucket
         FROM 
-            `tabPOS Invoice`
+            `tabSales Invoice`
         WHERE 
             {where_clause}
         ORDER BY 
@@ -2968,7 +2968,7 @@ def schedule_payment_reminders():
         for days in reminder_intervals:
             target_date = frappe.utils.add_days(frappe.utils.getdate(), -days)
             
-            overdue_invoices = frappe.get_all('POS Invoice',
+            overdue_invoices = frappe.get_all('Sales Invoice',
                 filters={
                     'posting_date': target_date,
                     'outstanding_amount': ['>', 0],
@@ -2982,7 +2982,7 @@ def schedule_payment_reminders():
                     # Check if reminder was already sent today
                     existing_reminder = frappe.get_all('Comment',
                         filters={
-                            'reference_doctype': 'POS Invoice',
+                            'reference_doctype': 'Sales Invoice',
                             'reference_name': invoice.name,
                             'content': ['like', '%Payment reminder%'],
                             'creation': ['>=', frappe.utils.getdate()]

@@ -314,7 +314,7 @@ posnext.PointOfSale.ItemDetails = class {
 			}
 		}
 
-		frappe.model.on("POS Invoice Item", "*", (fieldname, value, item_row) => {
+		frappe.model.on("Sales Invoice Item", "*", (fieldname, value, item_row) => {
 			const field_control = this[`${fieldname}_control`];
 			const item_row_is_being_edited = this.compare_with_current_item(item_row);
 

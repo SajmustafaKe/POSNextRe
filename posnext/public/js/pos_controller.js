@@ -549,7 +549,7 @@ init_item_cart() {
 							this.order_summary.load_summary_of(this.frm.doc, true);
 							frappe.show_alert({
 								indicator: 'green',
-								message: __('POS invoice {0} created succesfully', [r.doc.name])
+								message: __('Sales Invoice {0} created succesfully', [r.doc.name])
 							});
 						});
 				},
@@ -567,7 +567,7 @@ init_item_cart() {
 			wrapper: this.$components_wrapper,
 			events: {
 				open_invoice_data: (name) => {
-					frappe.db.get_doc('POS Invoice', name).then((doc) => {
+					frappe.db.get_doc('Sales Invoice', name).then((doc) => {
 						this.order_summary.load_summary_of(doc);
 					});
 				},
@@ -592,7 +592,7 @@ init_item_cart() {
 
 				process_return: (name) => {
 					this.recent_order_list.toggle_component(false);
-					frappe.db.get_doc('POS Invoice', name).then((doc) => {
+					frappe.db.get_doc('Sales Invoice', name).then((doc) => {
 						frappe.run_serially([
 							() => this.make_return_invoice(doc),
 							() => this.cart.load_invoice(),
@@ -662,7 +662,7 @@ make_new_invoice(from_held = false) {
 }
 
 	make_sales_invoice_frm() {
-		const doctype = 'POS Invoice';
+		const doctype = 'Sales Invoice';
 		return new Promise(resolve => {
 			if (this.frm) {
 				this.frm = this.get_new_frm(this.frm);
@@ -685,7 +685,7 @@ make_new_invoice(from_held = false) {
 	}
 
 	get_new_frm(_frm) {
-		const doctype = 'POS Invoice';
+		const doctype = 'Sales Invoice';
 		const page = $('<div>');
 		const frm = _frm || new frappe.ui.form.Form(doctype, page, false);
 		const name = frappe.model.make_new_doc_and_get_name(doctype, true);
@@ -904,7 +904,7 @@ async on_cart_update(args) {
 		if (res.message.includes(serial_no)) {
 			frappe.throw({
 				title: __("Not Available"),
-				message: __('Serial No: {0} has already been transacted into another POS Invoice.', [serial_no.bold()])
+				message: __('Serial No: {0} has already been transacted into another Sales Invoice.', [serial_no.bold()])
 			});
 		}
 	}

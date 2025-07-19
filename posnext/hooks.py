@@ -40,7 +40,9 @@ app_include_js = [
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-doctype_js = {"POS Profile" : "public/js/pos_profile.js"}
+doctype_js = {"POS Profile" : "public/js/pos_profile.js",
+"Sales Invoice" : "public/js/sales_invoice.js"
+}
 
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
@@ -126,6 +128,10 @@ doctype_js = {"POS Profile" : "public/js/pos_profile.js"}
 # DocType Class
 # ---------------
 # Override standard doctype classes
+
+override_doctype_class = {
+	"Sales Invoice": "posnext.overrides.sales_invoice.PosnextSalesInvoice"
+}
 
 # override_doctype_class = {
 # 	"ToDo": "custom_app.overrides.CustomToDo"

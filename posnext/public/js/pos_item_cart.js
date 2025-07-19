@@ -626,7 +626,7 @@ make_cart_totals_section() {
 			if (!this.discount_field || can_edit_discount) this.show_discount_control();
 		});
 
-		frappe.ui.form.on("POS Invoice", "paid_amount", frm => {
+		frappe.ui.form.on("Sales Invoice", "paid_amount", frm => {
 			this.update_totals_section(frm);
 		});
 	}
@@ -642,7 +642,7 @@ async handle_successful_hold(invoice_name, creator_name) {
             await posnext.PointOfSale.PastOrderList.current_instance.set_filter_and_refresh_with_held_invoice(creator_name, invoice_name);
             // Load held invoice into PastOrderSummary
             if (posnext.PointOfSale.PastOrderSummary.current_instance) {
-                await frappe.db.get_doc('POS Invoice', invoice_name).then(doc => {
+                await frappe.db.get_doc('Sales Invoice', invoice_name).then(doc => {
                     posnext.PointOfSale.PastOrderSummary.current_instance.load_summary_of(doc);
                 });
             }
@@ -1450,7 +1450,7 @@ reset_cart_state(from_held = false) {
 	}
 
 	fetch_customer_transactions() {
-		frappe.db.get_list('POS Invoice', {
+		frappe.db.get_list('Sales Invoice', {
 			filters: { customer: this.customer_info.customer, docstatus: 1 },
 			fields: ['name', 'grand_total', 'status', 'posting_date', 'posting_time', 'currency'],
 			limit: 20

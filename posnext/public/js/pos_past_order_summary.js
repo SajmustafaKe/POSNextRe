@@ -672,7 +672,7 @@ posnext.PointOfSale.PastOrderSummary = class {
 					// 3. Load first invoice immediately (no setTimeout delay)
 					if (first_invoice_name && posnext.PointOfSale.PastOrderList.current_instance?.events.open_invoice_data) {
 						operations.push(
-							frappe.db.get_doc('POS Invoice', first_invoice_name).then((doc) => {
+							frappe.db.get_doc('Sales Invoice', first_invoice_name).then((doc) => {
 								// Direct call to load_summary_of for immediate loading
 								if (posnext.PointOfSale.PastOrderList.current_instance.events.reset_summary) {
 									posnext.PointOfSale.PastOrderList.current_instance.events.reset_summary();
