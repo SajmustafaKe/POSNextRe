@@ -41,7 +41,8 @@ app_include_js = [
 
 # include js in doctype views
 doctype_js = {"POS Profile" : "public/js/pos_profile.js",
-"Sales Invoice" : "public/js/sales_invoice.js"
+"Sales Invoice" : "public/js/sales_invoice.js",
+"POS Closing Entry": "public/js/pos_closing_entry.js"
 }
 
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
@@ -131,7 +132,9 @@ doctype_js = {"POS Profile" : "public/js/pos_profile.js",
 
 override_doctype_class = {
 	"Sales Invoice": "posnext.overrides.sales_invoice.PosnextSalesInvoice",
-    "POS Invoice Merge Log": "posnext.overrides.pos_invoice_merge_log.PosnextPOSInvoiceMergeLog"
+    "POS Invoice Merge Log": "posnext.overrides.pos_invoice_merge_log.PosnextPOSInvoiceMergeLog",
+    "POS Closing Entry": "posnext.overrides.pos_closing_entry.PosnextPOSClosingEntry"
+
 }
 
 # override_doctype_class = {
@@ -182,6 +185,9 @@ override_doctype_class = {
 # override_whitelisted_methods = {
 # 	"frappe.desk.doctype.event.event.get_events": "posnext.event.get_events"
 # }
+override_whitelisted_methods = {
+	"erpnext.accounts.doctype.pos_closing_entry.pos_closing_entry.get_pos_invoices": "posnext.overrides.pos_closing_entry.get_pos_invoices"	
+}
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
