@@ -13,7 +13,6 @@ def get_pos_invoices_by_submitter(user, period_start_date, period_end_date):
         filters={
             "docstatus": 1,
             "is_pos": 1,
-            "modified_by": user,
             "posting_date": ["between", [start.date(), end.date()]]
         },
         fields=[
