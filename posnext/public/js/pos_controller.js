@@ -867,6 +867,14 @@ async on_cart_update(args) {
 
 	async check_stock_availability(item_row, qty_needed, warehouse) {
     const resp = (await this.get_available_stock(item_row.item_code, warehouse)).message;
+    console.log('=== STOCK DEBUG INFO ===');
+    console.log('Item Code:', item_row.item_code);
+    console.log('Warehouse:', warehouse);
+    console.log('Full API Response:', resp);
+    console.log('Available Qty:', resp[0], 'Type:', typeof resp[0]);
+    console.log('Is Stock Item:', resp[1], 'Type:', typeof resp[1]);
+    console.log('Qty Needed:', qty_needed);
+    console.log('========================');
     const available_qty = parseFloat(resp[0]) || 0;
     const is_stock_item = resp[1];
 
