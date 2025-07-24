@@ -246,7 +246,7 @@ posnext.PointOfSale.PastOrderSummary = class {
 
 	print_receipt() {
 		const frm = this.events.get_frm();
-		const print_format = frm.pos_print_format;
+		const print_format = this.pos_profile.custom_sales_invoice_print_format || frm.pos_print_format;
 		const doctype = this.doc.doctype;
 		const docname = this.doc.name;
 		const letterhead = this.doc.letter_head || __("No Letterhead");
