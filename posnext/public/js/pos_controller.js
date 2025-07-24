@@ -867,7 +867,7 @@ async on_cart_update(args) {
 
 	async check_stock_availability(item_row, qty_needed, warehouse) {
     const resp = (await this.get_available_stock(item_row.item_code, warehouse)).message;
-    const available_qty = resp[0];
+    const available_qty = parseFloat(resp[0]) || 0;
     const is_stock_item = resp[1];
 
     // REMOVE THIS LINE: frappe.dom.unfreeze();
