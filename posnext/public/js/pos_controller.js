@@ -812,25 +812,34 @@ async on_cart_update(args) {
 		frappe.utils.play_sound("error");
 	}
 
-	get_item_from_frm({ name, item_code, batch_no, uom, rate }) {
-		let item_row = null;
+get_item_from_frm({ name, item_code, batch_no, uom, rate }) {
+    let item_row = null;
 
-		if (name) {
-			item_row = this.frm.doc.items.find(i => i.name == name);
-		} else {
-			// if item is clicked twice from item selector
-			// then "item_code, batch_no, uom, rate" will help in getting the exact item
-			// to increase the qty by one
-			const has_batch_no = (batch_no !== 'null' && batch_no !== null);
-			item_row = this.frm.doc.items.find(
-				i => i.item_code === item_code
-					&& (has_batch_no && i.batch_no === batch_no)
-					&& (i.uom === uom)
-					&& (i.rate === flt(rate))
-			);
-		}
-		return item_row || {};
-	}
+    if (name) {
+        item_row = this.frm.doc.items.find(i => i.name == name);
+    } else {
+        
+        item_row = this.frm.doc.items.find(i => {
+            const basic_match = i.item_code === item_code 
+                             && i.uom === uom 
+                             && i.rate === flt(rate);
+            
+            if (!basic_match) return false;
+            
+            const item_has_batch = i.has_batch_no;
+            const incoming_has_batch = (batch_no && batch_no !== 'null' && batch_no !== null);
+            
+            if (item_has_batch && incoming_has_batch) {
+                return i.batch_no === batch_no;
+            } else if (!item_has_batch && !incoming_has_batch) {
+                return true;
+            } else {
+                return false;
+            }
+        });
+    }
+    return item_row || {};
+}
 
 	edit_item_details_of(item_row) {
 		this.item_details.toggle_item_details_section(item_row);
