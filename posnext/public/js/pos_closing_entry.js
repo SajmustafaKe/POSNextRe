@@ -63,13 +63,32 @@ frappe.ui.form.on('POS Closing Entry', {
                     frappe.msgprint(__('No POS invoices found for the selected user and date range.'));
                 }
 
+                // FIXED: Update payment reconciliation table with expected amounts
                 if (frm.doc.custom_payment_reconc && frm.doc.custom_payment_reconc.length > 0) {
                     frm.doc.custom_payment_reconc.forEach(row => {
                         const mop = row.mode_of_payment;
-                        row.expected_amount = flt(payments[mop]);
+                        // Set expected amount from payments data
+                        row.expected_amount = flt(payments[mop] || 0);
+                        // Calculate difference: closing - (expected + opening)
                         row.difference = flt(row.closing_amount) - (flt(row.expected_amount) + flt(row.opening_amount));
                     });
                     frm.refresh_field("custom_payment_reconc");
+                } else {
+                    // ADDED: If no payment reconciliation table exists, create it from payments data
+                    if (Object.keys(payments).length > 0) {
+                        frm.clear_table("custom_payment_reconc");
+                        
+                        Object.keys(payments).forEach(mode_of_payment => {
+                            const row = frm.add_child("custom_payment_reconc");
+                            row.mode_of_payment = mode_of_payment;
+                            row.opening_amount = 0;
+                            row.expected_amount = flt(payments[mode_of_payment]);
+                            row.closing_amount = 0;
+                            row.difference = flt(row.closing_amount) - (flt(row.expected_amount) + flt(row.opening_amount));
+                        });
+                        
+                        frm.refresh_field("custom_payment_reconc");
+                    }
                 }
             }
         });
@@ -106,7 +125,10 @@ frappe.ui.form.on('POS Closing Entry', {
 
                     frm.refresh_field("custom_payment_reconc");
 
-                    frm.trigger("user");
+                    // FIXED: Trigger user to populate expected amounts after setting up the table
+                    if (frm.doc.user) {
+                        frm.trigger("user");
+                    }
                 }
             }
         });
