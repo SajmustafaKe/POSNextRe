@@ -60,6 +60,31 @@ posnext.PointOfSale.PastOrderSummary = class {
 		});
 		this.email_dialog = email_dialog;
 
+		const payment_dialog = new frappe.ui.Dialog({
+    		title: 'Add Payment',
+    		fields: [
+       		 {
+         	   	 fieldname: 'mode_of_payment', 
+           		 fieldtype: 'Link', 
+           		 options: 'Mode of Payment', 
+           		 label: 'Mode of Payment', 
+           		 reqd: 1
+       		 },
+        	{
+            	fieldname: 'amount', 
+            	fieldtype: 'Currency', 
+            	label: 'Amount', 
+            	reqd: 1,
+            	default: this.doc?.outstanding_amount || 0
+       		 }
+    		],
+    		primary_action: () => {
+       		 this.create_payment_entry();
+   			 },
+    		primary_action_label: __('Add Payment'),
+			});
+		this.payment_dialog = payment_dialog;
+
 		const print_dialog = new frappe.ui.Dialog({
 			title: 'Print Receipt',
 			fields: [
@@ -190,6 +215,11 @@ posnext.PointOfSale.PastOrderSummary = class {
 			this.show_summary_placeholder();
 		});
 
+		this.$summary_container.on('click', '.add-payment-btn', () => {
+   			this.payment_dialog.fields_dict.amount.set_value(this.doc.outstanding_amount);
+    		this.payment_dialog.show();
+		});
+
 		this.$summary_container.on('click', '.send-btn', () => {
 			var field_names = this.pos_profile.custom_whatsapp_field_names.map(x => this.doc[x.field_names.toString()]);
 			var message = "https://wa.me/" +  this.doc.customer +"?text="
@@ -243,6 +273,64 @@ posnext.PointOfSale.PastOrderSummary = class {
 			this.print_receipt();
 		});
 	}
+
+	create_payment_entry() {
+    const values = this.payment_dialog.get_values();
+    
+    if (values.amount > this.doc.outstanding_amount) {
+        frappe.show_alert({
+            message: __('Payment amount cannot exceed outstanding amount of {0}', 
+                [format_currency(this.doc.outstanding_amount, this.doc.currency)]),
+            indicator: 'red'
+        });
+        return;
+    }
+
+    frappe.call({
+        method: "erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry",
+        args: {
+            dt: this.doc.doctype,
+            dn: this.doc.name
+        },
+        callback: (r) => {
+            if (!r.exc && r.message) {
+                const payment_entry = r.message;
+                payment_entry.mode_of_payment = values.mode_of_payment;
+                payment_entry.paid_amount = values.amount;
+                payment_entry.received_amount = values.amount;
+                
+                frappe.call({
+                    method: "frappe.client.insert",
+                    args: {
+                        doc: payment_entry
+                    },
+                    callback: (r) => {
+                        if (!r.exc) {
+                            frappe.call({
+                                method: "frappe.client.submit",
+                                args: {
+                                    doc: r.message
+                                },
+                                callback: (r) => {
+                                    if (!r.exc) {
+                                        frappe.show_alert({
+                                            message: __('Payment added successfully'),
+                                            indicator: 'green'
+                                        });
+                                        this.payment_dialog.hide();
+                                        // Refresh the invoice data
+                                        frappe.db.get_doc('Sales Invoice', this.doc.name)
+                                            .then(doc => this.load_summary_of(doc));
+                                    }
+                                }
+                            });
+                        }
+                    }
+                });
+            }
+        }
+    });
+}
 
 	print_receipt() {
 		const frm = this.events.get_frm();
@@ -1287,8 +1375,10 @@ posnext.PointOfSale.PastOrderSummary = class {
 			: ['Print Receipt','Edit Order','Print-Order','Split-Order'];
 
 		const submitButtons = hasWaiterRole
-			? ['Print Receipt'] 
-			: ['Print Receipt', 'Return'];
+    		? ['Print Receipt'] 
+    		: this.doc.outstanding_amount > 0 
+       			 ? ['Print Receipt', 'Add Payment', 'Return']
+       			 : ['Print Receipt', 'Return'];
 
 		return [
 			{ condition: this.doc.docstatus === 0, visible_btns: draftButtons },
