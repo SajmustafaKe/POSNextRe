@@ -3030,3 +3030,88 @@ def get_partial_payment_settings():
             'partial_payment_terms': 30,
             'enable_partial_payment_notifications': True
         }
+
+@frappe.whitelist()
+def create_simple_payment_entry(invoice_name, mode_of_payment, amount):
+    """
+    Create a simple payment entry for a Sales Invoice
+    """
+    try:
+        # Get the invoice
+        invoice = frappe.get_doc("Sales Invoice", invoice_name)
+        
+        if not invoice:
+            return {"success": False, "error": "Invoice not found"}
+        
+        if invoice.outstanding_amount <= 0:
+            return {"success": False, "error": "No outstanding amount to pay"}
+        
+        amount = flt(amount)
+        if amount > invoice.outstanding_amount:
+            return {"success": False, "error": "Payment amount cannot exceed outstanding amount"}
+        
+        # Create payment entry
+        payment_entry = frappe.new_doc("Payment Entry")
+        payment_entry.payment_type = "Receive"
+        payment_entry.company = invoice.company
+        payment_entry.posting_date = nowdate()
+        payment_entry.mode_of_payment = mode_of_payment
+        payment_entry.party_type = "Customer"
+        payment_entry.party = invoice.customer
+        
+        # Get party account
+        party_account = get_party_account("Customer", invoice.customer, invoice.company)
+        
+        # Get bank/cash account for the mode of payment
+        bank_account = get_default_bank_cash_account(
+            invoice.company, 
+            "Bank", 
+            mode_of_payment=mode_of_payment
+        )
+        
+        if not bank_account:
+            bank_account = get_default_bank_cash_account(
+                invoice.company, 
+                "Cash", 
+                mode_of_payment=mode_of_payment
+            )
+        
+        if not bank_account:
+            return {"success": False, "error": f"No bank/cash account found for mode of payment: {mode_of_payment}"}
+        
+        payment_entry.paid_from = party_account
+        payment_entry.paid_to = bank_account.account
+        payment_entry.paid_from_account_currency = invoice.currency
+        payment_entry.paid_to_account_currency = bank_account.account_currency
+        payment_entry.paid_amount = amount
+        payment_entry.received_amount = amount
+        
+        # Add reference to the invoice
+        payment_entry.append("references", {
+            "reference_doctype": "Sales Invoice",
+            "reference_name": invoice.name,
+            "allocated_amount": amount
+        })
+        
+        # Set reference number and date to avoid validation error
+        payment_entry.reference_no = f"PAY-{invoice.name}-{frappe.utils.now()}"
+        payment_entry.reference_date = nowdate()
+        
+        # Set other required fields
+        payment_entry.setup_party_account_field()
+        payment_entry.set_missing_values()
+        payment_entry.set_amounts()
+        
+        # Insert and submit
+        payment_entry.insert(ignore_permissions=True)
+        payment_entry.submit()
+        
+        return {
+            "success": True, 
+            "payment_entry": payment_entry.name,
+            "message": f"Payment entry {payment_entry.name} created successfully"
+        }
+        
+    except Exception as e:
+        frappe.log_error(f"Error creating payment entry: {str(e)}")
+        return {"success": False, "error": str(e)}

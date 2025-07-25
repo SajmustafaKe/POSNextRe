@@ -282,7 +282,7 @@ posnext.PointOfSale.PastOrderSummary = class {
 		});
 	}
 
-create_payment_entry() {
+	create_payment_entry() {
     const values = this.payment_dialog.get_values();
     
     if (!values.mode_of_payment) {
@@ -312,63 +312,28 @@ create_payment_entry() {
 
     frappe.dom.freeze(__('Creating Payment Entry...'));
 
+    // Use our custom method instead of the standard ERPNext method
     frappe.call({
-        method: "erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry",
+        method: "posnext.posnext.page.posnext.point_of_sale.create_simple_payment_entry",
         args: {
-            dt: this.doc.doctype,
-            dn: this.doc.name
+            invoice_name: this.doc.name,
+            mode_of_payment: values.mode_of_payment,
+            amount: values.amount
         },
         callback: (r) => {
-            if (!r.exc && r.message) {
-                const payment_entry = r.message;
-                payment_entry.mode_of_payment = values.mode_of_payment;
-                payment_entry.paid_amount = values.amount;
-                payment_entry.received_amount = values.amount;
-                
-                frappe.call({
-                    method: "frappe.client.insert",
-                    args: {
-                        doc: payment_entry
-                    },
-                    callback: (r) => {
-                        if (!r.exc && r.message) {
-                            frappe.call({
-                                method: "frappe.client.submit",
-                                args: {
-                                    doc: r.message
-                                },
-                                callback: (r) => {
-                                    frappe.dom.unfreeze();
-                                    if (!r.exc) {
-                                        frappe.show_alert({
-                                            message: __('Payment added successfully'),
-                                            indicator: 'green'
-                                        });
-                                        this.payment_dialog.hide();
-                                        // Refresh the invoice data
-                                        frappe.db.get_doc('Sales Invoice', this.doc.name)
-                                            .then(doc => this.load_summary_of(doc));
-                                    } else {
-                                        frappe.show_alert({
-                                            message: __('Error submitting payment: ') + (r.exc || 'Unknown error'),
-                                            indicator: 'red'
-                                        });
-                                    }
-                                }
-                            });
-                        } else {
-                            frappe.dom.unfreeze();
-                            frappe.show_alert({
-                                message: __('Error creating payment: ') + (r.exc || 'Unknown error'),
-                                indicator: 'red'
-                            });
-                        }
-                    }
-                });
-            } else {
-                frappe.dom.unfreeze();
+            frappe.dom.unfreeze();
+            if (!r.exc && r.message && r.message.success) {
                 frappe.show_alert({
-                    message: __('Error getting payment entry: ') + (r.exc || 'Unknown error'),
+                    message: __('Payment added successfully'),
+                    indicator: 'green'
+                });
+                this.payment_dialog.hide();
+                // Refresh the invoice data
+                frappe.db.get_doc('Sales Invoice', this.doc.name)
+                    .then(doc => this.load_summary_of(doc));
+            } else {
+                frappe.show_alert({
+                    message: __('Error creating payment: ') + (r.message?.error || r.exc || 'Unknown error'),
                     indicator: 'red'
                 });
             }
