@@ -81,7 +81,7 @@ posnext.PointOfSale.PastOrderSummary = class {
     	primary_action: () => {
         	this.create_payment_entry();
    			 },
-   		primary_action_label: __('Add Payment'),
+   		primary_action_label: __('Add-Payment'),
 			});
 		this.payment_dialog = payment_dialog;
 
@@ -1421,7 +1421,7 @@ create_payment_entry() {
 		const submitButtons = hasWaiterRole
     		? ['Print Receipt'] 
     		: this.doc.outstanding_amount > 0 
-       			 ? ['Print Receipt', 'Add Payment', 'Return']
+       			 ? ['Print Receipt', 'Add-Payment', 'Return']
        			 : ['Print Receipt', 'Return'];
 
 		return [
