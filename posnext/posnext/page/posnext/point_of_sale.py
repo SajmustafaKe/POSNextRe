@@ -3032,7 +3032,7 @@ def get_partial_payment_settings():
             'partial_payment_terms': 30,
             'enable_partial_payment_notifications': True
         }
-
+        
 @frappe.whitelist()
 def create_simple_payment_entry(invoice_name, mode_of_payment, amount):
     """
@@ -3116,7 +3116,7 @@ def create_simple_payment_entry(invoice_name, mode_of_payment, amount):
         payment_entry.insert(ignore_permissions=True)
         payment_entry.submit()
         
-        # NOW ADD TO SALES INVOICE PAYMENTS TABLE
+        # NOW ADD TO SALES INVOICE PAYMENTS TABLE (Sales Invoice Payment doctype)
         invoice.reload()  # Reload to get fresh data
         
         # Check if this mode of payment already exists in payments table
@@ -3129,18 +3129,19 @@ def create_simple_payment_entry(invoice_name, mode_of_payment, amount):
         if existing_payment:
             # Update existing payment amount
             existing_payment.amount = (existing_payment.amount or 0) + allocated_amount
-            if hasattr(existing_payment, 'base_amount'):
-                existing_payment.base_amount = existing_payment.amount
+            existing_payment.base_amount = existing_payment.amount
         else:
-            # Add new payment entry to the payments table
-            invoice.append("payments", {
-                "mode_of_payment": mode_of_payment,
-                "amount": allocated_amount,
-                "account": bank_account.account,
-                "type": "Cash" if "cash" in mode_of_payment.lower() else "Bank",
-                "base_amount": allocated_amount,
-                "default": 0
-            })
+            # Create new Sales Invoice Payment entry and add to payments table
+            new_payment = frappe.new_doc("Sales Invoice Payment")
+            new_payment.mode_of_payment = mode_of_payment
+            new_payment.amount = allocated_amount
+            new_payment.base_amount = allocated_amount
+            new_payment.account = bank_account.account
+            new_payment.type = "Cash" if "cash" in mode_of_payment.lower() else "Bank"
+            new_payment.default = 0
+            
+            # Add to the invoice's payments table
+            invoice.append("payments", new_payment)
         
         # Recalculate totals
         total_payments = sum([p.amount for p in invoice.payments])
@@ -3155,7 +3156,7 @@ def create_simple_payment_entry(invoice_name, mode_of_payment, amount):
         else:
             invoice.status = "Unpaid"
         
-        # Save the invoice with special flags
+        # Save the invoice with special flags to allow update after submit
         invoice.flags.ignore_validate_update_after_submit = True
         invoice.flags.ignore_links = True
         invoice.save(ignore_permissions=True)
