@@ -62,26 +62,26 @@ posnext.PointOfSale.PastOrderSummary = class {
 
 		const payment_dialog = new frappe.ui.Dialog({
     		title: 'Add Payment',
-    		fields: [
+   			fields: [
        		 {
-         	   	 fieldname: 'mode_of_payment', 
-           		 fieldtype: 'Link', 
-           		 options: 'Mode of Payment', 
-           		 label: 'Mode of Payment', 
-           		 reqd: 1
+           		fieldname: 'mode_of_payment', 
+            	fieldtype: 'Link', 
+            	options: 'Mode of Payment', 
+            	label: 'Mode of Payment', 
+            	reqd: 1
        		 },
-        	{
-            	fieldname: 'amount', 
-            	fieldtype: 'Currency', 
+       		 {
+          		fieldname: 'amount', 
+           		fieldtype: 'Currency', 
             	label: 'Amount', 
             	reqd: 1,
-            	default: this.doc?.outstanding_amount || 0
+            	default: 0  // Set a static default, we'll update it when showing
        		 }
-    		],
-    		primary_action: () => {
-       		 this.create_payment_entry();
+   			 ],
+    	primary_action: () => {
+        	this.create_payment_entry();
    			 },
-    		primary_action_label: __('Add Payment'),
+   		primary_action_label: __('Add Payment'),
 			});
 		this.payment_dialog = payment_dialog;
 
@@ -216,7 +216,15 @@ posnext.PointOfSale.PastOrderSummary = class {
 		});
 
 		this.$summary_container.on('click', '.add-payment-btn', () => {
-   			this.payment_dialog.fields_dict.amount.set_value(this.doc.outstanding_amount);
+			console.log('Add payment button clicked', this.doc);
+    		if (!this.doc.outstanding_amount || this.doc.outstanding_amount <= 0) {
+       		 frappe.show_alert({
+             message: __('No outstanding amount to pay'),
+             indicator: 'orange'
+        	});
+        	return;
+    		}
+    		this.payment_dialog.fields_dict.amount.set_value(this.doc.outstanding_amount);
     		this.payment_dialog.show();
 		});
 
@@ -274,8 +282,24 @@ posnext.PointOfSale.PastOrderSummary = class {
 		});
 	}
 
-	create_payment_entry() {
+create_payment_entry() {
     const values = this.payment_dialog.get_values();
+    
+    if (!values.mode_of_payment) {
+        frappe.show_alert({
+            message: __('Please select a mode of payment'),
+            indicator: 'red'
+        });
+        return;
+    }
+    
+    if (!values.amount || values.amount <= 0) {
+        frappe.show_alert({
+            message: __('Please enter a valid amount'),
+            indicator: 'red'
+        });
+        return;
+    }
     
     if (values.amount > this.doc.outstanding_amount) {
         frappe.show_alert({
@@ -285,6 +309,8 @@ posnext.PointOfSale.PastOrderSummary = class {
         });
         return;
     }
+
+    frappe.dom.freeze(__('Creating Payment Entry...'));
 
     frappe.call({
         method: "erpnext.accounts.doctype.payment_entry.payment_entry.get_payment_entry",
@@ -305,13 +331,14 @@ posnext.PointOfSale.PastOrderSummary = class {
                         doc: payment_entry
                     },
                     callback: (r) => {
-                        if (!r.exc) {
+                        if (!r.exc && r.message) {
                             frappe.call({
                                 method: "frappe.client.submit",
                                 args: {
                                     doc: r.message
                                 },
                                 callback: (r) => {
+                                    frappe.dom.unfreeze();
                                     if (!r.exc) {
                                         frappe.show_alert({
                                             message: __('Payment added successfully'),
@@ -321,11 +348,28 @@ posnext.PointOfSale.PastOrderSummary = class {
                                         // Refresh the invoice data
                                         frappe.db.get_doc('Sales Invoice', this.doc.name)
                                             .then(doc => this.load_summary_of(doc));
+                                    } else {
+                                        frappe.show_alert({
+                                            message: __('Error submitting payment: ') + (r.exc || 'Unknown error'),
+                                            indicator: 'red'
+                                        });
                                     }
                                 }
                             });
+                        } else {
+                            frappe.dom.unfreeze();
+                            frappe.show_alert({
+                                message: __('Error creating payment: ') + (r.exc || 'Unknown error'),
+                                indicator: 'red'
+                            });
                         }
                     }
+                });
+            } else {
+                frappe.dom.unfreeze();
+                frappe.show_alert({
+                    message: __('Error getting payment entry: ') + (r.exc || 'Unknown error'),
+                    indicator: 'red'
                 });
             }
         }
