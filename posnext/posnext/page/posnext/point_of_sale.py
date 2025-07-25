@@ -3036,7 +3036,7 @@ def get_partial_payment_settings():
 @frappe.whitelist()
 def create_simple_payment_entry(invoice_name, mode_of_payment, amount):
     """
-    Create a simple payment entry for a Sales Invoice
+    Create a simple payment entry for a Sales Invoice and add to payments table
     """
     try:
         # Get the invoice
@@ -3049,8 +3049,10 @@ def create_simple_payment_entry(invoice_name, mode_of_payment, amount):
             return {"success": False, "error": "No outstanding amount to pay"}
         
         amount = flt(amount)
-        if amount > invoice.outstanding_amount:
-            return {"success": False, "error": "Payment amount cannot exceed outstanding amount"}
+        
+        # Calculate allocated amount (shouldn't exceed outstanding)
+        allocated_amount = min(amount, invoice.outstanding_amount)
+        change_amount = amount - allocated_amount if amount > invoice.outstanding_amount else 0
         
         # Create payment entry
         payment_entry = frappe.new_doc("Payment Entry")
@@ -3085,19 +3087,25 @@ def create_simple_payment_entry(invoice_name, mode_of_payment, amount):
         payment_entry.paid_to = bank_account.account
         payment_entry.paid_from_account_currency = invoice.currency
         payment_entry.paid_to_account_currency = bank_account.account_currency
-        payment_entry.paid_amount = amount
-        payment_entry.received_amount = amount
+        payment_entry.paid_amount = amount  # Full amount paid
+        payment_entry.received_amount = amount  # Full amount received
         
-        # Add reference to the invoice
+        # Add reference to the invoice - only allocate outstanding amount
         payment_entry.append("references", {
             "reference_doctype": "Sales Invoice",
             "reference_name": invoice.name,
-            "allocated_amount": amount
+            "allocated_amount": allocated_amount
         })
         
         # Set reference number and date to avoid validation error
         payment_entry.reference_no = f"PAY-{invoice.name}-{frappe.utils.now()}"
         payment_entry.reference_date = nowdate()
+        
+        # Add remarks about change if applicable
+        remarks = f"Payment for {invoice.name}"
+        if change_amount > 0:
+            remarks += f" | Amount Paid: {amount} | Change: {change_amount}"
+        payment_entry.remarks = remarks
         
         # Set other required fields
         payment_entry.setup_party_account_field()
@@ -3108,12 +3116,65 @@ def create_simple_payment_entry(invoice_name, mode_of_payment, amount):
         payment_entry.insert(ignore_permissions=True)
         payment_entry.submit()
         
+        # NOW ADD TO SALES INVOICE PAYMENTS TABLE
+        invoice.reload()  # Reload to get fresh data
+        
+        # Check if this mode of payment already exists in payments table
+        existing_payment = None
+        for payment in invoice.payments:
+            if payment.mode_of_payment == mode_of_payment:
+                existing_payment = payment
+                break
+        
+        if existing_payment:
+            # Update existing payment amount
+            existing_payment.amount = (existing_payment.amount or 0) + allocated_amount
+            if hasattr(existing_payment, 'base_amount'):
+                existing_payment.base_amount = existing_payment.amount
+        else:
+            # Add new payment entry to the payments table
+            invoice.append("payments", {
+                "mode_of_payment": mode_of_payment,
+                "amount": allocated_amount,
+                "account": bank_account.account,
+                "type": "Cash" if "cash" in mode_of_payment.lower() else "Bank",
+                "base_amount": allocated_amount,
+                "default": 0
+            })
+        
+        # Recalculate totals
+        total_payments = sum([p.amount for p in invoice.payments])
+        invoice.paid_amount = total_payments
+        invoice.outstanding_amount = invoice.grand_total - total_payments
+        
+        # Update status based on payment
+        if invoice.outstanding_amount <= 0.01:  # Account for rounding
+            invoice.status = "Paid"
+        elif invoice.paid_amount > 0:
+            invoice.status = "Partly Paid"
+        else:
+            invoice.status = "Unpaid"
+        
+        # Save the invoice with special flags
+        invoice.flags.ignore_validate_update_after_submit = True
+        invoice.flags.ignore_links = True
+        invoice.save(ignore_permissions=True)
+        
+        # Commit the changes
+        frappe.db.commit()
+        
         return {
             "success": True, 
             "payment_entry": payment_entry.name,
-            "message": f"Payment entry {payment_entry.name} created successfully"
+            "change_amount": change_amount,
+            "allocated_amount": allocated_amount,
+            "total_paid": invoice.paid_amount,
+            "outstanding": invoice.outstanding_amount,
+            "payments_count": len(invoice.payments),
+            "message": f"Payment entry {payment_entry.name} created successfully and added to invoice payments table"
         }
         
     except Exception as e:
         frappe.log_error(f"Error creating payment entry: {str(e)}")
+        frappe.db.rollback()  # Rollback in case of error
         return {"success": False, "error": str(e)}
