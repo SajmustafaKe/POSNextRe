@@ -804,7 +804,7 @@ posnext.PointOfSale.PastOrderSummary = class {
 	print_order() {
 		const doctype = this.doc.doctype;
 		const docname = this.doc.name;
-		const print_format = "Captain Order";
+		const print_format = "Captain Order 2";
 		const letterhead = this.doc.letter_head || __("No Letterhead");
 		const lang_code = this.doc.language || frappe.boot.lang;
 
