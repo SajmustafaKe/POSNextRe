@@ -292,7 +292,7 @@ posnext.PointOfSale.PastOrderSummary = class {
         });
         return;
     }
-	if (values.mode_of_payment.toLowerCase().replace(/ +/g, "_") === 'mpesa-paybill') {
+	if (values.mode_of_payment.toLowerCase().replace(/ +/g, "_") === 'mpesa-tenacity') {
         this.handle_mpesa_paybill_payment(values);
         return;
     }
