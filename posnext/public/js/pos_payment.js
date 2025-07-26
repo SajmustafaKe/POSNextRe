@@ -160,7 +160,13 @@ posnext.PointOfSale.Payment = class {
 			}
 		});
 
-		frappe.ui.form.on('Sales Invoice', 'contact_mobile', (frm) => {
+		// Add Apply Mpesa Payment button click event
+		this.$payment_modes.on('click', '.apply-mpesa-payment', function(e) {
+			e.stopPropagation();
+			me.show_mpesa_payment_popup();
+		});
+
+		frappe.ui.form.on('POS Invoice', 'contact_mobile', (frm) => {
 			const contact = frm.doc.contact_mobile;
 			const request_button = $(this.request_for_payment_field?.$input[0]);
 			if (contact) {
@@ -170,7 +176,7 @@ posnext.PointOfSale.Payment = class {
 			}
 		});
 
-		frappe.ui.form.on('Sales Invoice', 'coupon_code', (frm) => {
+		frappe.ui.form.on('POS Invoice', 'coupon_code', (frm) => {
 			if (frm.doc.coupon_code && !frm.applying_pos_coupon_code) {
 				if (!frm.doc.ignore_pricing_rule) {
 					frm.applying_pos_coupon_code = true;
@@ -214,7 +220,7 @@ posnext.PointOfSale.Payment = class {
 			this.events.submit_invoice();
 		});
 
-		frappe.ui.form.on('Sales Invoice', 'paid_amount', (frm) => {
+		frappe.ui.form.on('POS Invoice', 'paid_amount', (frm) => {
 			this.update_totals_section(frm.doc);
 
 			// need to re calculate cash shortcuts after discount is applied
@@ -224,7 +230,7 @@ posnext.PointOfSale.Payment = class {
 			this.render_payment_mode_dom();
 		});
 
-		frappe.ui.form.on('Sales Invoice', 'loyalty_amount', (frm) => {
+		frappe.ui.form.on('POS Invoice', 'loyalty_amount', (frm) => {
 			const formatted_currency = format_currency(frm.doc.loyalty_amount, frm.doc.currency);
 			this.$payment_modes.find(`.loyalty-amount-amount`).html(formatted_currency);
 		});
@@ -236,6 +242,243 @@ posnext.PointOfSale.Payment = class {
 			if (this[`${mode}_control`] && this[`${mode}_control`].get_value() != default_mop.amount) {
 				this[`${mode}_control`].set_value(default_mop.amount);
 			}
+		});
+	}
+
+	show_mpesa_payment_popup() {
+		const me = this;
+		const doc = this.events.get_frm().doc;
+		const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
+
+		// Fetch Mpesa C2B Payment Register records
+		frappe.call({
+			method: 'frappe.client.get_list',
+			args: {
+				doctype: 'Mpesa C2B Payment Register',
+				filters: {
+					docstatus: 0, // Draft documents only
+					invoicenumber: ['in', ['', null]] // Only records without invoice number
+				},
+				fields: ['name', 'full_name', 'transid', 'transamount', 'transtime'],
+				order_by: 'transtime desc',
+				limit_page_length: 50
+			},
+			callback: function(r) {
+				if (r.message && r.message.length > 0) {
+					me.create_mpesa_selection_dialog(r.message, doc, grand_total);
+				} else {
+					frappe.msgprint({
+						title: __('No Payments Found'),
+						message: __('No available Mpesa payments found in the system.'),
+						indicator: 'orange'
+					});
+				}
+			}
+		});
+	}
+
+	create_mpesa_selection_dialog(payments, doc, grand_total) {
+		const me = this;
+		
+		// Create table rows for payments
+		const payment_rows = payments.map(payment => {
+			const formatted_amount = format_currency(payment.transamount, doc.currency);
+			const formatted_time = frappe.datetime.str_to_user(payment.transtime);
+			
+			return `
+				<tr data-payment-id="${payment.name}">
+					<td style="text-align: center;">
+						<input type="checkbox" class="payment-checkbox" data-amount="${payment.transamount}" />
+					</td>
+					<td>${payment.full_name || ''}</td>
+					<td>${payment.transid || ''}</td>
+					<td style="text-align: right;">${formatted_amount}</td>
+					<td>${formatted_time}</td>
+				</tr>
+			`;
+		}).join('');
+
+		const dialog_html = `
+			<div class="mpesa-payment-dialog">
+				<div style="margin-bottom: 15px;">
+					<div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; background-color: #f8f9fa; border-radius: 6px;">
+						<strong>${__('Invoice Total')}: ${format_currency(grand_total, doc.currency)}</strong>
+						<span id="selected-total" style="color: #28a745; font-weight: bold;">
+							${__('Selected')}: ${format_currency(0, doc.currency)}
+						</span>
+					</div>
+				</div>
+				
+				<div style="margin-bottom: 15px;">
+					<label style="display: flex; align-items: center; gap: 8px; font-size: 14px;">
+						<input type="checkbox" id="select-all-payments" />
+						<strong>${__('Select All')}</strong>
+					</label>
+				</div>
+
+				<div style="max-height: 400px; overflow-y: auto; border: 1px solid #ddd; border-radius: 6px;">
+					<table class="table table-striped" style="margin: 0;">
+						<thead style="background-color: #f8f9fa; position: sticky; top: 0;">
+							<tr>
+								<th style="text-align: center; width: 50px;">${__('Select')}</th>
+								<th>${__('Full Name')}</th>
+								<th>${__('Transaction ID')}</th>
+								<th style="text-align: right;">${__('Amount')}</th>
+								<th>${__('Time')}</th>
+							</tr>
+						</thead>
+						<tbody>
+							${payment_rows}
+						</tbody>
+					</table>
+				</div>
+			</div>
+		`;
+
+		const dialog = new frappe.ui.Dialog({
+			title: __('Select Mpesa Payments'),
+			fields: [
+				{
+					fieldtype: 'HTML',
+					fieldname: 'payment_selection',
+					options: dialog_html
+				}
+			],
+			size: 'large',
+			primary_action_label: __('Apply Selected Payments'),
+			primary_action: function() {
+				me.apply_selected_mpesa_payments(dialog, doc);
+			},
+			secondary_action_label: __('Cancel')
+		});
+
+		dialog.show();
+
+		// Add event listeners for checkboxes
+		setTimeout(() => {
+			const dialog_wrapper = dialog.$wrapper;
+			
+			// Handle individual checkbox changes
+			dialog_wrapper.find('.payment-checkbox').on('change', function() {
+				me.update_selected_total(dialog_wrapper, doc.currency);
+				me.update_select_all_state(dialog_wrapper);
+			});
+
+			// Handle select all checkbox
+			dialog_wrapper.find('#select-all-payments').on('change', function() {
+				const isChecked = $(this).is(':checked');
+				dialog_wrapper.find('.payment-checkbox').prop('checked', isChecked);
+				me.update_selected_total(dialog_wrapper, doc.currency);
+			});
+		}, 100);
+	}
+
+	update_selected_total(dialog_wrapper, currency) {
+		let total = 0;
+		dialog_wrapper.find('.payment-checkbox:checked').each(function() {
+			total += flt($(this).data('amount'));
+		});
+		
+		dialog_wrapper.find('#selected-total').html(
+			`${__('Selected')}: ${format_currency(total, currency)}`
+		);
+	}
+
+	update_select_all_state(dialog_wrapper) {
+		const total_checkboxes = dialog_wrapper.find('.payment-checkbox').length;
+		const checked_checkboxes = dialog_wrapper.find('.payment-checkbox:checked').length;
+		
+		const select_all = dialog_wrapper.find('#select-all-payments');
+		if (checked_checkboxes === 0) {
+			select_all.prop('indeterminate', false).prop('checked', false);
+		} else if (checked_checkboxes === total_checkboxes) {
+			select_all.prop('indeterminate', false).prop('checked', true);
+		} else {
+			select_all.prop('indeterminate', true);
+		}
+	}
+
+	apply_selected_mpesa_payments(dialog, doc) {
+		const me = this;
+		const selected_payments = [];
+		let total_amount = 0;
+
+		dialog.$wrapper.find('.payment-checkbox:checked').each(function() {
+			const row = $(this).closest('tr');
+			const payment_id = row.data('payment-id');
+			const amount = flt($(this).data('amount'));
+			
+			selected_payments.push({
+				id: payment_id,
+				amount: amount
+			});
+			total_amount += amount;
+		});
+
+		if (selected_payments.length === 0) {
+			frappe.msgprint({
+				title: __('No Selection'),
+				message: __('Please select at least one payment to apply.'),
+				indicator: 'orange'
+			});
+			return;
+		}
+
+		// Show confirmation with total
+		frappe.confirm(
+			__('Apply {0} selected payments totaling {1}?', [
+				selected_payments.length,
+				format_currency(total_amount, doc.currency)
+			]),
+			function() {
+				me.process_mpesa_payments(selected_payments, doc, total_amount);
+				dialog.hide();
+			}
+		);
+	}
+
+	process_mpesa_payments(selected_payments, doc, total_amount) {
+		const me = this;
+		
+		frappe.show_alert({
+			message: __('Processing Mpesa payments...'),
+			indicator: 'blue'
+		});
+
+		// Update each selected payment record with invoice number
+		const update_promises = selected_payments.map(payment => {
+			return frappe.call({
+				method: 'frappe.client.set_value',
+				args: {
+					doctype: 'Mpesa C2B Payment Register',
+					name: payment.id,
+					fieldname: 'invoicenumber',
+					value: doc.name
+				}
+			});
+		});
+
+		Promise.all(update_promises).then(() => {
+			// Update the mpesa-paybill payment amount
+			const mpesa_control = me['mpesa-paybill_control'];
+			if (mpesa_control) {
+				mpesa_control.set_value(total_amount);
+			}
+
+			frappe.show_alert({
+				message: __('Mpesa payments applied successfully!'),
+				indicator: 'green'
+			});
+
+			// Trigger update of totals
+			me.update_totals_section(doc);
+		}).catch(error => {
+			console.error('Error updating payments:', error);
+			frappe.msgprint({
+				title: __('Error'),
+				message: __('Failed to apply some payments. Please try again.'),
+				indicator: 'red'
+			});
 		});
 	}
 
@@ -371,12 +614,27 @@ posnext.PointOfSale.Payment = class {
 				const margin = i % 2 === 0 ? 'pr-2' : 'pl-2';
 				const amount = p.amount > 0 ? format_currency(p.amount, currency) : '';
 
+				// Add special button for mpesa-paybill mode
+				const mpesa_button = mode === 'mpesa-tenacity' ? 
+					`<div class="apply-mpesa-payment" style="
+						background: #28a745; 
+						color: white; 
+						padding: 4px 8px; 
+						border-radius: 4px; 
+						font-size: 11px; 
+						cursor: pointer; 
+						margin-top: 4px;
+						text-align: center;
+						user-select: none;
+					">${__('Apply Mpesa Payment')}</div>` : '';
+
 				return (`
 					<div class="payment-mode-wrapper">
 						<div class="mode-of-payment" data-mode="${mode}" data-payment-type="${payment_type}">
 							${p.mode_of_payment}
 							<div class="${mode}-amount pay-amount">${amount}</div>
 							<div class="${mode} mode-of-payment-control"></div>
+							${mpesa_button}
 						</div>
 					</div>
 				`);
