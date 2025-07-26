@@ -197,7 +197,7 @@ posnext.PointOfSale.PastOrderList = class {
 			df: {
 				label: __('Invoice Status'),
 				fieldtype: 'Select',
-				options: `Draft\nPaid\nPartly Paid\nUnpaid\nConsolidated\nReturn`,
+				options: `Draft\nPaid\nPartly Paid\nUnpaid\nOverdue\nReturn`,
 				placeholder: __('Filter by invoice status'),
 				onchange: function() {
 					console.log('Status field changed to:', me.status_field.get_value());
