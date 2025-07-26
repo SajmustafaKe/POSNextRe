@@ -267,11 +267,8 @@ posnext.PointOfSale.Payment = class {
 				if (r.message && r.message.length > 0) {
 					me.create_mpesa_selection_dialog(r.message, doc, grand_total);
 				} else {
-					frappe.msgprint({
-						title: __('No Payments Found'),
-						message: __('No available Mpesa payments found in the system.'),
-						indicator: 'orange'
-					});
+					// Show dialog even with no payments for UI preview
+					me.create_mpesa_selection_dialog([], doc, grand_total);
 				}
 			}
 		});
@@ -280,15 +277,51 @@ posnext.PointOfSale.Payment = class {
 	create_mpesa_selection_dialog(payments, doc, grand_total) {
 		const me = this;
 		
+		// Create sample data if no payments exist (for UI preview)
+		let displayPayments = payments;
+		if (payments.length === 0) {
+			displayPayments = [
+				{
+					name: 'sample-1',
+					full_name: 'John Doe',
+					transid: 'QKL1234567',
+					transamount: 1500,
+					transtime: '2024-01-15 14:30:25'
+				},
+				{
+					name: 'sample-2',
+					full_name: 'Jane Smith',
+					transid: 'QKL2345678',
+					transamount: 2500,
+					transtime: '2024-01-15 15:45:10'
+				},
+				{
+					name: 'sample-3',
+					full_name: 'Michael Johnson',
+					transid: 'QKL3456789',
+					transamount: 800,
+					transtime: '2024-01-15 16:20:15'
+				},
+				{
+					name: 'sample-4',
+					full_name: 'Sarah Wilson',
+					transid: 'QKL4567890',
+					transamount: 3200,
+					transtime: '2024-01-15 17:10:30'
+				}
+			];
+		}
+		
 		// Create table rows for payments
-		const payment_rows = payments.map(payment => {
+		const payment_rows = displayPayments.map(payment => {
 			const formatted_amount = format_currency(payment.transamount, doc.currency);
 			const formatted_time = frappe.datetime.str_to_user(payment.transtime);
+			const isDisabled = payments.length === 0 ? 'disabled' : '';
 			
 			return `
 				<tr data-payment-id="${payment.name}">
 					<td style="text-align: center;">
-						<input type="checkbox" class="payment-checkbox" data-amount="${payment.transamount}" />
+						<input type="checkbox" class="payment-checkbox" data-amount="${payment.transamount}" ${isDisabled} />
 					</td>
 					<td>${payment.full_name || ''}</td>
 					<td>${payment.transid || ''}</td>
@@ -298,8 +331,17 @@ posnext.PointOfSale.Payment = class {
 			`;
 		}).join('');
 
+		// Show message when no real payments exist
+		const no_payments_message = payments.length === 0 ? 
+			`<div style="background-color: #fff3cd; border: 1px solid #ffeaa7; color: #856404; padding: 12px; border-radius: 6px; margin-bottom: 15px; text-align: center;">
+				<strong>${__('No Available Payments')}</strong><br>
+				${__('No Mpesa payments found in the system. The table below shows sample data for UI preview.')}
+			</div>` : '';
+
 		const dialog_html = `
 			<div class="mpesa-payment-dialog">
+				${no_payments_message}
+				
 				<div style="margin-bottom: 15px;">
 					<div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; background-color: #f8f9fa; border-radius: 6px;">
 						<strong>${__('Invoice Total')}: ${format_currency(grand_total, doc.currency)}</strong>
@@ -311,7 +353,7 @@ posnext.PointOfSale.Payment = class {
 				
 				<div style="margin-bottom: 15px;">
 					<label style="display: flex; align-items: center; gap: 8px; font-size: 14px;">
-						<input type="checkbox" id="select-all-payments" />
+						<input type="checkbox" id="select-all-payments" ${payments.length === 0 ? 'disabled' : ''} />
 						<strong>${__('Select All')}</strong>
 					</label>
 				</div>
@@ -345,8 +387,12 @@ posnext.PointOfSale.Payment = class {
 				}
 			],
 			size: 'large',
-			primary_action_label: __('Apply Selected Payments'),
+			primary_action_label: payments.length === 0 ? __('Close (No Payments)') : __('Apply Selected Payments'),
 			primary_action: function() {
+				if (payments.length === 0) {
+					dialog.hide();
+					return;
+				}
 				me.apply_selected_mpesa_payments(dialog, doc);
 			},
 			secondary_action_label: __('Cancel')
@@ -354,23 +400,25 @@ posnext.PointOfSale.Payment = class {
 
 		dialog.show();
 
-		// Add event listeners for checkboxes
-		setTimeout(() => {
-			const dialog_wrapper = dialog.$wrapper;
-			
-			// Handle individual checkbox changes
-			dialog_wrapper.find('.payment-checkbox').on('change', function() {
-				me.update_selected_total(dialog_wrapper, doc.currency);
-				me.update_select_all_state(dialog_wrapper);
-			});
+		// Add event listeners for checkboxes (only if real payments exist)
+		if (payments.length > 0) {
+			setTimeout(() => {
+				const dialog_wrapper = dialog.$wrapper;
+				
+				// Handle individual checkbox changes
+				dialog_wrapper.find('.payment-checkbox').on('change', function() {
+					me.update_selected_total(dialog_wrapper, doc.currency);
+					me.update_select_all_state(dialog_wrapper);
+				});
 
-			// Handle select all checkbox
-			dialog_wrapper.find('#select-all-payments').on('change', function() {
-				const isChecked = $(this).is(':checked');
-				dialog_wrapper.find('.payment-checkbox').prop('checked', isChecked);
-				me.update_selected_total(dialog_wrapper, doc.currency);
-			});
-		}, 100);
+				// Handle select all checkbox
+				dialog_wrapper.find('#select-all-payments').on('change', function() {
+					const isChecked = $(this).is(':checked');
+					dialog_wrapper.find('.payment-checkbox').prop('checked', isChecked);
+					me.update_selected_total(dialog_wrapper, doc.currency);
+				});
+			}, 100);
+		}
 	}
 
 	update_selected_total(dialog_wrapper, currency) {
