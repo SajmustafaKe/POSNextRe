@@ -1,6 +1,6 @@
-import frappe
-from frappe.utils import get_datetime, flt
 from collections import defaultdict
+from frappe.utils import get_datetime
+import frappe
 
 @frappe.whitelist()
 def get_pos_invoices_by_submitter(user, period_start_date, period_end_date):
@@ -104,19 +104,23 @@ def get_pos_invoices_by_submitter(user, period_start_date, period_end_date):
             fields=["parent", "reference_name"]
         )
 
-        # Get invoices outside the period
+        # Get all referenced invoices with their posting dates
         if payment_references:
             ref_invoice_names = list(set(pr["reference_name"] for pr in payment_references))
-            invoices_outside_period = frappe.get_all(
+            ref_invoices = frappe.get_all(
                 "Sales Invoice",
                 filters={
                     "docstatus": 1,
-                    "name": ["in", ref_invoice_names],
-                    "posting_date": ["not between", [start.date(), end.date()]]
+                    "name": ["in", ref_invoice_names]
                 },
-                fields=["name"]
+                fields=["name", "posting_date"]
             )
-            outside_invoice_names = set(inv["name"] for inv in invoices_outside_period)
+
+            # Identify invoices outside the period
+            outside_invoice_names = set(
+                inv["name"] for inv in ref_invoices
+                if inv["posting_date"] < start.date() or inv["posting_date"] > end.date()
+            )
 
             # Map Payment Entries to their referenced invoices
             pe_to_invoices = defaultdict(set)
