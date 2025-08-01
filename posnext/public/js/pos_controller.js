@@ -222,7 +222,7 @@ find_available_opening_entry() {
 		if(this.settings.custom_show_save_as_draft) {
 			this.page.add_menu_item(__("Save as Draft"), this.save_draft_invoice.bind(this), false, 'Ctrl+S');
 		}
-		if(this.settings.custom_show_close_the_pos) {
+		if(this.settings.custom_show_close_the_pos && !frappe.user_roles.includes('Waiter')) {
 			this.page.add_menu_item(__('Close the POS'), this.close_pos.bind(this), false, 'Shift+Ctrl+C');
 		}
 	}
