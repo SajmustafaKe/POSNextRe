@@ -501,7 +501,7 @@ const update_promises = selected_payments.map(payment => {
             name: payment.id,
             fieldname: {
                 invoicenumber: doc.name,
-                customer: doc.customer_name || doc.customer || '' // Use customer_name or customer, fallback to empty string
+                customer: doc.customer || '' // Use customer_name or customer, fallback to empty string
             }
         }
     }).then(() => {
