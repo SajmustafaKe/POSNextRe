@@ -27,22 +27,114 @@ def get_pos_invoices_by_submitter(user, period_start_date, period_end_date):
         ]
     )
 
+    # Initialize payments list
+    payments = []
+
+    # If no invoices, fetch Payment Entries with no linked invoices
     if not invoices:
+        payment_entries = frappe.get_all(
+            "Payment Entry",
+            filters={
+                "payment_type": "Receive",
+                "docstatus": 1,
+                "modified_by": user
+            },
+            fields=["name", "mode_of_payment", "paid_amount as amount"]
+        )
+
+        if payment_entries:
+            # Get Payment Entry References
+            pe_names = [pe["name"] for pe in payment_entries]
+            payment_references = frappe.get_all(
+                "Payment Entry Reference",
+                filters={"parent": ["in", pe_names]},
+                fields=["parent", "reference_name"]
+            )
+            pe_with_refs = set(pr["parent"] for pr in payment_references)
+
+            # Include Payment Entries with no linked invoices
+            for pe in payment_entries:
+                if pe["name"] not in pe_with_refs:
+                    payments.append({
+                        "parent": pe["name"],
+                        "mode_of_payment": pe["mode_of_payment"],
+                        "amount": pe["amount"]
+                    })
+
+        # Process payment data
+        mode_of_payment_totals = defaultdict(float)
+        for payment in payments:
+            mode_of_payment_totals[payment["mode_of_payment"]] += payment["amount"]
+
         return {
             "invoices": [],
-            "payments": {}
+            "payments": dict(mode_of_payment_totals)
         }
 
-    # Fetch all payments from Sales Invoice Payment table
+    # Fetch payments from Sales Invoice Payment for invoices in the period
     invoice_names = [inv["name"] for inv in invoices]
-    payments = frappe.get_all(
-        "Sales Invoice Payment",
-        filters={"parent": ["in", invoice_names]},
-        fields=["parent", "mode_of_payment", "amount"]
+    payments.extend(
+        frappe.get_all(
+            "Sales Invoice Payment",
+            filters={"parent": ["in", invoice_names]},
+            fields=["parent", "mode_of_payment", "amount"]
+        )
     )
 
-    # Fetch all Payment Entries with "Receive" type, submitted, for these invoices
+    # Fetch all Payment Entries of type Receive for the user
     payment_entries = frappe.get_all(
+        "Payment Entry",
+        filters={
+            "payment_type": "Receive",
+            "docstatus": 1,
+            "modified_by": user
+        },
+        fields=["name", "mode_of_payment", "paid_amount as amount"]
+    )
+
+    if payment_entries:
+        pe_names = [pe["name"] for pe in payment_entries]
+        # Fetch Payment Entry References
+        payment_references = frappe.get_all(
+            "Payment Entry Reference",
+            filters={
+                "parent": ["in", pe_names],
+                "reference_doctype": "Sales Invoice"
+            },
+            fields=["parent", "reference_name"]
+        )
+
+        # Get invoices outside the period
+        if payment_references:
+            ref_invoice_names = list(set(pr["reference_name"] for pr in payment_references))
+            invoices_outside_period = frappe.get_all(
+                "Sales Invoice",
+                filters={
+                    "docstatus": 1,
+                    "name": ["in", ref_invoice_names],
+                    "posting_date": ["not between", [start.date(), end.date()]]
+                },
+                fields=["name"]
+            )
+            outside_invoice_names = set(inv["name"] for inv in invoices_outside_period)
+
+            # Map Payment Entries to their referenced invoices
+            pe_to_invoices = defaultdict(set)
+            for pr in payment_references:
+                pe_to_invoices[pr["parent"]].add(pr["reference_name"])
+
+            # Include Payment Entries with no linked invoices or linked to invoices outside the period
+            pe_with_refs = set(pr["parent"] for pr in payment_references)
+            for pe in payment_entries:
+                if pe["name"] not in pe_with_refs or pe_to_invoices[pe["name"]].issubset(outside_invoice_names):
+                    payments.append({
+                        "parent": pe["name"],
+                        "mode_of_payment": pe["mode_of_payment"],
+                        "amount": pe["amount"]
+                    })
+
+    # Fetch Payment Entry References for invoices in the period to include their modes of payment
+    payment_entry_refs = frappe.get_all(
         "Payment Entry Reference",
         filters={
             "reference_doctype": "Sales Invoice",
@@ -51,9 +143,8 @@ def get_pos_invoices_by_submitter(user, period_start_date, period_end_date):
         fields=["parent", "allocated_amount"]
     )
 
-    # Get all Payment Entry docs with payment_type "Receive" and docstatus 1
-    pe_names = list(set([pe["parent"] for pe in payment_entries]))
-    pe_docs = []
+    # Get Payment Entry modes of payment
+    pe_names = list(set(ref["parent"] for ref in payment_entry_refs))
     pe_mode_map = {}
     if pe_names:
         pe_docs = frappe.get_all(
@@ -67,11 +158,9 @@ def get_pos_invoices_by_submitter(user, period_start_date, period_end_date):
         )
         pe_mode_map = {pe["name"]: pe["mode_of_payment"] for pe in pe_docs}
 
-    # Only include payment entries with payment_type "Receive"
-    # Avoid double-counting by tracking what we've already added
+    # Avoid double-counting payments
     existing = set((p["parent"], p["mode_of_payment"], float(p["amount"])) for p in payments)
-    
-    for pe_ref in payment_entries:
+    for pe_ref in payment_entry_refs:
         mode = pe_mode_map.get(pe_ref["parent"])
         if mode:
             key = (pe_ref["parent"], mode, float(pe_ref["allocated_amount"]))
@@ -86,9 +175,6 @@ def get_pos_invoices_by_submitter(user, period_start_date, period_end_date):
     mode_of_payment_totals = defaultdict(float)
     for payment in payments:
         mode_of_payment_totals[payment["mode_of_payment"]] += payment["amount"]
-
-    # Since we don't have company/territory info, we'll skip the internal transfers
-    # that require company and territory filters from the original function
 
     return {
         "invoices": invoices,
