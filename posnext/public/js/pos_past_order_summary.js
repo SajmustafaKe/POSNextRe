@@ -511,18 +511,30 @@ apply_selected_mpesa_for_payment(dialog, payment_values) {
     
     const total_amount = selected_payments.reduce((sum, p) => sum + p.amount, 0);
     
-    // Update the Mpesa records with invoice number
-    const update_promises = selected_payments.map(payment => {
+const update_promises = selected_payments.map(payment => {
+    return frappe.call({
+        method: 'frappe.client.set_value',
+        args: {
+            doctype: 'Mpesa C2B Payment Register',
+            name: payment.id,
+            fieldname: {
+                invoicenumber: doc.name,
+                full_name: doc.customer_name || doc.customer || '' // Use customer_name or customer, fallback to empty string
+            }
+        }
+    }).then(() => {
+        // Submit the Mpesa C2B Payment Register document after updating
         return frappe.call({
-            method: 'frappe.client.set_value',
+            method: 'frappe.client.submit',
             args: {
-                doctype: 'Mpesa C2B Payment Register',
-                name: payment.id,
-                fieldname: 'invoicenumber',
-                value: this.doc.name
+                doc: {
+                    doctype: 'Mpesa C2B Payment Register',
+                    name: payment.id
+                }
             }
         });
     });
+});
     
     Promise.all(update_promises).then(() => {
         // Create the actual payment entry
