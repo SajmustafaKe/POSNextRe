@@ -493,18 +493,30 @@ posnext.PointOfSale.Payment = class {
 			indicator: 'blue'
 		});
 
-		// Update each selected payment record with invoice number
-		const update_promises = selected_payments.map(payment => {
-			return frappe.call({
-				method: 'frappe.client.set_value',
-				args: {
-					doctype: 'Mpesa C2B Payment Register',
-					name: payment.id,
-					fieldname: 'invoicenumber',
-					value: doc.name
-				}
-			});
-		});
+const update_promises = selected_payments.map(payment => {
+    return frappe.call({
+        method: 'frappe.client.set_value',
+        args: {
+            doctype: 'Mpesa C2B Payment Register',
+            name: payment.id,
+            fieldname: {
+                invoicenumber: doc.name,
+                full_name: doc.customer_name || doc.customer || '' // Use customer_name or customer, fallback to empty string
+            }
+        }
+    }).then(() => {
+        // Submit the Mpesa C2B Payment Register document after updating
+        return frappe.call({
+            method: 'frappe.client.submit',
+            args: {
+                doc: {
+                    doctype: 'Mpesa C2B Payment Register',
+                    name: payment.id
+                }
+            }
+        });
+    });
+});
 
 		Promise.all(update_promises).then(() => {
 			// Update the mpesa-paybill payment amount
