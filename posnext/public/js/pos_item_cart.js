@@ -119,15 +119,17 @@ make_cart_totals_section() {
             <div>0.00</div>
         </div>
         <div style="display: flex; justify-content: space-between; gap: 10px;">
-            <div class="checkout-btn" style="
-                padding: 10px;
-                align-items: center;
-                justify-content: center;
-                color: white;
-                border: none;
-                border-radius: 5px;
-                cursor: pointer;
-                flex: 1;">${__('Checkout')}</div>
+         ${!frappe.user_roles.includes('Waiter') ? `
+                <div class="checkout-btn" style="
+                    padding: 10px;
+                    align-items: center;
+                    justify-content: center;
+                    color: white;
+                    border: none;
+                    border-radius: 5px;
+                    cursor: pointer;
+                    flex: 1;">${__('Checkout')}</div>
+            ` : ''}
             <div class="checkout-btn-held" style="
                 padding: 10px;
                 align-items: center;
