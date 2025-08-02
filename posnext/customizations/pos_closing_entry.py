@@ -73,24 +73,8 @@ def get_pos_invoices_by_submitter(user, period_start_date, period_end_date):
             pe_with_refs.add(pr["parent"])
             pe_to_invoices[pr["parent"]].add(pr["reference_name"])
 
-        # If we have references, check which invoices they point to
-        invoices_in_period = set()
-        if payment_references:
-            ref_invoice_names = list(set(pr["reference_name"] for pr in payment_references))
-            ref_invoices = frappe.get_all(
-                "Sales Invoice",
-                filters={
-                    "docstatus": 1,
-                    "name": ["in", ref_invoice_names]
-                },
-                fields=["name", "creation"]
-            )
-            
-            # Identify which referenced invoices are in our period
-            invoices_in_period = set(
-                inv["name"] for inv in ref_invoices
-                if start <= inv["creation"] <= end
-            )
+        # Create a set of invoice names that we already fetched for this period
+        fetched_invoice_names = set(inv["name"] for inv in invoices)
 
         # Process each Payment Entry
         for pe in payment_entries:
@@ -98,7 +82,7 @@ def get_pos_invoices_by_submitter(user, period_start_date, period_end_date):
             
             # Include Payment Entry if:
             # 1. It has no references to any invoices, OR
-            # 2. None of its referenced invoices are in the current period
+            # 2. None of its referenced invoices are in our fetched invoices list
             if pe_name not in pe_with_refs:
                 # No references - include it
                 payments.append({
@@ -107,12 +91,12 @@ def get_pos_invoices_by_submitter(user, period_start_date, period_end_date):
                     "amount": pe["amount"]
                 })
             else:
-                # Has references - check if any reference invoices in current period
+                # Has references - check if any reference invoices are in our fetched list
                 referenced_invoices = pe_to_invoices[pe_name]
-                has_period_invoice = bool(referenced_invoices.intersection(invoices_in_period))
+                references_fetched_invoice = bool(referenced_invoices.intersection(fetched_invoice_names))
                 
-                if not has_period_invoice:
-                    # No referenced invoices are in the current period - include it
+                if not references_fetched_invoice:
+                    # No referenced invoices are in our fetched list - include it
                     payments.append({
                         "parent": pe_name,
                         "mode_of_payment": pe["mode_of_payment"],
