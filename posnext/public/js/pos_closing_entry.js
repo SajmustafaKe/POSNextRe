@@ -74,7 +74,13 @@ frappe.ui.form.on('POS Closing Entry', {
             }
         });
     },
-
+    
+    refresh: function(frm) {
+        if (frm.doc.pos_opening_entry && !frm.doc.period_end_date) {
+            frm.set_value("period_end_date", frappe.datetime.now_datetime());
+        }
+    },
+    
     pos_opening_entry: function (frm) {
         if (!frm.doc.pos_opening_entry) {
             frm.clear_table("custom_payment_reconc");
@@ -90,6 +96,8 @@ frappe.ui.form.on('POS Closing Entry', {
             },
             callback: function (res) {
                 if (res.message) {
+                    frm.set_value("period_start_date", res.message.posting_date);
+                    frm.set_value("period_end_date", frappe.datetime.now_datetime());
                     const balances = res.message.balance_details || [];
 
                     frm.clear_table("custom_payment_reconc");
