@@ -106,7 +106,12 @@ def get_pos_invoices_by_submitter(user, period_start_date, period_end_date):
             fields=["parent", "reference_name"]
         )
 
-        # Get all referenced invoices with their posting dates
+        # Create a mapping of Payment Entry to its referenced invoices
+        pe_to_invoices = defaultdict(set)
+        for pr in payment_references:
+            pe_to_invoices[pr["parent"]].add(pr["reference_name"])
+
+        # Get all referenced invoices with their creation dates
         if payment_references:
             ref_invoice_names = list(set(pr["reference_name"] for pr in payment_references))
             ref_invoices = frappe.get_all(
@@ -118,28 +123,38 @@ def get_pos_invoices_by_submitter(user, period_start_date, period_end_date):
                 fields=["name", "creation"]
             )
 
-            # Identify invoices outside the period
-            outside_invoice_names = set(
-                inv["name"] for inv in ref_invoices
-                if inv["creation"] < start or inv["creation"] > end
-            )
+            # Create a mapping of invoice name to creation date
+            invoice_creation_map = {inv["name"]: inv["creation"] for inv in ref_invoices}
 
-            # Map Payment Entries to their referenced invoices
-            pe_to_invoices = defaultdict(set)
-            for pr in payment_references:
-                pe_to_invoices[pr["parent"]].add(pr["reference_name"])
-
-            # Include Payment Entries with no linked invoices or linked to invoices outside the period
-            pe_with_refs = set(pr["parent"] for pr in payment_references)
-            for pe in payment_entries:
-                if pe["name"] not in pe_with_refs or (pe["name"] in pe_with_refs and pe_to_invoices[pe["name"]].issubset(outside_invoice_names)):
+        # Process each Payment Entry
+        for pe in payment_entries:
+            pe_name = pe["name"]
+            
+            # Case 1: Payment Entry has no references - include it
+            if pe_name not in pe_to_invoices:
+                payments.append({
+                    "parent": pe_name,
+                    "mode_of_payment": pe["mode_of_payment"],
+                    "amount": pe["amount"]
+                })
+            else:
+                # Case 2: Payment Entry has references - check if ALL referenced invoices are outside the period
+                referenced_invoices = pe_to_invoices[pe_name]
+                all_outside_period = True
+                
+                for ref_invoice in referenced_invoices:
+                    invoice_creation = invoice_creation_map.get(ref_invoice)
+                    if invoice_creation and start <= invoice_creation <= end:
+                        all_outside_period = False
+                        break
+                
+                # Only include if ALL referenced invoices are outside the period
+                if all_outside_period:
                     payments.append({
-                        "parent": pe["name"],
+                        "parent": pe_name,
                         "mode_of_payment": pe["mode_of_payment"],
                         "amount": pe["amount"]
                     })
-
-
 
     # Process payment data
     mode_of_payment_totals = defaultdict(float)
