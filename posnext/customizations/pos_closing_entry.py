@@ -30,59 +30,17 @@ def get_pos_invoices_by_submitter(user, period_start_date, period_end_date):
     # Initialize payments list
     payments = []
 
-    # If no invoices, fetch Payment Entries with no linked invoices
-    if not invoices:
-        payment_entries = frappe.get_all(
-            "Payment Entry",
-            filters={
-                "payment_type": "Receive",
-                "docstatus": 1,
-                "modified_by": user,
-                "creation": ["between", [start, end]]
-            },
-            fields=["name", "mode_of_payment", "paid_amount as amount"]
-        )
-
-        if payment_entries:
-            # Get Payment Entry References
-            pe_names = [pe["name"] for pe in payment_entries]
-            payment_references = frappe.get_all(
-                "Payment Entry Reference",
-                filters={"parent": ["in", pe_names]},
-                fields=["parent", "reference_name"]
-            )
-            pe_with_refs = set(pr["parent"] for pr in payment_references)
-
-            # Include Payment Entries with no linked invoices
-            for pe in payment_entries:
-                if pe["name"] not in pe_with_refs:
-                    payments.append({
-                        "parent": pe["name"],
-                        "mode_of_payment": pe["mode_of_payment"],
-                        "amount": pe["amount"]
-                    })
-
-        # Process payment data
-        mode_of_payment_totals = defaultdict(float)
-        for payment in payments:
-            mode_of_payment_totals[payment["mode_of_payment"]] += payment["amount"]
-
-        return {
-            "invoices": [],
-            "payments": dict(mode_of_payment_totals)
-        }
-
-    # Fetch payments from Sales Invoice Payment for invoices in the period
-    invoice_names = [inv["name"] for inv in invoices]
-    payments.extend(
-        frappe.get_all(
+    if invoices:
+        # We have invoices in the period, so get their payments from Sales Invoice Payment table
+        invoice_names = [inv["name"] for inv in invoices]
+        invoice_payments = frappe.get_all(
             "Sales Invoice Payment",
             filters={"parent": ["in", invoice_names]},
             fields=["parent", "mode_of_payment", "amount"]
         )
-    )
+        payments.extend(invoice_payments)
 
-    # Fetch all Payment Entries of type Receive for the user
+    # Now handle standalone Payment Entries (those not linked to any invoice OR linked only to invoices outside the period)
     payment_entries = frappe.get_all(
         "Payment Entry",
         filters={
@@ -96,7 +54,8 @@ def get_pos_invoices_by_submitter(user, period_start_date, period_end_date):
 
     if payment_entries:
         pe_names = [pe["name"] for pe in payment_entries]
-        # Fetch Payment Entry References
+        
+        # Get all Payment Entry References for these Payment Entries
         payment_references = frappe.get_all(
             "Payment Entry Reference",
             filters={
@@ -106,12 +65,16 @@ def get_pos_invoices_by_submitter(user, period_start_date, period_end_date):
             fields=["parent", "reference_name"]
         )
 
-        # Create a mapping of Payment Entry to its referenced invoices
+        # Create sets for easier lookup
+        pe_with_refs = set()
         pe_to_invoices = defaultdict(set)
+        
         for pr in payment_references:
+            pe_with_refs.add(pr["parent"])
             pe_to_invoices[pr["parent"]].add(pr["reference_name"])
 
-        # Get all referenced invoices with their creation dates
+        # If we have references, check which invoices they point to
+        invoices_in_period = set()
         if payment_references:
             ref_invoice_names = list(set(pr["reference_name"] for pr in payment_references))
             ref_invoices = frappe.get_all(
@@ -122,34 +85,34 @@ def get_pos_invoices_by_submitter(user, period_start_date, period_end_date):
                 },
                 fields=["name", "creation"]
             )
-
-            # Create a mapping of invoice name to creation date
-            invoice_creation_map = {inv["name"]: inv["creation"] for inv in ref_invoices}
+            
+            # Identify which referenced invoices are in our period
+            invoices_in_period = set(
+                inv["name"] for inv in ref_invoices
+                if start <= inv["creation"] <= end
+            )
 
         # Process each Payment Entry
         for pe in payment_entries:
             pe_name = pe["name"]
             
-            # Case 1: Payment Entry has no references - include it
-            if pe_name not in pe_to_invoices:
+            # Include Payment Entry if:
+            # 1. It has no references to any invoices, OR
+            # 2. None of its referenced invoices are in the current period
+            if pe_name not in pe_with_refs:
+                # No references - include it
                 payments.append({
                     "parent": pe_name,
                     "mode_of_payment": pe["mode_of_payment"],
                     "amount": pe["amount"]
                 })
             else:
-                # Case 2: Payment Entry has references - check if ALL referenced invoices are outside the period
+                # Has references - check if any reference invoices in current period
                 referenced_invoices = pe_to_invoices[pe_name]
-                all_outside_period = True
+                has_period_invoice = bool(referenced_invoices.intersection(invoices_in_period))
                 
-                for ref_invoice in referenced_invoices:
-                    invoice_creation = invoice_creation_map.get(ref_invoice)
-                    if invoice_creation and start <= invoice_creation <= end:
-                        all_outside_period = False
-                        break
-                
-                # Only include if ALL referenced invoices are outside the period
-                if all_outside_period:
+                if not has_period_invoice:
+                    # No referenced invoices are in the current period - include it
                     payments.append({
                         "parent": pe_name,
                         "mode_of_payment": pe["mode_of_payment"],
