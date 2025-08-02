@@ -115,13 +115,13 @@ def get_pos_invoices_by_submitter(user, period_start_date, period_end_date):
                     "docstatus": 1,
                     "name": ["in", ref_invoice_names]
                 },
-                fields=["name", "posting_date"]
+                fields=["name", "creation"]
             )
 
             # Identify invoices outside the period
             outside_invoice_names = set(
                 inv["name"] for inv in ref_invoices
-                if inv["posting_date"] < start.date() or inv["posting_date"] > end.date()
+                if inv["creation"] < start or inv["creation"] > end
             )
 
             # Map Payment Entries to their referenced invoices
@@ -139,43 +139,7 @@ def get_pos_invoices_by_submitter(user, period_start_date, period_end_date):
                         "amount": pe["amount"]
                     })
 
-    # Fetch Payment Entry References for invoices in the period to include their modes of payment
-    payment_entry_refs = frappe.get_all(
-        "Payment Entry Reference",
-        filters={
-            "reference_doctype": "Sales Invoice",
-            "reference_name": ["in", invoice_names]
-        },
-        fields=["parent", "allocated_amount"]
-    )
 
-    # Get Payment Entry modes of payment
-    pe_names = list(set(ref["parent"] for ref in payment_entry_refs))
-    pe_mode_map = {}
-    if pe_names:
-        pe_docs = frappe.get_all(
-            "Payment Entry",
-            filters={
-                "name": ["in", pe_names],
-                "payment_type": "Receive",
-                "docstatus": 1
-            },
-            fields=["name", "mode_of_payment"]
-        )
-        pe_mode_map = {pe["name"]: pe["mode_of_payment"] for pe in pe_docs}
-
-    # Avoid double-counting payments
-    existing = set((p["parent"], p["mode_of_payment"], float(p["amount"])) for p in payments)
-    for pe_ref in payment_entry_refs:
-        mode = pe_mode_map.get(pe_ref["parent"])
-        if mode:
-            key = (pe_ref["parent"], mode, float(pe_ref["allocated_amount"]))
-            if key not in existing:
-                payments.append({
-                    "parent": pe_ref["parent"],
-                    "mode_of_payment": mode,
-                    "amount": pe_ref["allocated_amount"]
-                })
 
     # Process payment data
     mode_of_payment_totals = defaultdict(float)
