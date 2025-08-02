@@ -96,7 +96,6 @@ frappe.ui.form.on('POS Closing Entry', {
             },
             callback: function (res) {
                 if (res.message) {
-                    frm.set_value("period_start_date", res.message.period_start_date);
                     frm.set_value("period_end_date", frappe.datetime.now_datetime());
                     const balances = res.message.balance_details || [];
 
