@@ -132,7 +132,8 @@ def get_pos_invoices_by_submitter(user, period_start_date, period_end_date):
             # Include Payment Entries with no linked invoices or linked to invoices outside the period
             pe_with_refs = set(pr["parent"] for pr in payment_references)
             for pe in payment_entries:
-                if pe["name"] not in pe_with_refs or pe_to_invoices[pe["name"]].issubset(outside_invoice_names):
+                if pe["name"] not in pe_with_refs or 
+                    (pe["name"] in pe_with_refs and pe_to_invoices[pe["name"]].issubset(outside_invoice_names))):
                     payments.append({
                         "parent": pe["name"],
                         "mode_of_payment": pe["mode_of_payment"],
