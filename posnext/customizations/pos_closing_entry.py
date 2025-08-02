@@ -14,7 +14,7 @@ def get_pos_invoices_by_submitter(user, period_start_date, period_end_date):
             "docstatus": 1,
             "is_pos": 1,
             "modified_by": user,
-            "posting_date": ["between", [start.date(), end.date()]]
+            "creation": ["between", [start, end]]
         },
         fields=[
             "name",
@@ -38,8 +38,7 @@ def get_pos_invoices_by_submitter(user, period_start_date, period_end_date):
                 "payment_type": "Receive",
                 "docstatus": 1,
                 "modified_by": user,
-                "posting_date": ["between", [start.date(), end.date()]],
-                "posting_time": ["between", [start.time(), end.time()]] if start.date() == end.date() else [">=", start.time()]
+                "creation": ["between", [start, end]]
             },
             fields=["name", "mode_of_payment", "paid_amount as amount"]
         )
@@ -90,8 +89,7 @@ def get_pos_invoices_by_submitter(user, period_start_date, period_end_date):
             "payment_type": "Receive",
             "docstatus": 1,
             "modified_by": user,
-            "posting_date": ["between", [start.date(), end.date()]],
-            "posting_time": ["between", [start.time(), end.time()]] if start.date() == end.date() else [">=", start.time()]
+            "creation": ["between", [start, end]]
         },
         fields=["name", "mode_of_payment", "paid_amount as amount"]
     )
