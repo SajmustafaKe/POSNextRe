@@ -925,21 +925,25 @@ get_item_from_frm({ name, item_code, batch_no, uom, rate }) {
 		}
 	}
 
-	get_available_stock(item_code, warehouse) {
-		const me = this;
-		return frappe.call({
-			method: "erpnext.accounts.doctype.pos_invoice.pos_invoice.get_stock_availability",
-			args: {
-				'item_code': item_code,
-				'warehouse': warehouse,
-			},
-			callback(res) {
-				if (!me.item_stock_map[item_code])
-					me.item_stock_map[item_code] = {};
-				me.item_stock_map[item_code][warehouse] = res.message;
-			}
-		});
-	}
+get_available_stock(item_code, warehouse) {
+    const me = this;
+    if (!warehouse && me.frm.doc.pos_profile) {
+        warehouse = frappe.db.get_single_value("POS Profile", me.frm.doc.pos_profile, "warehouse");
+    }
+    console.log("get_available_stock: item_code =", item_code, "warehouse =", warehouse);
+    return frappe.call({
+        method: "erpnext.accounts.doctype.pos_invoice.pos_invoice.get_stock_availability",
+        args: {
+            'item_code': item_code,
+            'warehouse': warehouse,
+        },
+        callback(res) {
+            if (!me.item_stock_map[item_code])
+                me.item_stock_map[item_code] = {};
+            me.item_stock_map[item_code][warehouse] = res.message;
+        }
+    });
+}
 
 	update_item_field(value, field_or_action) {
 		if (field_or_action === 'checkout') {
