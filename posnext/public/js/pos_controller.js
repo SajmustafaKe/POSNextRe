@@ -562,26 +562,39 @@ init_item_cart() {
 		});
 	}
 
-	init_recent_order_list() {
-		this.recent_order_list = new posnext.PointOfSale.PastOrderList({
-			wrapper: this.$components_wrapper,
-			events: {
-				open_invoice_data: (name) => {
-					frappe.db.get_doc('Sales Invoice', name).then((doc) => {
-						this.order_summary.load_summary_of(doc);
-					});
-				},
-				reset_summary: () => this.order_summary.toggle_summary_placeholder(true),
-				previous_screen: () => {
-					this.recent_order_list.toggle_component(false);
-					this.cart.load_invoice()
-					this.item_selector.toggle_component(true)
-					this.wrapper.find('.past-order-summary').css("display","none");
-				},
-
-			}
-		})
-	}
+init_recent_order_list() {
+    this.recent_order_list = new posnext.PointOfSale.PastOrderList({
+        wrapper: this.$components_wrapper,
+        events: {
+            open_invoice_data: (name) => {
+                frappe.db.get_doc('Sales Invoice', name).then((doc) => {
+                    // Update frm with the new invoice
+                    frappe.run_serially([
+                        () => {
+                            this.frm = this.get_new_frm(this.frm);
+                            frappe.model.sync(doc);
+                            this.frm.refresh(doc.name);
+                            return this.set_pos_profile_data();
+                        },
+                        () => {
+                            this.order_summary.load_summary_of(doc);
+                            this.cart.load_invoice();
+                            this.item_selector.toggle_component(true);
+                            console.log("Merged invoice warehouse:", this.frm.doc.set_warehouse);
+                        }
+                    ]);
+                });
+            },
+            reset_summary: () => this.order_summary.toggle_summary_placeholder(true),
+            previous_screen: () => {
+                this.recent_order_list.toggle_component(false);
+                this.cart.load_invoice();
+                this.item_selector.toggle_component(true);
+                this.wrapper.find('.past-order-summary').css("display", "none");
+            },
+        }
+    });
+}
 
 	init_order_summary() {
 		this.order_summary = new posnext.PointOfSale.PastOrderSummary({
@@ -722,7 +735,7 @@ make_new_invoice(from_held = false) {
 		}
 
 		if (!this.frm.doc.company) return;
-
+		this.frm.doc.set_warehouse = this.settings.warehouse;
 		return this.frm.trigger("set_pos_data");
 	}
 
