@@ -1060,7 +1060,7 @@ apply_selected_mpesa_for_payment(dialog, payment_values) {
 	print_order() {
 		const doctype = this.doc.doctype;
 		const docname = this.doc.name;
-		const print_format = "Captain Order 2";
+		const print_format = "Captain Order 1";
 		const letterhead = this.doc.letter_head || __("No Letterhead");
 		const lang_code = this.doc.language || frappe.boot.lang;
 
