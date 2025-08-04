@@ -485,62 +485,70 @@ posnext.PointOfSale.Payment = class {
 		);
 	}
 
-	process_mpesa_payments(selected_payments, doc, total_amount) {
-		const me = this;
-		
-		frappe.show_alert({
-			message: __('Processing Mpesa payments...'),
-			indicator: 'blue'
-		});
+process_mpesa_payments(selected_payments, doc, total_amount) {
+	const me = this;
+	
+	frappe.show_alert({
+		message: __('Processing Mpesa payments...'),
+		indicator: 'blue'
+	});
 
-const update_promises = selected_payments.map(payment => {
-    return frappe.call({
-        method: 'frappe.client.set_value',
-        args: {
-            doctype: 'Mpesa C2B Payment Register',
-            name: payment.id,
-            fieldname: {
-                invoicenumber: doc.name,
-                customer: doc.customer || '' // Use customer_name or customer, fallback to empty string
-            }
-        }
-    }).then(() => {
-        // Submit the Mpesa C2B Payment Register document after updating
-        return frappe.call({
-            method: 'frappe.client.submit',
-            args: {
-                doc: {
-                    doctype: 'Mpesa C2B Payment Register',
-                    name: payment.id
-                }
-            }
-        });
-    });
-});
-
-		Promise.all(update_promises).then(() => {
-			// Update the mpesa-paybill payment amount
-			const mpesa_control = me['mpesa-paybill_control'];
-			if (mpesa_control) {
-				mpesa_control.set_value(total_amount);
+	const update_promises = selected_payments.map(payment => {
+		return frappe.call({
+			method: 'frappe.client.set_value',
+			args: {
+				doctype: 'Mpesa C2B Payment Register',
+				name: payment.id,
+				fieldname: {
+					invoicenumber: doc.name,
+					customer: doc.customer || ''
+				}
 			}
-
-			frappe.show_alert({
-				message: __('Mpesa payments applied successfully!'),
-				indicator: 'green'
-			});
-
-			// Trigger update of totals
-			me.update_totals_section(doc);
-		}).catch(error => {
-			console.error('Error updating payments:', error);
-			frappe.msgprint({
-				title: __('Error'),
-				message: __('Failed to apply some payments. Please try again.'),
-				indicator: 'red'
+		}).then(() => {
+			// Fetch the document first, then submit it
+			return frappe.call({
+				method: 'frappe.client.get',
+				args: {
+					doctype: 'Mpesa C2B Payment Register',
+					name: payment.id
+				}
+			}).then(response => {
+				if (response.message) {
+					// Now submit the fetched document
+					return frappe.call({
+						method: 'frappe.client.submit',
+						args: {
+							doc: response.message
+						}
+					});
+				}
 			});
 		});
-	}
+	});
+
+	Promise.all(update_promises).then(() => {
+		// Update the mpesa-paybill payment amount
+		const mpesa_control = me['mpesa-tenacity_control']; // Fixed the control name
+		if (mpesa_control) {
+			mpesa_control.set_value(total_amount);
+		}
+
+		frappe.show_alert({
+			message: __('Mpesa payments applied and submitted successfully!'),
+			indicator: 'green'
+		});
+
+		// Trigger update of totals
+		me.update_totals_section(doc);
+	}).catch(error => {
+		console.error('Error updating/submitting payments:', error);
+		frappe.msgprint({
+			title: __('Error'),
+			message: __('Failed to apply or submit some payments. Please try again. Error: ') + (error.message || error),
+			indicator: 'red'
+		});
+	});
+}
 
 	setup_listener_for_payments() {
 		frappe.realtime.on("process_phone_payment", (data) => {
