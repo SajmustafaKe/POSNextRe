@@ -185,8 +185,8 @@ override_doctype_class = {
 # 	"frappe.desk.doctype.event.event.get_events": "posnext.event.get_events"
 # }
 override_whitelisted_methods = {
-	"erpnext.accounts.doctype.pos_closing_entry.pos_closing_entry.get_pos_invoices": "posnext.overrides.pos_closing_entry.get_pos_invoices",
-	"erpnext.accounts.doctype.pos_invoice.pos_invoice.get_stock_availability": "posnext.overrides.pos_invoice.get_stock_availability"
+	"erpnext.accounts.doctype.pos_closing_entry.pos_closing_entry.get_pos_invoices": "posnext.overrides.pos_closing_entry.get_pos_invoices"
+	#"erpnext.accounts.doctype.pos_invoice.pos_invoice.get_stock_availability": "posnext.overrides.pos_invoice.get_stock_availability"
 }
 #
 # each overriding function accepts a `data` argument;
