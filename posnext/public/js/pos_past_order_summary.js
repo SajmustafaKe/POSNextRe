@@ -501,40 +501,65 @@ update_totals_and_validate(wrapper, currency, outstanding_amount) {
 }
 
 apply_selected_mpesa_for_payment(dialog, payment_values) {
-    // Get selected payments from dialog
-    const selected_payments = []; // extract from dialog selections
+    const me = this;
+    const selected_payments = [];
+    let total_amount = 0;
+
+    // Extract selected payments from dialog
+    dialog.$wrapper.find('.payment-checkbox:checked').each(function() {
+        const row = $(this).closest('tr');
+        const payment_id = row.data('payment-id');
+        const amount = flt($(this).data('amount'));
+        
+        selected_payments.push({
+            id: payment_id,
+            amount: amount
+        });
+        total_amount += amount;
+    });
     
     if (selected_payments.length === 0) {
         frappe.msgprint(__('Please select at least one payment'));
         return;
     }
     
-    const total_amount = selected_payments.reduce((sum, p) => sum + p.amount, 0);
-    
-const update_promises = selected_payments.map(payment => {
-    return frappe.call({
-        method: 'frappe.client.set_value',
-        args: {
-            doctype: 'Mpesa C2B Payment Register',
-            name: payment.id,
-            fieldname: {
-                invoicenumber: doc.name,
-                customer: doc.customer || '' // Use customer_name or customer, fallback to empty string
-            }
-        }
-    }).then(() => {
-        // Submit the Mpesa C2B Payment Register document after updating
+    frappe.show_alert({
+        message: __('Processing Mpesa payments...'),
+        indicator: 'blue'
+    });
+
+    const update_promises = selected_payments.map(payment => {
         return frappe.call({
-            method: 'frappe.client.submit',
+            method: 'frappe.client.set_value',
             args: {
-                doc: {
+                doctype: 'Mpesa C2B Payment Register',
+                name: payment.id,
+                fieldname: {
+                    invoicenumber: this.doc.name,
+                    customer: this.doc.customer || ''
+                }
+            }
+        }).then(() => {
+            // Fetch the document first, then submit it
+            return frappe.call({
+                method: 'frappe.client.get',
+                args: {
                     doctype: 'Mpesa C2B Payment Register',
                     name: payment.id
                 }
-            }
+            }).then(response => {
+                if (response.message) {
+                    // Now submit the fetched document
+                    return frappe.call({
+                        method: 'frappe.client.submit',
+                        args: {
+                            doc: response.message
+                        }
+                    });
+                }
+            });
         });
     });
-});
     
     Promise.all(update_promises).then(() => {
         // Create the actual payment entry
@@ -549,7 +574,7 @@ const update_promises = selected_payments.map(payment => {
     }).then((r) => {
         if (r.message && r.message.success) {
             frappe.show_alert({
-                message: __('Mpesa payment added successfully'),
+                message: __('Mpesa payment added and submitted successfully!'),
                 indicator: 'green'
             });
             dialog.hide();
@@ -557,7 +582,19 @@ const update_promises = selected_payments.map(payment => {
             // Refresh the invoice data
             frappe.db.get_doc('Sales Invoice', this.doc.name)
                 .then(doc => this.load_summary_of(doc));
+        } else {
+            frappe.show_alert({
+                message: __('Error creating payment: ') + (r.message?.error || 'Unknown error'),
+                indicator: 'red'
+            });
         }
+    }).catch(error => {
+        console.error('Error updating/submitting payments:', error);
+        frappe.msgprint({
+            title: __('Error'),
+            message: __('Failed to apply or submit some payments. Please try again. Error: ') + (error.message || error),
+            indicator: 'red'
+        });
     });
 }
 	print_receipt() {
