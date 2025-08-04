@@ -927,6 +927,11 @@ get_item_from_frm({ name, item_code, batch_no, uom, rate }) {
 
 	get_available_stock(item_code, warehouse) {
 		const me = this;
+		if (!warehouse) {
+		warehouse = this.frm?.doc?.set_warehouse || 
+		 this.settings?.warehouse;
+		}
+		
 		return frappe.call({
 			method: "posnext.overrides.pos_invoice.get_stock_availability",
 			args: {
