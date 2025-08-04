@@ -158,7 +158,9 @@ find_available_opening_entry() {
 		this.pos_profile = data.pos_profile;
 		this.pos_opening_time = data.period_start_date;
 		this.item_stock_map = {};
+		if (!this.settings) {
 		this.settings = {};
+		}
 		window.current_pos_profile = this.pos_profile
 		frappe.db.get_value('Stock Settings', undefined, 'allow_negative_stock').then(({ message }) => {
 			this.allow_negative_stock = flt(message.allow_negative_stock) || false;
