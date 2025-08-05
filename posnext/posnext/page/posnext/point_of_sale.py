@@ -1674,3 +1674,140 @@ def create_simple_payment_entry(invoice_name, mode_of_payment, amount):
         frappe.log_error(f"Error creating payment entry: {str(e)}")
         frappe.db.rollback()  # Rollback in case of error
         return {"success": False, "error": str(e)}
+
+@frappe.whitelist()
+def get_available_mpesa_payments():
+    """Get Mpesa payments that have remaining amounts available"""
+    payments = frappe.db.sql("""
+        SELECT 
+            name, 
+            full_name, 
+            transid, 
+            transamount, 
+            transtime,
+            IFNULL(remaining_amount, transamount) as available_amount,
+            IFNULL(payment_status, 'Unapplied') as payment_status
+        FROM `tabMpesa C2B Payment Register`
+        WHERE docstatus = 0 
+        AND (payment_status IS NULL OR payment_status != 'Fully Applied')
+        AND IFNULL(remaining_amount, transamount) > 0
+        ORDER BY transtime DESC
+        LIMIT 50
+    """, as_dict=1)
+    
+    return payments
+
+@frappe.whitelist()
+def apply_partial_mpesa_payments(payments_data, invoice_name):
+    """Apply partial Mpesa payments to an invoice"""
+    import json
+    
+    if isinstance(payments_data, str):
+        payments_data = json.loads(payments_data)
+    
+    total_applied = 0
+    invoice_doc = frappe.get_doc("POS Invoice", invoice_name)
+    
+    for payment_data in payments_data:
+        mpesa_doc = frappe.get_doc("Mpesa C2B Payment Register", payment_data['id'])
+        applied_amount = flt(payment_data['amount'])
+        
+        # Validate available amount
+        current_remaining = flt(mpesa_doc.remaining_amount) if mpesa_doc.remaining_amount else flt(mpesa_doc.transamount)
+        
+        if applied_amount > current_remaining:
+            frappe.throw(_("Cannot apply {0} from payment {1}. Available amount: {2}").format(
+                applied_amount, mpesa_doc.transid, current_remaining))
+        
+        # Add to applied invoices table
+        mpesa_doc.append("applied_invoices", {
+            "invoice_number": invoice_name,
+            "applied_amount": applied_amount,
+            "application_date": now()
+        })
+        
+        # Update remaining amount
+        new_remaining = current_remaining - applied_amount
+        mpesa_doc.remaining_amount = new_remaining
+        
+        # Update status
+        if new_remaining == 0:
+            mpesa_doc.payment_status = "Fully Applied"
+        elif new_remaining < flt(mpesa_doc.transamount):
+            mpesa_doc.payment_status = "Partly Applied"
+        else:
+            mpesa_doc.payment_status = "Unapplied"
+        
+        mpesa_doc.save()
+        total_applied += applied_amount
+    
+    return {
+        "success": True,
+        "total_applied": total_applied,
+        "message": _("Successfully applied {0} from {1} Mpesa payment(s)").format(
+            total_applied, len(payments_data))
+    }
+
+@frappe.whitelist()
+def get_mpesa_payment_history(payment_id):
+    """Get application history for a specific Mpesa payment"""
+    payment_doc = frappe.get_doc("Mpesa C2B Payment Register", payment_id)
+    
+    history = []
+    for applied_invoice in payment_doc.applied_invoices:
+        history.append({
+            "invoice_number": applied_invoice.invoice_number,
+            "applied_amount": applied_invoice.applied_amount,
+            "application_date": applied_invoice.application_date
+        })
+    
+    return {
+        "payment_id": payment_id,
+        "transaction_id": payment_doc.transid,
+        "original_amount": payment_doc.transamount,
+        "remaining_amount": payment_doc.remaining_amount or payment_doc.transamount,
+        "status": payment_doc.payment_status or "Unapplied",
+        "history": history
+    }
+
+@frappe.whitelist()
+def reverse_mpesa_application(payment_id, invoice_number):
+    """Reverse a specific Mpesa application"""
+    mpesa_doc = frappe.get_doc("Mpesa C2B Payment Register", payment_id)
+    
+    # Find the application to reverse
+    application_to_remove = None
+    for idx, applied_invoice in enumerate(mpesa_doc.applied_invoices):
+        if applied_invoice.invoice_number == invoice_number:
+            application_to_remove = idx
+            reversed_amount = applied_invoice.applied_amount
+            break
+    
+    if application_to_remove is None:
+        frappe.throw(_("No application found for invoice {0}").format(invoice_number))
+    
+    # Remove the application
+    mpesa_doc.applied_invoices.pop(application_to_remove)
+    
+    # Update remaining amount
+    current_remaining = flt(mpesa_doc.remaining_amount) if mpesa_doc.remaining_amount else 0
+    mpesa_doc.remaining_amount = current_remaining + reversed_amount
+    
+    # Update status
+    total_applied = sum([flt(app.applied_amount) for app in mpesa_doc.applied_invoices])
+    original_amount = flt(mpesa_doc.transamount)
+    
+    if total_applied == 0:
+        mpesa_doc.payment_status = "Unapplied"
+    elif total_applied < original_amount:
+        mpesa_doc.payment_status = "Partly Applied"
+    else:
+        mpesa_doc.payment_status = "Fully Applied"
+    
+    mpesa_doc.save()
+    
+    return {
+        "success": True,
+        "reversed_amount": reversed_amount,
+        "message": _("Successfully reversed {0} for invoice {1}").format(reversed_amount, invoice_number)
+    }
