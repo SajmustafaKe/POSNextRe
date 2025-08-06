@@ -210,8 +210,8 @@ posnext.PointOfSale.Payment = class {
 			const paid_amount = doc.paid_amount;
 			const items = doc.items;
 
-			if (paid_amount == 0 || !items.length) {
-				const message = items.length ? __("You cannot submit the order without payment.") : __("You cannot submit empty order.");
+			if (paid_amount < 0 || !items.length) {
+				const message = items.length ? __("You cannot submit the order with NEGATIVE payment.") : __("You cannot submit empty order.");
 				frappe.show_alert({ message, indicator: "orange" });
 				frappe.utils.play_sound("error");
 				return;
