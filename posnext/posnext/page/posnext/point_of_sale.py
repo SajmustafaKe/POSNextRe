@@ -1737,6 +1737,7 @@ def apply_partial_mpesa_payments(payments_data, invoice_name):
         # Update status
         if new_remaining == 0:
             mpesa_doc.payment_status = "Fully Applied"
+            mpesa_doc.save()
             mpesa_doc.submit()
         elif new_remaining < flt(mpesa_doc.transamount):
             mpesa_doc.payment_status = "Partly Applied"
