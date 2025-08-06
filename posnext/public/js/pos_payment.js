@@ -156,7 +156,7 @@ posnext.PointOfSale.Payment = class {
 
 				me.selected_mode = me[`${mode}_control`];
 				me.selected_mode && me.selected_mode.$input.get(0).focus();
-				me.auto_set_remaining_amount();
+				//me.auto_set_remaining_amount();
 			}
 		});
 
@@ -579,13 +579,14 @@ process_partial_mpesa_payments(selected_payments, doc, total_amount) {
 	}
 
 	auto_set_remaining_amount() {
-		const doc = this.events.get_frm().doc;
+		/*const doc = this.events.get_frm().doc;
 		const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
 		const remaining_amount = grand_total - doc.paid_amount;
 		const current_value = this.selected_mode ? this.selected_mode.get_value() : undefined;
 		if (!current_value && remaining_amount > 0 && this.selected_mode) {
 			this.selected_mode.set_value(remaining_amount);
-		}
+		}*/
+		return;
 	}
 
 	attach_shortcuts() {
@@ -745,14 +746,23 @@ process_partial_mpesa_payments(selected_payments, doc, total_amount) {
 	focus_on_default_mop() {
 		const doc = this.events.get_frm().doc;
 		const payments = doc.payments;
-		payments.forEach(p => {
+		/*payments.forEach(p => {
 			const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
 			if (p.default) {
 				setTimeout(() => {
 					this.$payment_modes.find(`.${mode}.mode-of-payment-control`).parent().click();
 				}, 500);
 			}
-		});
+		});*/
+		payments.forEach(p => {
+        const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
+        if (p.default) {
+            // Just focus, don't click
+            setTimeout(() => {
+                this.$payment_modes.find(`.${mode}.mode-of-payment-control input`).focus();
+            }, 500);
+        }
+    	});
 	}
 
 	attach_cash_shortcuts(doc) {
