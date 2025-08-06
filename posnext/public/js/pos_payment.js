@@ -166,7 +166,7 @@ posnext.PointOfSale.Payment = class {
 			me.show_mpesa_payment_popup();
 		});
 
-		frappe.ui.form.on('POS Invoice', 'contact_mobile', (frm) => {
+		frappe.ui.form.on('Sales Invoice', 'contact_mobile', (frm) => {
 			const contact = frm.doc.contact_mobile;
 			const request_button = $(this.request_for_payment_field?.$input[0]);
 			if (contact) {
@@ -176,7 +176,7 @@ posnext.PointOfSale.Payment = class {
 			}
 		});
 
-		frappe.ui.form.on('POS Invoice', 'coupon_code', (frm) => {
+		frappe.ui.form.on('Sales Invoice', 'coupon_code', (frm) => {
 			if (frm.doc.coupon_code && !frm.applying_pos_coupon_code) {
 				if (!frm.doc.ignore_pricing_rule) {
 					frm.applying_pos_coupon_code = true;
@@ -220,7 +220,7 @@ posnext.PointOfSale.Payment = class {
 			this.events.submit_invoice();
 		});
 
-		frappe.ui.form.on('POS Invoice', 'paid_amount', (frm) => {
+		frappe.ui.form.on('Sales Invoice', 'paid_amount', (frm) => {
 			this.update_totals_section(frm.doc);
 
 			// need to re calculate cash shortcuts after discount is applied
@@ -230,7 +230,7 @@ posnext.PointOfSale.Payment = class {
 			this.render_payment_mode_dom();
 		});
 
-		frappe.ui.form.on('POS Invoice', 'loyalty_amount', (frm) => {
+		frappe.ui.form.on('Sales Invoice', 'loyalty_amount', (frm) => {
 			const formatted_currency = format_currency(frm.doc.loyalty_amount, frm.doc.currency);
 			this.$payment_modes.find(`.loyalty-amount-amount`).html(formatted_currency);
 		});

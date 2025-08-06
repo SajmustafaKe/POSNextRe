@@ -1706,7 +1706,7 @@ def apply_partial_mpesa_payments(payments_data, invoice_name):
         payments_data = json.loads(payments_data)
     
     total_applied = 0
-    invoice_doc = frappe.get_doc("POS Invoice", invoice_name)
+    invoice_doc = frappe.get_doc("Sales Invoice", invoice_name)
     
     for payment_data in payments_data:
         mpesa_doc = frappe.get_doc("Mpesa C2B Payment Register", payment_data['id'])
