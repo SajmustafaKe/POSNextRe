@@ -1707,10 +1707,14 @@ def apply_partial_mpesa_payments(payments_data, invoice_name):
     
     total_applied = 0
     invoice_doc = frappe.get_doc("Sales Invoice", invoice_name)
+    customer = invoice_doc.customer
     
     for payment_data in payments_data:
         mpesa_doc = frappe.get_doc("Mpesa C2B Payment Register", payment_data['id'])
         applied_amount = flt(payment_data['amount'])
+
+        if not mpesa_doc.customer and customer:
+            mpesa_doc.customer = customer
         
         # Validate available amount
         current_remaining = flt(mpesa_doc.remaining_amount) if mpesa_doc.remaining_amount else flt(mpesa_doc.transamount)
@@ -1733,12 +1737,14 @@ def apply_partial_mpesa_payments(payments_data, invoice_name):
         # Update status
         if new_remaining == 0:
             mpesa_doc.payment_status = "Fully Applied"
+            mpesa_doc.submit()
         elif new_remaining < flt(mpesa_doc.transamount):
             mpesa_doc.payment_status = "Partly Applied"
+            mpesa_doc.save()
         else:
             mpesa_doc.payment_status = "Unapplied"
+            mpesa_doc.save()
         
-        mpesa_doc.save()
         total_applied += applied_amount
     
     return {

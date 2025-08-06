@@ -249,14 +249,14 @@ show_mpesa_payment_popup() {
     const me = this;
     const doc = this.events.get_frm().doc;
     const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
-    const remaining_to_pay = grand_total - doc.paid_amount;
+    const outstanding_amount = doc.outstanding_amount || (grand_total - doc.paid_amount);
 
     // Fetch available Mpesa payments
     frappe.call({
         method: 'posnext.posnext.page.posnext.point_of_sale.get_available_mpesa_payments',
         callback: function(r) {
             if (r.message && r.message.length > 0) {
-                me.create_partial_mpesa_dialog(r.message, doc, remaining_to_pay);
+                me.create_partial_mpesa_dialog(r.message, doc, outstanding_amount);
             } else {
                 frappe.msgprint({
                     title: __('No Available Payments'),
@@ -268,7 +268,7 @@ show_mpesa_payment_popup() {
     });
 }	
 
-create_partial_mpesa_dialog(payments, doc, remaining_to_pay) {
+create_partial_mpesa_dialog(payments, doc, outstanding_amount) {
     const me = this;
     
     // Create table rows for payments
@@ -308,7 +308,7 @@ create_partial_mpesa_dialog(payments, doc, remaining_to_pay) {
         <div class="mpesa-payment-dialog">
             <div style="margin-bottom: 15px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; background-color: #f8f9fa; border-radius: 6px;">
-                    <strong>${__('Remaining to Pay')}: ${format_currency(remaining_to_pay, doc.currency)}</strong>
+                    <strong>${__('Outstanding Amount')}: ${format_currency(outstanding_amount, doc.currency)}</strong>
                     <span id="selected-total" style="color: #28a745; font-weight: bold;">
                         ${__('Selected')}: ${format_currency(0, doc.currency)}
                     </span>
@@ -369,7 +369,7 @@ create_partial_mpesa_dialog(payments, doc, remaining_to_pay) {
             if ($(this).is(':checked')) {
                 amount_input.prop('disabled', false);
                 // Auto-fill with available amount or remaining amount, whichever is smaller
-                const auto_amount = Math.min(available_amount, remaining_to_pay);
+                const auto_amount = Math.min(available_amount, outstanding_amount);
                 amount_input.val(auto_amount);
             } else {
                 amount_input.prop('disabled', true).val('');
@@ -457,6 +457,7 @@ apply_partial_mpesa_payments(dialog, doc) {
             has_error = true;
             return false;
         }
+
         
         selected_payments.push({
             id: payment_id,
@@ -464,6 +465,19 @@ apply_partial_mpesa_payments(dialog, doc) {
         });
         total_amount += apply_amount;
     });
+
+	const outstanding_amount = doc.outstanding_amount || (grand_total - doc.paid_amount);
+	if (total_amount > outstanding_amount) {
+    frappe.msgprint({
+        title: __('Amount Exceeds Outstanding'),
+        message: __('Total applied amount ({0}) cannot exceed outstanding amount ({1})', [
+            format_currency(total_amount, doc.currency),
+            format_currency(outstanding_amount, doc.currency)
+        ]),
+        indicator: 'red'
+    });
+    return;
+	}
 
     if (has_error || selected_payments.length === 0) {
         if (selected_payments.length === 0) {
@@ -508,8 +522,7 @@ process_partial_mpesa_payments(selected_payments, doc, total_amount) {
                 // Update the mpesa-tenacity payment amount
                 const mpesa_control = me['mpesa-tenacity_control'];
                 if (mpesa_control) {
-                    const current_value = parseFloat(mpesa_control.get_value()) || 0;
-                    mpesa_control.set_value(current_value + total_amount);
+                    mpesa_control.set_value(total_amount);
                 }
 
                 frappe.show_alert({
