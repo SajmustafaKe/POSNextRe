@@ -466,7 +466,7 @@ apply_partial_mpesa_payments(dialog, doc) {
         total_amount += apply_amount;
     });
 
-	const outstanding_amount = doc.outstanding_amount || (grand_total - doc.paid_amount);
+	const outstanding_amount = doc.outstanding_amount || (doc.grand_total - doc.paid_amount);
 	if (total_amount > outstanding_amount) {
     frappe.msgprint({
         title: __('Amount Exceeds Outstanding'),
