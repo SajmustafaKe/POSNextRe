@@ -249,7 +249,7 @@ show_mpesa_payment_popup() {
     const me = this;
     const doc = this.events.get_frm().doc;
     const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
-    const outstanding_amount = doc.outstanding_amount || (grand_total - doc.paid_amount);
+    const outstanding_amount = (grand_total - doc.paid_amount) ||  doc.outstanding_amount;
 
     // Fetch available Mpesa payments
     frappe.call({
@@ -466,7 +466,7 @@ apply_partial_mpesa_payments(dialog, doc) {
         total_amount += apply_amount;
     });
 
-	const outstanding_amount = doc.outstanding_amount || (doc.grand_total - doc.paid_amount);
+	const outstanding_amount = (doc.grand_total - doc.paid_amount) || doc.outstanding_amount;
 	if (total_amount > outstanding_amount) {
     frappe.msgprint({
         title: __('Amount Exceeds Outstanding'),
