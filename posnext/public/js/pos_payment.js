@@ -498,7 +498,7 @@ process_partial_mpesa_payments(selected_payments, doc, total_amount) {
     });
 
     frappe.call({
-        method: 'posnext.point_of_sale.apply_partial_mpesa_payments',
+        method: 'posnext.posnext.page.posnext.point_of_sale.apply_partial_mpesa_payments',
         args: {
             payments_data: selected_payments,
             invoice_name: doc.name
