@@ -1818,3 +1818,7 @@ def reverse_mpesa_application(payment_id, invoice_number):
         "reversed_amount": reversed_amount,
         "message": _("Successfully reversed {0} for invoice {1}").format(reversed_amount, invoice_number)
     }
+
+def set_initial_remaining_amount(doc, method=None):
+    if not doc.remaining_amount or doc.remaining_amount == 0:
+        doc.remaining_amount = doc.transamount or 0

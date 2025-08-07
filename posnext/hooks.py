@@ -45,6 +45,13 @@ doctype_js = {"POS Profile" : "public/js/pos_profile.js",
 "POS Closing Entry": "public/js/pos_closing_entry.js"
 }
 
+doc_events = {
+    "Mpesa C2B Payment Register": {
+        "before_insert": "posnext.posnext.page.posnext.point_of_sale.set_initial_remaining_amount",
+        "before_save": "posnext.posnext.page.posnext.point_of_sale.set_initial_remaining_amount"
+    }
+}
+
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
 # doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
