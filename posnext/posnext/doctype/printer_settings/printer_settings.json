@@ -1,0 +1,69 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-09-29 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "printer",
+  "custom_kot_print",
+  "custom_kot_print_format",
+  "custom_block_takeaway_kot",
+  "custom_reprint_kot_format",
+  "custom_enable_kot_reprint"
+ ],
+ "fields": [
+  {
+   "fieldname": "printer",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Printer",
+   "options": "Network Printer Settings",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "custom_kot_print",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "KOT Print"
+  },
+  {
+   "fieldname": "custom_kot_print_format",
+   "fieldtype": "Link",
+   "label": "KOT Print Format",
+   "options": "Print Format"
+  },
+  {
+   "default": "0",
+   "fieldname": "custom_block_takeaway_kot",
+   "fieldtype": "Check",
+   "label": "Block Takeaway KOT"
+  },
+  {
+   "fieldname": "custom_reprint_kot_format",
+   "fieldtype": "Link",
+   "label": "Reprint KOT Format",
+   "options": "Print Format"
+  },
+  {
+   "default": "0",
+   "fieldname": "custom_enable_kot_reprint",
+   "fieldtype": "Check",
+   "label": "Enable KOT Reprint"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_child_table": 1,
+ "links": [],
+ "modified": "2025-09-29 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "POSNext",
+ "name": "Printer Settings",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

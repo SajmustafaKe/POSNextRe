@@ -6,4 +6,5 @@ import "./pos_number_pad.js";
 import "./pos_payment.js";
 import "./pos_past_order_list.js";
 import "./pos_past_order_summary.js";
+import "./pos_table_selector.js";
 

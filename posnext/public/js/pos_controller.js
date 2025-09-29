@@ -189,6 +189,33 @@ find_available_opening_entry() {
 
 	make_app() {
 		this.prepare_dom();
+		this.show_table_selector();
+	}
+
+	show_table_selector() {
+		// Initialize recent order list if not already done
+		if (!this.recent_order_list) {
+			this.init_recent_order_list();
+		}
+		this.table_selector = new posnext.PointOfSale.TableSelector({
+			wrapper: this.$components_wrapper,
+			events: {
+				table_selected: (table) => {
+					this.selected_table = table;
+					this.start_ordering();
+				},
+				toggle_recent_order: () => {
+					this.toggle_recent_order();
+				}
+			},
+			pos_profile: this.pos_profile
+		});
+	}
+
+	start_ordering() {
+		// Clear the table selector
+		this.$components_wrapper.empty();
+		// Prepare the main POS interface
 		this.prepare_components();
 		this.prepare_menu();
 		this.make_new_invoice();
@@ -601,6 +628,7 @@ init_item_cart() {
 					});
 				},
 				edit_order: (name) => {
+					this.table_selector.toggle_component(false);
 					this.recent_order_list.toggle_component(false);
 					frappe.run_serially([
 						() => this.frm.refresh(name),
@@ -618,7 +646,7 @@ init_item_cart() {
 					frappe.run_serially([
 						() => frappe.dom.freeze(),
 						() => this.make_new_invoice(),
-						() => this.item_selector.toggle_component(true),
+						() => this.table_selector.toggle_component(true),
 						() => frappe.dom.unfreeze(),
 					]);
 				}
@@ -638,6 +666,9 @@ init_item_cart() {
 	toggle_components(show) {
 		this.cart.toggle_component(show);
 		this.item_selector.toggle_component(show);
+		if (this.table_selector) {
+			this.table_selector.toggle_component(!show);
+		}
 
 		// do not show item details or payment if recent order is toggled off
 		!show ? (this.item_details.toggle_component(false) || this.payment.toggle_component(false)) : '';
@@ -669,6 +700,9 @@ make_new_invoice(from_held = false) {
 				this.frm.doc.items = [];
 				this.frm.doc.is_pos = 1
 				this.frm.doc.set_warehouse = this.settings.warehouse
+				if (this.selected_table && !this.frm.doc.pos_table) {
+					this.frm.doc.pos_table = this.selected_table;
+				}
 				resolve();
 			} else {
 				frappe.model.with_doctype(doctype, () => {
@@ -676,6 +710,9 @@ make_new_invoice(from_held = false) {
 					this.frm.doc.items = [];
 					this.frm.doc.is_pos = 1
 					this.frm.doc.set_warehouse = this.settings.warehouse
+					if (this.selected_table && !this.frm.doc.pos_table) {
+						this.frm.doc.pos_table = this.selected_table;
+					}
 					console.log("THIS FRRRRM")
 					console.log(this.frm.doc)
 					resolve();

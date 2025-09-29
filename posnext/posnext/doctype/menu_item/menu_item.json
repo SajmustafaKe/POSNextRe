@@ -1,0 +1,68 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-09-29 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "item",
+  "course",
+  "serve_priority",
+  "description",
+  "price",
+  "is_available"
+ ],
+ "fields": [
+  {
+   "fieldname": "item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Item",
+   "options": "Item",
+   "reqd": 1
+  },
+  {
+   "fieldname": "course",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Course",
+   "options": "Appetizer\nMain Course\nDessert\nBeverage\nSide Dish",
+   "reqd": 1
+  },
+  {
+   "fieldname": "serve_priority",
+   "fieldtype": "Int",
+   "label": "Serve Priority",
+   "default": "1"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "price",
+   "fieldtype": "Currency",
+   "label": "Price"
+  },
+  {
+   "default": "1",
+   "fieldname": "is_available",
+   "fieldtype": "Check",
+   "label": "Is Available"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_child_table": 1,
+ "links": [],
+ "modified": "2025-09-29 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "POSNext",
+ "name": "Menu Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "serve_priority",
+ "sort_order": "ASC",
+ "states": []
+}

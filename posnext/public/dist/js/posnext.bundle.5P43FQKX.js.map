@@ -1,7 +1,0 @@
-{
-  "version": 3,
-  "sources": ["../../../../../apps/posnext/posnext/public/js/posnext.bundle.js"],
-  "sourcesContent": ["// import \"./pos_item_selector.js\";\n// import \"./pos_item_cart.js\";\n// import \"./pos_item_details.js\";\n// import \"./pos_number_pad.js\";\n// import \"./pos_payment.js\";\n// import \"./pos_past_order_list.js\";\n// import \"./pos_past_order_summary.js\";\n// import \"./pos_controller\";\n\nwindow.posnext = window.posnext || {};\n"],
-  "mappings": ";;AASA,SAAO,UAAU,OAAO,WAAW,CAAC;",
-  "names": []
-}

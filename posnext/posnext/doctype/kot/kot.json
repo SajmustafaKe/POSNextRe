@@ -1,0 +1,212 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-01-28 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "invoice",
+  "restaurant_table",
+  "customer_name",
+  "pos_profile",
+  "type",
+  "comments",
+  "naming_series",
+  "production",
+  "order_no",
+  "time",
+  "start_time_serv",
+  "production_time",
+  "order_status",
+  "original_kot",
+  "is_aggregator",
+  "aggregator_id",
+  "menu",
+  "column_break_12",
+  "branch",
+  "owner",
+  "user",
+  "verified",
+  "verified_by",
+  "kot_items"
+ ],
+ "fields": [
+  {
+   "fieldname": "invoice",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Invoice",
+   "options": "POS Invoice"
+  },
+  {
+   "fieldname": "restaurant_table",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Restaurant Table",
+   "options": "Table"
+  },
+  {
+   "fieldname": "customer_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Customer Name"
+  },
+  {
+   "fieldname": "pos_profile",
+   "fieldtype": "Link",
+   "label": "POS Profile",
+   "options": "POS Profile"
+  },
+  {
+   "fieldname": "type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Type",
+   "options": "New Order\nOrder Modified\nCancelled\nPartially cancelled\nDuplicate",
+   "reqd": 1
+  },
+  {
+   "fieldname": "comments",
+   "fieldtype": "Small Text",
+   "label": "Comments"
+  },
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Naming Series",
+   "options": "KOT-.YYYY.-.#####"
+  },
+  {
+   "fieldname": "production",
+   "fieldtype": "Link",
+   "label": "Production",
+   "options": "Workstation"
+  },
+  {
+   "fieldname": "order_no",
+   "fieldtype": "Data",
+   "label": "Order No"
+  },
+  {
+   "fieldname": "time",
+   "fieldtype": "Time",
+   "label": "Time"
+  },
+  {
+   "fieldname": "start_time_serv",
+   "fieldtype": "Time",
+   "label": "Start Time Service"
+  },
+  {
+   "fieldname": "production_time",
+   "fieldtype": "Float",
+   "label": "Production Time (Minutes)"
+  },
+  {
+   "fieldname": "order_status",
+   "fieldtype": "Select",
+   "label": "Order Status",
+   "options": "Ready For Prepare\nIn Preparation\nReady For Serve\nServed\nCancelled"
+  },
+  {
+   "fieldname": "original_kot",
+   "fieldtype": "Data",
+   "label": "Original KOT"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_aggregator",
+   "fieldtype": "Check",
+   "label": "Is Aggregator"
+  },
+  {
+   "fieldname": "aggregator_id",
+   "fieldtype": "Data",
+   "label": "Aggregator ID"
+  },
+  {
+   "fieldname": "menu",
+   "fieldtype": "Link",
+   "label": "Menu",
+   "options": "Menu"
+  },
+  {
+   "fieldname": "column_break_12",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "branch",
+   "fieldtype": "Link",
+   "label": "Branch",
+   "options": "Branch"
+  },
+  {
+   "fieldname": "owner",
+   "fieldtype": "Link",
+   "label": "Owner",
+   "options": "User"
+  },
+  {
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "label": "User",
+   "options": "User"
+  },
+  {
+   "fieldname": "verified",
+   "fieldtype": "Check",
+   "label": "Verified"
+  },
+  {
+   "fieldname": "verified_by",
+   "fieldtype": "Link",
+   "label": "Verified By",
+   "options": "User"
+  },
+  {
+   "fieldname": "kot_items",
+   "fieldtype": "Table",
+   "label": "KOT Items",
+   "options": "KOT Item",
+   "reqd": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-01-28 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "POSNext",
+ "name": "KOT",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "POS User",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "name"
+}

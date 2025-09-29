@@ -21,7 +21,6 @@ app_include_js = [
     # "/assets/posnext/js/pos_past_order_list.js",
     # "/assets/posnext/js/pos_past_order_summary.js",
     # "/assets/posnext/js/pos_payment.js",
-    #"/assets/posnext/js/pos_invoice.js",
     "posnext.bundle.js",
 ]
 
@@ -40,17 +39,7 @@ app_include_js = [
 # page_js = {"page" : "public/js/file.js"}
 
 # include js in doctype views
-doctype_js = {"POS Profile" : "public/js/pos_profile.js",
-"Sales Invoice" : "public/js/sales_invoice.js",
-"POS Closing Entry": "public/js/pos_closing_entry.js"
-}
-
-doc_events = {
-    "Mpesa C2B Payment Register": {
-        "before_insert": "posnext.posnext.page.posnext.point_of_sale.set_initial_remaining_amount"
-        
-    }
-}
+doctype_js = {"POS Profile" : "public/js/pos_profile.js"}
 
 # doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
 # doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
@@ -137,11 +126,6 @@ doc_events = {
 # ---------------
 # Override standard doctype classes
 
-override_doctype_class = {
-	"Sales Invoice": "posnext.overrides.sales_invoice.PosnextSalesInvoice",
-	"POS Closing Entry": "posnext.overrides.pos_closing_entry.PosnextPOSClosingEntry",
-	"POS Invoice Merge Log": "posnext.overrides.pos_invoice_merge_log.PosnextPOSInvoiceMergeLog",
-}
 # override_doctype_class = {
 # 	"ToDo": "custom_app.overrides.CustomToDo"
 # }
@@ -157,7 +141,6 @@ override_doctype_class = {
 # 		"on_trash": "method"
 # 	}
 # }
-
 
 # Scheduled Tasks
 # ---------------
@@ -192,7 +175,6 @@ override_doctype_class = {
 # 	"frappe.desk.doctype.event.event.get_events": "posnext.event.get_events"
 # }
 override_whitelisted_methods = {
-	"erpnext.accounts.doctype.pos_closing_entry.pos_closing_entry.get_pos_invoices": "posnext.overrides.pos_closing_entry.get_pos_invoices",
 	"erpnext.accounts.doctype.pos_invoice.pos_invoice.get_stock_availability": "posnext.overrides.pos_invoice.get_stock_availability"
 }
 #

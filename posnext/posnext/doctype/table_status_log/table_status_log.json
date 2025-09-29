@@ -1,0 +1,110 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2025-09-28 21:30:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "table",
+  "old_status",
+  "new_status",
+  "changed_by",
+  "change_reason",
+  "change_type",
+  "timestamp"
+ ],
+ "fields": [
+  {
+   "fieldname": "table",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Table",
+   "options": "Table",
+   "reqd": 1
+  },
+  {
+   "fieldname": "old_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Old Status",
+   "options": "Available\nOccupied\nReserved",
+   "reqd": 1
+  },
+  {
+   "fieldname": "new_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "New Status",
+   "options": "Available\nOccupied\nReserved",
+   "reqd": 1
+  },
+  {
+   "fieldname": "changed_by",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Changed By",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "change_reason",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Change Reason",
+   "reqd": 1
+  },
+  {
+   "fieldname": "change_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Change Type",
+   "options": "Status Change\nOverride",
+   "reqd": 1
+  },
+  {
+   "fieldname": "timestamp",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Timestamp",
+   "default": "Now",
+   "reqd": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-09-28 21:30:00.000000",
+ "modified_by": "Administrator",
+ "module": "Posnext",
+ "name": "Table Status Log",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 0
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "POS User",
+   "share": 1,
+   "write": 0
+  }
+ ],
+ "sort_field": "timestamp",
+ "sort_order": "DESC",
+ "states": []
+}

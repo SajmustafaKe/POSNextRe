@@ -3,20 +3,14 @@
 
 
 import json
-from copy import deepcopy
 from typing import Dict, Optional
-import traceback
 
 import frappe
-from frappe import _
-from frappe.utils import cint, flt, now, nowdate, cstr
-from frappe.utils.file_manager import save_file
+from frappe.utils import cint
 from frappe.utils.nestedset import get_root_of
-from frappe.utils.pdf import get_pdf
+
 from erpnext.accounts.doctype.pos_invoice.pos_invoice import get_stock_availability
 from erpnext.accounts.doctype.pos_profile.pos_profile import get_child_nodes, get_item_groups
-from erpnext.accounts.party import get_party_account
-from erpnext.accounts.doctype.journal_entry.journal_entry import get_default_bank_cash_account
 from erpnext.stock.utils import scan_barcode
 
 
@@ -297,83 +291,61 @@ def create_opening_voucher(pos_profile, company, balance_details):
 
 	return new_pos_opening.as_dict()
 
-@frappe.whitelist()
-def make_sales_return(source_name, target_doc=None):
-	from erpnext.controllers.sales_and_purchase_return import make_return_doc
-
-	return make_return_doc("Sales Invoice", source_name, target_doc)
-
 
 @frappe.whitelist()
-def get_past_order_list(search_term='', status='', created_by='', limit=20):
-	# Convert limit to integer if it's passed as string
-	limit = int(limit) if limit else 20
-	fields = ["name", "grand_total", "currency", "customer", "posting_time", "posting_date", "created_by_name"]
+@frappe.whitelist()
+def get_past_order_list(search_term, status, limit=20):
+	fields = ["name", "grand_total", "currency", "customer", "posting_time", "posting_date"]
 	invoice_list = []
-	
-	# Build base filters
-	base_filters = {}
-	if status:
-		base_filters["status"] = status
-	if created_by:
-		# Filter by created_by_name field in Sales Invoice
-		# This should match the user_name from User Secret Key
-		base_filters["created_by_name"] = created_by
-	
-	if search_term and (status or created_by):
-		# Search by customer name
-		customer_filters = base_filters.copy()
-		customer_filters["customer"] = ["like", "%{}%".format(search_term)]
-		
+
+	if search_term and status:
 		invoices_by_customer = frappe.db.get_all(
-			"Sales Invoice",
-			filters=customer_filters,
+			"POS Invoice",
+			filters={"customer": ["like", "%{}%".format(search_term)], "status": status},
 			fields=fields,
 			page_length=limit,
-			order_by="modified desc"
 		)
-		
-		# Search by invoice name
-		name_filters = base_filters.copy()
-		name_filters["name"] = ["like", "%{}%".format(search_term)]
-		
 		invoices_by_name = frappe.db.get_all(
-			"Sales Invoice",
-			filters=name_filters,
+			"POS Invoice",
+			filters={"name": ["like", "%{}%".format(search_term)], "status": status},
 			fields=fields,
 			page_length=limit,
-			order_by="modified desc"
 		)
-		
-		# Combine results and remove duplicates
-		invoice_list = invoices_by_customer + invoices_by_name
-		# Remove duplicates by converting to dict with name as key, then back to list
-		unique_invoices = {}
-		for invoice in invoice_list:
-			unique_invoices[invoice.name] = invoice
-		invoice_list = list(unique_invoices.values())
-		
-	elif status or created_by:
-		# Filter by status and/or created_by only
-		invoice_list = frappe.db.get_all(
-			"Sales Invoice", 
-			filters=base_filters, 
-			fields=fields, 
+
+		# Combine and remove duplicates based on invoice name
+		invoice_dict = {}
+		for invoice in invoices_by_customer + invoices_by_name:
+			invoice_dict[invoice.name] = invoice
+		invoice_list = list(invoice_dict.values())
+	elif search_term:
+		invoices_by_customer = frappe.db.get_all(
+			"POS Invoice",
+			filters={"customer": ["like", "%{}%".format(search_term)]},
+			fields=fields,
 			page_length=limit,
-			order_by="modified desc"
+		)
+		invoices_by_name = frappe.db.get_all(
+			"POS Invoice",
+			filters={"name": ["like", "%{}%".format(search_term)]},
+			fields=fields,
+			page_length=limit,
+		)
+
+		# Combine and remove duplicates based on invoice name
+		invoice_dict = {}
+		for invoice in invoices_by_customer + invoices_by_name:
+			invoice_dict[invoice.name] = invoice
+		invoice_list = list(invoice_dict.values())
+	elif status:
+		invoice_list = frappe.db.get_all(
+			"POS Invoice", filters={"status": status}, fields=fields, page_length=limit
 		)
 	else:
-		# No filters - get all invoices
+		# If no search term and no status, return recent invoices
 		invoice_list = frappe.db.get_all(
-			"Sales Invoice", 
-			fields=fields, 
-			page_length=limit,
-			order_by="modified desc"
+			"POS Invoice", fields=fields, page_length=limit, order_by="creation desc"
 		)
-	
-	# Sort by creation date (most recent first) and limit results
-	invoice_list = sorted(invoice_list, key=lambda x: x.get('creation', ''), reverse=True)[:limit]
-	
+
 	return invoice_list
 
 
@@ -443,6 +415,11 @@ def create_customer(customer):
 		frappe.get_doc(obj).insert()
 		frappe.db.commit()
 
+
+import frappe
+from frappe.utils.pdf import get_pdf
+from frappe.utils.file_manager import save_file
+
 @frappe.whitelist()
 def generate_pdf_and_save(docname, doctype, print_format=None):
 	# Get the HTML content of the print format
@@ -463,1362 +440,387 @@ def generate_pdf_and_save(docname, doctype, print_format=None):
 
 
 @frappe.whitelist()
-def save_draft_invoice(doc):
-    try:
-        doc = frappe.parse_json(doc)
-        
-        # Validate required fields
-        if not doc.get("pos_profile"):
-            frappe.throw("POS Profile is required for draft invoice")
-        if not doc.get("customer"):
-            frappe.throw("Customer is required for draft invoice")
-        if not doc.get("items"):
-            frappe.throw("Items are required for draft invoice")
-        if not doc.get("created_by_name"):
-            frappe.throw("Created By Name is required for draft invoice")
-        
-        # Fetch POS Profile
-        pos_profile_doc = frappe.get_doc("POS Profile", doc.get("pos_profile"))
-        
-        # Ensure "Cash" Mode of Payment exists
-        if not frappe.db.exists("Mode of Payment", "Cash"):
-            frappe.get_doc({
-                "doctype": "Mode of Payment",
-                "mode_of_payment": "Cash",
-                "enabled": 1
-            }).insert(ignore_permissions=True)
-        
-        # Set payment methods
-        payment_methods = pos_profile_doc.get("payments", [])
-        default_payment = (
-            [{"mode_of_payment": payment_methods[0].mode_of_payment, "amount": 0}]
-            if payment_methods
-            else [{"mode_of_payment": "Cash", "amount": 0}]
-        )
-        
-        # Check if invoice with the provided name exists and is in draft status
-        invoice_name = doc.get("name")
-        input_created_by_name = doc.get("created_by_name")
-        
-        if invoice_name and frappe.db.exists("Sales Invoice", {"name": invoice_name, "docstatus": 0}):
-            # Load existing draft invoice
-            invoice = frappe.get_doc("Sales Invoice", invoice_name)
-            
-            # Check if the input created_by_name matches the existing invoice's created_by_name
-            if invoice.created_by_name != input_created_by_name:
-                frappe.throw(
-                    f"You are not authorized to edit this invoice. Only the creator ({invoice.created_by_name}) can edit it.",
-                    frappe.PermissionError
-                )
-            
-            # Update existing draft invoice
-            invoice_data = {
-                "customer": doc.get("customer"),
-                "items": [
-                    {
-                        "item_code": item.get("item_code"),
-                        "qty": item.get("qty", 1),
-                        "rate": item.get("rate", 0),
-                        "uom": item.get("uom"),
-                        "warehouse": item.get("warehouse") or pos_profile_doc.warehouse,
-                        "serial_no": item.get("serial_no"),
-                        "batch_no": item.get("batch_no")
-                    } for item in doc.get("items", [])
-                ],
-                "pos_profile": doc.get("pos_profile"),
-                "company": doc.get("company") or pos_profile_doc.company,
-                "payments": default_payment,
-                "set_warehouse": pos_profile_doc.warehouse,
-                "posting_date": frappe.utils.nowdate(),
-                "posting_time": frappe.utils.nowtime(),
-                "currency": pos_profile_doc.currency or frappe.defaults.get_global_default("currency"),
-                "docstatus": 0
-            }
-            # Update created_by_name only if explicitly provided and valid
-            if doc.get("created_by_name"):
-                invoice_data["created_by_name"] = doc.get("created_by_name")
-                
-            invoice.update(invoice_data)
-            invoice.save()
-        else:
-            # Create new Sales Invoice
-            invoice = frappe.get_doc({
-                "doctype": "Sales Invoice",
-                "customer": doc.get("customer"),
-                "items": [
-                    {
-                        "item_code": item.get("item_code"),
-                        "qty": item.get("qty", 1),
-                        "rate": item.get("rate", 0),
-                        "uom": item.get("uom"),
-                        "warehouse": item.get("warehouse") or pos_profile_doc.warehouse,
-                        "serial_no": item.get("serial_no"),
-                        "batch_no": item.get("batch_no")
-                    } for item in doc.get("items", [])
-                ],
-                "created_by_name": input_created_by_name,
-                "is_pos": 1,
-                "pos_profile": doc.get("pos_profile"),
-                "company": doc.get("company") or pos_profile_doc.company,
-                "payments": default_payment,
-                "set_warehouse": pos_profile_doc.warehouse,
-                "posting_date": frappe.utils.nowdate(),
-                "posting_time": frappe.utils.nowtime(),
-                "currency": pos_profile_doc.currency or frappe.defaults.get_global_default("currency"),
-                "docstatus": 0
-            })
-            invoice.insert()
-        
-        return {"name": invoice.name}
-    except Exception as e:
-        frappe.log_error(f"Save Draft Failed: {str(e)[:100]}", "POSNext")
-        raise
-
 @frappe.whitelist()
-def check_edit_permission(invoice_name, secret_key):
-    try:
-        if not frappe.db.exists("Sales Invoice", {"name": invoice_name, "docstatus": 0}):
-            frappe.throw("Invoice not found or is not in draft status")
-        
-        # Get the user associated with the secret key
-        user = frappe.call("posnext.posnext.page.posnext.point_of_sale.get_user_name_from_secret_key", secret_key=secret_key)
-        if not user:
-            frappe.throw("Invalid secret key", frappe.AuthenticationError)
-        
-        invoice = frappe.get_doc("Sales Invoice", invoice_name)
-        
-        # Check if the user matches created_by_name
-        if invoice.created_by_name != user:
-            frappe.throw(
-                f"You did not create this invoice, hence you cannot edit it. Only the creator ({invoice.created_by_name}) can edit it.",
-                frappe.PermissionError
-            )
-        
-        return {
-            "can_edit": True,
-            "created_by_name": invoice.created_by_name
-        }
-    except Exception as e:
-        frappe.log_error(f"Permission Check Failed: {str(e)[:100]}", "POSNext")
-        raise
+def get_tables():
+	"""Get all tables with dynamic status based on active orders"""
+	tables = frappe.get_all("Table", fields=["name", "table_id", "table_name", "seating_capacity", "status"])
 
-@frappe.whitelist()
-def get_available_opening_entry():
-	"""
-	Get any available POS Opening Entry for waiters to use
-	Returns the most recent opening entry that hasn't been closed
-	"""
-	# Get all open POS Opening Entries (not closed)
-	open_vouchers = frappe.db.get_all(
-		"POS Opening Entry",
-		filters={
-			"pos_closing_entry": ["in", ["", None]], 
-			"docstatus": 1
-		},
-		fields=["name", "company", "pos_profile", "period_start_date", "user"],
-		order_by="period_start_date desc",
-		limit=1  # Get the most recent one
-	)
-	
-	return open_vouchers
+	# Check for active orders and update status dynamically
+	for table in tables:
+		# Check if there are any active POS Invoices for this table
+		active_orders = frappe.db.count("POS Invoice", {
+			"pos_table": table.name,
+			"status": ["in", ["Draft", "Submitted", "Paid"]]
+		})
 
-@frappe.whitelist()
-def get_user_name_from_secret_key(secret_key):
-    if frappe.db.exists("User Secret Key", {"secret_key": secret_key}):
-        return frappe.get_value("User Secret Key", {"secret_key": secret_key}, "user_name")
-    else:
-        frappe.throw("Invalid secret key")
+		# Get order details for display
+		order_details = frappe.db.sql("""
+			SELECT
+				COUNT(*) as order_count,
+				MIN(TIMEDIFF(NOW(), creation)) as elapsed_time
+			FROM `tabPOS Invoice`
+			WHERE pos_table = %s AND status IN ('Draft', 'Submitted', 'Paid')
+		""", (table.name,), as_dict=True)
 
-@frappe.whitelist()
-def print_captain_order(invoice_name, current_items, print_format, _lang):
-    """
-    Print only newly added items to a captain order (Sales Invoice)
-    """
-    try:
-        # Parse current_items if it's a string
-        if isinstance(current_items, str):
-            try:
-                current_items = json.loads(current_items)
-            except json.JSONDecodeError as e:
-                frappe.log_error(f"Failed to parse current_items: {str(e)}")
-                return {"success": False, "error": "Invalid current_items format: not a valid JSON string"}
-        
-        # Validate current_items
-        if not isinstance(current_items, list):
-            frappe.log_error(f"Invalid current_items type: expected list, got {type(current_items)}")
-            return {"success": False, "error": "current_items must be a list"}
-        
-        if not current_items:
-            frappe.log_error("current_items is empty", "Print Debug")
-            return {"success": False, "error": "No items to print"}
-        
-        # Log input for debugging
-        frappe.log_error(f"Invoice: {invoice_name}, Received {len(current_items)} items", "Print Debug")
-        
-        # Get or create print tracking record
-        print_log_name = f"captain_print_{invoice_name}"
-        
-        previously_printed_items = []
-        print_log = None
-        
-        # Check if print log exists before trying to get it
-        if frappe.db.exists("Captain Print Log", print_log_name):
-            print_log = frappe.get_doc("Captain Print Log", print_log_name)
-            previously_printed_items = json.loads(print_log.printed_items or "[]")
-            frappe.log_error(f"Found print log: {print_log_name}, Previously printed {len(previously_printed_items)} items", "Print Debug")
-        else:
-            frappe.log_error(f"Print log {print_log_name} not found, creating new one", "Print Debug")
-            try:
-                print_log = frappe.get_doc({
-                    "doctype": "Captain Print Log",
-                    "name": print_log_name,
-                    "invoice_name": invoice_name,
-                    "printed_items": "[]",
-                    "last_print_time": now()
-                })
-                print_log.insert(ignore_permissions=True)
-                frappe.db.commit()
-                frappe.log_error(f"Created new print log: {print_log_name}", "Print Debug")
-            except Exception as e:
-                frappe.log_error(f"Failed to create print log {print_log_name}: {str(e)}", "Print Debug")
-                return {"success": False, "error": f"Failed to create print log: {str(e)}"}
-        
-        # Calculate new items to print - Use item_code + item_name as composite key for better matching
-        new_items_to_print = []
-        
-        # Create a dictionary of previously printed items using composite key
-        prev_items_dict = {}
-        for prev_item in previously_printed_items:
-            item_code = prev_item.get('item_code')
-            item_name = prev_item.get('item_name', item_code)
-            if item_code:
-                # Use item_code as primary key, but consider item_name for uniqueness
-                key = f"{item_code}|{item_name}"
-                prev_items_dict[key] = {
-                    'qty': float(prev_item.get('qty', 0)),
-                    'rate': float(prev_item.get('rate', 0)),
-                    'item_data': prev_item
-                }
-        
-        frappe.log_error(f"Previous items: {len(previously_printed_items)}", "Print Debug")
-        frappe.log_error(f"Current items: {len(current_items)}", "Print Debug")
-        
-        # Process each current item to determine what's new
-        for current_item in current_items:
-            item_code = current_item.get('item_code')
-            item_name = current_item.get('item_name') or item_code
-            
-            if not item_code:
-                frappe.log_error(f"Skipping item without item_code: {current_item}", "Print Debug")
-                continue
-                
-            current_qty = float(current_item.get('qty', 0))
-            current_rate = float(current_item.get('rate', 0))
-            
-            # Create composite key
-            key = f"{item_code}|{item_name}"
-            
-            # Check if this item was previously printed
-            if key in prev_items_dict:
-                previous_qty = prev_items_dict[key]['qty']
-                previous_rate = prev_items_dict[key]['rate']
-                
-                frappe.log_error(f"{item_code}: current_qty={current_qty}, previous_qty={previous_qty}", "Print Debug")
-                
-                # Only print if quantity increased or rate changed
-                if current_qty > previous_qty:
-                    qty_to_print = current_qty - previous_qty
-                    
-                    new_item = current_item.copy()
-                    new_item['qty'] = qty_to_print
-                    new_item['item_name'] = item_name
-                    new_item['amount'] = qty_to_print * current_rate
-                    new_items_to_print.append(new_item)
-                    
-                    frappe.log_error(f"Added to print: {item_code} - qty_to_print={qty_to_print}", "Print Debug")
-                elif current_rate != previous_rate:
-                    # If rate changed, print the full current quantity with updated rate
-                    new_item = current_item.copy()
-                    new_item['qty'] = current_qty
-                    new_item['item_name'] = item_name
-                    new_item['amount'] = current_qty * current_rate
-                    new_items_to_print.append(new_item)
-                    
-                    frappe.log_error(f"Added to print (rate change): {item_code} - qty={current_qty}, new_rate={current_rate}", "Print Debug")
-                else:
-                    frappe.log_error(f"No change for: {item_code}", "Print Debug")
-            else:
-                # This is a completely new item
-                new_item = current_item.copy()
-                new_item['item_name'] = item_name
-                new_item['amount'] = current_qty * current_rate
-                new_items_to_print.append(new_item)
-                
-                frappe.log_error(f"New item added: {item_code} - qty={current_qty}", "Print Debug")
-        
-        # If no new items to print
-        if not new_items_to_print:
-            frappe.log_error("No new items to print", "Print Debug")
-            return {
-                "success": True, 
-                "data": {},
-                "message": "No new items to print",
-                "new_items_count": 0,
-                "print_count": getattr(print_log, 'print_count', 0) or 0
-            }
-        
-        # Get original invoice for context
-        try:
-            original_invoice = frappe.get_doc("Sales Invoice", invoice_name)
-        except frappe.DoesNotExistError:
-            frappe.log_error(f"Sales Invoice {invoice_name} not found", "Print Debug")
-            return {"success": False, "error": f"Sales Invoice {invoice_name} not found"}
-        
-        # Calculate totals for new items only
-        total_qty = sum(float(item.get('qty', 0)) for item in new_items_to_print)
-        total_amount = sum(float(item.get('amount', 0)) for item in new_items_to_print)
-        
-        # Create pseudo document data with ONLY new items
-        pseudo_doc_data = {
-            "name": invoice_name,
-            "customer": original_invoice.customer,
-            "posting_date": original_invoice.posting_date,
-            "posting_time": original_invoice.posting_time,
-            "pos_profile": original_invoice.pos_profile,
-            "company": original_invoice.company,
-            "territory": getattr(original_invoice, 'territory', ''),
-            "items": new_items_to_print,  # Only new items
-            "timestamp": now(),
-            "is_captain_order_reprint": len(previously_printed_items) > 0,
-            "print_count": (getattr(print_log, 'print_count', 0) or 0) + 1,
-            "created_by_name": original_invoice.created_by_name,
-            "total_qty": total_qty,
-            "total_amount": total_amount,
-            "new_items_only": True  # Flag to indicate this contains only new items
-        }
-        
-        # Update print log with ALL current items (complete state)
-        if print_log:
-            # Create updated printed items list with current quantities
-            updated_printed_items = []
-            
-            # Add all current items to the printed items log with their current state
-            for item in current_items:
-                item_code = item.get('item_code')
-                if item_code:
-                    updated_printed_items.append({
-                        'item_code': item_code,
-                        'item_name': item.get('item_name') or item_code,
-                        'qty': item.get('qty', 0),
-                        'rate': item.get('rate', 0),
-                        'uom': item.get('uom', ''),
-                        'name': item.get('name', ''),
-                        'amount': float(item.get('qty', 0)) * float(item.get('rate', 0))
-                    })
-            
-            print_log.printed_items = json.dumps(updated_printed_items)
-            print_log.last_print_time = now()
-            print_log.print_count = (print_log.print_count or 0) + 1
-            
-            try:
-                print_log.save(ignore_permissions=True)
-                frappe.db.commit()
-                frappe.log_error(f"Updated print log: {print_log_name} with {len(updated_printed_items)} total items", "Print Debug")
-            except Exception as e:
-                frappe.log_error(f"Failed to update print log {print_log_name}: {str(e)}", "Print Debug")
-        
-        frappe.log_error(f"SUCCESS: Returning {len(new_items_to_print)} new items to print", "Print Debug")
-        
-        return {
-            "success": True, 
-            "data": pseudo_doc_data,
-            "new_items_count": len(new_items_to_print),
-            "print_count": print_log.print_count or 1,
-            "total_items_in_invoice": len(current_items)
-        }
-        
-    except Exception as e:
-        frappe.log_error(f"Error in print_captain_order: {str(e)}", "Captain Order Print Error")
-        frappe.log_error(f"Traceback: {traceback.format_exc()}", "Captain Order Print Error")
-        return {"success": False, "error": str(e)}
+		if order_details and order_details[0].order_count > 0:
+			table.order_count = order_details[0].order_count
+			# Convert timedelta to HH:MM format
+			if order_details[0].elapsed_time:
+				total_minutes = int(order_details[0].elapsed_time.total_seconds() / 60)
+				hours = total_minutes // 60
+				minutes = total_minutes % 60
+				table.elapsed_time = f"{hours:02d}:{minutes:02d}"
+			else:
+				table.elapsed_time = "00:00"
+		else:
+			table.order_count = 0
+			table.elapsed_time = None
+
+		if active_orders > 0:
+			# Table has active orders, should be occupied
+			if table.status != "Occupied":
+				table.status = "Occupied"
+				# Update the actual table record
+				frappe.db.set_value("Table", table.name, "status", "Occupied")
+		else:
+			# No active orders, table should be available
+			if table.status != "Available":
+				table.status = "Available"
+				# Update the actual table record
+				frappe.db.set_value("Table", table.name, "status", "Available")
+
+	return tables
 
 
 @frappe.whitelist()
-def merge_invoices(invoice_names, customer):
-    """
-    Merge multiple Sales Invoices into a single invoice
-    """
-    try:
-        # Check if user has Waiter role - if they do, deny access
-        user_roles = frappe.get_roles(frappe.session.user)
-        if 'Waiter' in user_roles:
-            return {"success": False, "error": "You do not have permission to merge invoices"}
-        
-        # Parse invoice_names if it's a string
-        if isinstance(invoice_names, str):
-            invoice_names = json.loads(invoice_names)
-        
-        # Validate inputs
-        if not invoice_names or len(invoice_names) < 2:
-            return {"success": False, "error": "At least 2 invoices are required for merging"}
-        
-        # Get all invoices to merge
-        invoices_to_merge = []
-        for name in invoice_names:
-            invoice = frappe.get_doc("Sales Invoice", name)
-            if invoice.customer != customer:
-                return {"success": False, "error": f"Invoice {name} belongs to a different customer"}
-            if invoice.docstatus != 0:  # Only draft invoices can be merged
-                return {"success": False, "error": f"Invoice {name} is not in draft status"}
-            invoices_to_merge.append(invoice)
-        
-        # Create new merged invoice
-        first_invoice = invoices_to_merge[0]
-        merged_invoice = frappe.new_doc("Sales Invoice")
-        
-        # Copy header information from first invoice
-        merged_invoice.customer = first_invoice.customer
-        merged_invoice.posting_date = first_invoice.posting_date
-        merged_invoice.posting_time = now()
-        merged_invoice.company = first_invoice.company
-        merged_invoice.pos_profile = first_invoice.pos_profile
-        merged_invoice.currency = first_invoice.currency
-        merged_invoice.selling_price_list = first_invoice.selling_price_list
-        merged_invoice.price_list_currency = first_invoice.price_list_currency
-        merged_invoice.plc_conversion_rate = first_invoice.plc_conversion_rate
-        merged_invoice.conversion_rate = first_invoice.conversion_rate
-        merged_invoice.is_pos = 1
-        merged_invoice.is_return = 0
-        
-        # Copy created_by_name from first invoice
-        if hasattr(first_invoice, 'created_by_name') and first_invoice.created_by_name:
-            merged_invoice.created_by_name = first_invoice.created_by_name
-        
-        # Copy customer details
-        merged_invoice.customer_name = first_invoice.customer_name
-        merged_invoice.customer_group = first_invoice.customer_group
-        merged_invoice.territory = first_invoice.territory
-        
-        # Copy address and contact details if available
-        if hasattr(first_invoice, 'customer_address'):
-            merged_invoice.customer_address = first_invoice.customer_address
-        if hasattr(first_invoice, 'address_display'):
-            merged_invoice.address_display = first_invoice.address_display
-        if hasattr(first_invoice, 'contact_person'):
-            merged_invoice.contact_person = first_invoice.contact_person
-        if hasattr(first_invoice, 'contact_display'):
-            merged_invoice.contact_display = first_invoice.contact_display
-        if hasattr(first_invoice, 'contact_mobile'):
-            merged_invoice.contact_mobile = first_invoice.contact_mobile
-        if hasattr(first_invoice, 'contact_email'):
-            merged_invoice.contact_email = first_invoice.contact_email
-        
-        # Merge all items from all invoices
-        item_dict = {}  # To consolidate same items
-        
-        for invoice in invoices_to_merge:
-            for item in invoice.items:
-                key = (item.item_code, item.rate, item.uom)  # Group by item_code, rate, and uom
-                
-                if key in item_dict:
-                    # Add to existing item
-                    item_dict[key]['qty'] += item.qty
-                    item_dict[key]['amount'] += item.amount
-                else:
-                    # Create new item entry
-                    item_dict[key] = {
-                        'item_code': item.item_code,
-                        'item_name': item.item_name,
-                        'description': item.description,
-                        'qty': item.qty,
-                        'uom': item.uom,
-                        'rate': item.rate,
-                        'amount': item.amount,
-                        'item_group': item.item_group,
-                        'warehouse': item.warehouse,
-                        'income_account': item.income_account,
-                        'expense_account': item.expense_account,
-                        'cost_center': item.cost_center
-                    }
-        
-        # Add consolidated items to merged invoice
-        for item_data in item_dict.values():
-            merged_invoice.append("items", item_data)
-        
-        # Handle taxes - use taxes from first invoice
-        for tax in first_invoice.taxes:
-            merged_invoice.append("taxes", {
-                'charge_type': tax.charge_type,
-                'account_head': tax.account_head,
-                'description': tax.description,
-                'rate': tax.rate,
-                'tax_amount': tax.tax_amount,
-                'total': tax.total,
-                'cost_center': tax.cost_center
-            })
-        
-        # Handle payments - combine all payments
-        total_paid = 0
-        payment_dict = {}  # To consolidate same payment methods
-        
-        for invoice in invoices_to_merge:
-            for payment in invoice.payments:
-                mode_of_payment = payment.mode_of_payment
-                if mode_of_payment in payment_dict:
-                    payment_dict[mode_of_payment]['amount'] += payment.amount
-                else:
-                    payment_dict[mode_of_payment] = {
-                        'mode_of_payment': payment.mode_of_payment,
-                        'account': payment.account,
-                        'amount': payment.amount,
-                        'default': payment.default
-                    }
-                total_paid += payment.amount
-        
-        # Add consolidated payments to merged invoice
-        for payment_data in payment_dict.values():
-            merged_invoice.append("payments", payment_data)
-        
-        # Save the merged invoice
-        merged_invoice.insert()
-        
-        # Calculate totals
-        merged_invoice.run_method("calculate_taxes_and_totals")
-        merged_invoice.save()
-        
-        # Add comment showing all creators and original invoices
-        creators = list(set([inv.created_by_name for inv in invoices_to_merge if hasattr(inv, 'created_by_name') and inv.created_by_name]))
-        original_invoices = [inv.name for inv in invoices_to_merge]
-        
-        comment_parts = []
-        comment_parts.append(f"Merged from invoices: {', '.join(original_invoices)}")
-        
-        if creators:
-            if len(creators) > 1:
-                comment_parts.append(f"Originally created by: {', '.join(creators)}")
-            else:
-                comment_parts.append(f"Originally created by: {creators[0]}")
-        
-        merged_invoice.add_comment('Comment', ' | '.join(comment_parts))
-        
-        # Handle Captain Print Log records before deleting invoices
-        print_logs_transferred = 0
-        print_logs_errors = []
-        
-        for invoice in invoices_to_merge:
-            try:
-                # Find all Captain Print Log records linked to this invoice
-                print_logs = frappe.get_all("Captain Print Log", 
-                                           filters={"invoice_name": invoice.name},
-                                           pluck="name")
-                
-                # Transfer each Captain Print Log record to the merged invoice
-                for log_name in print_logs:
-                    try:
-                        log_doc = frappe.get_doc("Captain Print Log", log_name)
-                        log_doc.invoice_name = merged_invoice.name  # Update reference to merged invoice
-                        log_doc.add_comment('Comment', f'Transferred from {invoice.name} due to invoice merge')
-                        log_doc.save()
-                        print_logs_transferred += 1
-                    except Exception as e:
-                        error_msg = f"Error transferring Captain Print Log {log_name}: {str(e)}"
-                        print_logs_errors.append(error_msg)
-                        frappe.log_error(error_msg)
-                        
-            except Exception as e:
-                error_msg = f"Error finding Captain Print Log records for invoice {invoice.name}: {str(e)}"
-                print_logs_errors.append(error_msg)
-                frappe.log_error(error_msg)
-        
-        # Cancel the original invoices
-        for invoice in invoices_to_merge:
-            # Add a comment about the merge
-            invoice.add_comment('Comment', f'Invoice merged into {merged_invoice.name}')
-            # Delete the draft invoice
-            frappe.delete_doc("Sales Invoice", invoice.name)
-        
-        frappe.db.commit()
-        
-        # Prepare success message
-        success_message = f"Successfully merged {len(invoice_names)} invoices into {merged_invoice.name}"
-        if print_logs_transferred > 0:
-            success_message += f". Transferred {print_logs_transferred} Captain Print Log records"
-        if print_logs_errors:
-            success_message += f". Warning: {len(print_logs_errors)} print log transfer errors (check error log)"
-        
-        return {
-            "success": True, 
-            "new_invoice": merged_invoice.name,
-            "message": success_message,
-            "print_logs_transferred": print_logs_transferred,
-            "print_logs_errors": len(print_logs_errors)
-        }
-        
-    except Exception as e:
-        frappe.db.rollback()
-        frappe.log_error(f"Error merging invoices: {str(e)}")
-        return {"success": False, "error": str(e)}
-# Simplified version of the split_pos_invoice function
+def update_table_status_on_order(table_name, action):
+	"""Update table status when order is created or completed"""
+	if not table_name:
+		return
+
+	if action == "create":
+		# Set table to Occupied when order is created
+		frappe.db.set_value("Table", table_name, "status", "Occupied")
+		log_table_status_change(table_name, "Available", "Occupied", f"Order created for table {table_name}")
+	elif action == "complete":
+		# Set table to Available when order is completed
+		frappe.db.set_value("Table", table_name, "status", "Available")
+		log_table_status_change(table_name, "Occupied", "Available", f"Order completed for table {table_name}")
 
 @frappe.whitelist()
-def split_pos_invoice(original_invoice, invoice_groups, payment_distribution=None, distribute_evenly=False):
-    """
-    Split a Sales Invoice into multiple invoices with proper sequential payment distribution
-    
-    Args:
-        original_invoice: Name of the original invoice
-        invoice_groups: Dictionary with invoice numbers as keys and items as values
-                       e.g., {"1": [{"item_code": "ITEM001", "split_qty": 2}], "2": [...]}
-        payment_distribution: Dictionary with payment amounts for each invoice group
-    """
-    try:
-        # Parse invoice groups if it's a string
-        if isinstance(invoice_groups, str):
-            invoice_groups = json.loads(invoice_groups)
-        
-        if isinstance(payment_distribution, str):
-            payment_distribution = json.loads(payment_distribution)
-        
-        # Get the original invoice
-        original_doc = frappe.get_doc("Sales Invoice", original_invoice)
-        
-        # Basic validations
-        if original_doc.docstatus != 0:
-            frappe.throw("Cannot split submitted invoices")
-        
-        if not invoice_groups:
-            frappe.throw("No invoice groups specified for splitting")
-        
-        # Validate split items
-        validate_split_items(original_doc, invoice_groups)
-        
-        # Calculate sequential payment distribution if not provided
-        if not payment_distribution:
-            payment_distribution = calculate_sequential_payment_distribution(original_doc, invoice_groups)
-        
-        # Create new invoices with proper payment distribution
-        new_invoices = []
-        for invoice_num, items in invoice_groups.items():
-            if items:  # Only create if there are items
-                payment_info = payment_distribution.get(invoice_num) if payment_distribution else None
-                new_invoice = create_new_invoice_with_payments(original_doc, items, invoice_num, payment_info)
-                new_invoices.append(new_invoice)
-        
-        # Update original invoice with remaining payments
-        update_original_invoice_with_payments(original_doc, invoice_groups, payment_distribution)
-        
-        return {
-            "success": True,
-            "original_invoice": original_doc.name,
-            "new_invoices": [
-                {
-                    "name": inv.name,
-                    "grand_total": inv.grand_total,
-                    "items_count": len(inv.items)
-                }
-                for inv in new_invoices
-            ],
-            "message": f"Successfully created {len(new_invoices)} new invoice(s)"
-        }
-        
-    except Exception as e:
-        frappe.log_error(f"Error in split_pos_invoice: {str(e)}")
-        frappe.throw(f"Failed to split invoice: {str(e)}")
+def manual_table_status_override(table_name, new_status, reason=None):
+	"""Manually override table status with logging"""
+	if not table_name or not new_status:
+		frappe.throw("Table name and new status are required")
 
-def calculate_sequential_payment_distribution(original_doc, invoice_groups):
-    """
-    Calculate sequential payment distribution - fill first invoice, then second, etc.
-    """
-    payment_distribution = {}
-    remaining_payment = flt(original_doc.paid_amount)
-    
-    # First, create temporary invoices to calculate their totals
-    invoice_totals = {}
-    for invoice_num, items in invoice_groups.items():
-        if items:
-            temp_total = 0
-            split_items_map = {item['item_code']: item for item in items}
-            
-            for original_item in original_doc.items:
-                if original_item.item_code in split_items_map:
-                    split_data = split_items_map[original_item.item_code]
-                    split_qty = flt(split_data['split_qty'])
-                    temp_total += flt(split_qty * original_item.rate)
-            
-            invoice_totals[invoice_num] = temp_total
-    
-    # Sort invoice numbers to ensure consistent order
-    sorted_invoice_nums = sorted(invoice_groups.keys())
-    
-    # Distribute payments sequentially
-    for invoice_num in sorted_invoice_nums:
-        if invoice_num in invoice_totals:
-            invoice_total = invoice_totals[invoice_num]
-            
-            if remaining_payment >= invoice_total:
-                # Fully pay this invoice
-                payment_distribution[invoice_num] = {'payment_amount': invoice_total}
-                remaining_payment -= invoice_total
-            elif remaining_payment > 0:
-                # Partially pay this invoice with remaining amount
-                payment_distribution[invoice_num] = {'payment_amount': remaining_payment}
-                remaining_payment = 0
-            else:
-                # No payment left for this invoice
-                payment_distribution[invoice_num] = {'payment_amount': 0}
-    
-    return payment_distribution
+	current_status = frappe.db.get_value("Table", table_name, "status")
 
-def validate_split_items(original_doc, invoice_groups):
-    """Basic validation of split items"""
-    # Create a map of original items
-    original_items = {item.item_code: item.qty for item in original_doc.items}
-    
-    # Track total quantities being split per item
-    split_totals = {}
-    
-    for invoice_num, items in invoice_groups.items():
-        for split_item in items:
-            item_code = split_item['item_code']
-            split_qty = flt(split_item['split_qty'])
-            
-            # Check if item exists
-            if item_code not in original_items:
-                frappe.throw(f"Item {item_code} not found in original invoice")
-            
-            # Check if quantity is valid
-            if split_qty <= 0:
-                frappe.throw(f"Split quantity for {item_code} must be greater than 0")
-            
-            # Track total split quantity
-            if item_code in split_totals:
-                split_totals[item_code] += split_qty
-            else:
-                split_totals[item_code] = split_qty
-    
-    # Check if split quantities don't exceed available quantities
-    for item_code, total_split in split_totals.items():
-        if total_split > original_items[item_code]:
-            frappe.throw(f"Total split quantity for {item_code} ({total_split}) exceeds available quantity ({original_items[item_code]})")
+	if current_status != new_status:
+		frappe.db.set_value("Table", table_name, "status", new_status)
+		log_table_status_change(table_name, current_status, new_status,
+			f"Manual override: {reason or 'No reason provided'}")
 
-def create_new_invoice_with_payments(original_doc, split_items, invoice_number, payment_info):
-    """Create a new invoice with split items and allocated payments"""
-    
-    # Create new document
-    new_doc = frappe.new_doc("Sales Invoice")
-    
-    # Copy essential fields from original
-    copy_fields = [
-        'company', 'customer', 'posting_date', 'posting_time', 'set_posting_time',
-        'is_pos', 'pos_profile', 'currency', 'conversion_rate', 'selling_price_list',
-        'customer_address', 'address_display', 'contact_person', 'contact_display',
-        'contact_mobile', 'contact_email', 'territory', 'customer_group', 'cost_center'
-    ]
-    
-    for field in copy_fields:
-        if hasattr(original_doc, field) and original_doc.get(field):
-            new_doc.set(field, original_doc.get(field))
-    
-    # Set created_by_name from original invoice or owner
-    if original_doc.get('created_by_name'):
-        new_doc.created_by_name = original_doc.created_by_name
-    else:
-        # Try to get from original owner
-        try:
-            user_full_name = frappe.get_value("User", original_doc.owner, "full_name")
-            if user_full_name:
-                new_doc.created_by_name = user_full_name
-        except:
-            pass
-    
-    # Set basic properties
-    new_doc.naming_series = original_doc.naming_series
-    new_doc.title = f"{original_doc.customer} - Split {invoice_number}"
-    
-    # Add split items
-    split_items_map = {item['item_code']: item for item in split_items}
-    
-    for original_item in original_doc.items:
-        if original_item.item_code in split_items_map:
-            split_data = split_items_map[original_item.item_code]
-            
-            # Create new item row
-            new_item = new_doc.append('items')
-            
-            # Copy item properties
-            copy_item_fields = [
-                'item_code', 'item_name', 'description', 'item_group', 'brand',
-                'uom', 'conversion_factor', 'stock_uom', 'rate', 'price_list_rate',
-                'warehouse', 'serial_no', 'batch_no'
-            ]
-            
-            for field in copy_item_fields:
-                if hasattr(original_item, field):
-                    new_item.set(field, original_item.get(field))
-            
-            # Set split quantity and calculate amounts
-            new_item.qty = flt(split_data['split_qty'])
-            new_item.amount = flt(new_item.qty * new_item.rate)
-            new_item.base_amount = flt(new_item.amount * new_doc.conversion_rate)
-    
-    # Copy taxes proportionally
-    if original_doc.taxes:
-        for original_tax in original_doc.taxes:
-            new_tax = new_doc.append('taxes')
-            
-            tax_copy_fields = [
-                'charge_type', 'account_head', 'description', 'rate',
-                'cost_center', 'included_in_print_rate'
-            ]
-            
-            for field in tax_copy_fields:
-                if hasattr(original_tax, field):
-                    new_tax.set(field, original_tax.get(field))
-    
-    # Calculate totals first
-    new_doc.run_method("calculate_taxes_and_totals")
-    
-    # Add payments based on allocated amount
-    allocated_payment = flt(payment_info.get('payment_amount', 0)) if payment_info else 0
-    
-    if allocated_payment > 0 and original_doc.payments:
-        # Copy payment methods from original invoice
-        remaining_allocation = allocated_payment
-        
-        for original_payment in original_doc.payments:
-            if original_payment.amount > 0 and remaining_allocation > 0:
-                # Allocate up to the payment method's original amount or remaining allocation
-                payment_amount = min(original_payment.amount, remaining_allocation)
-                
-                new_payment = new_doc.append('payments')
-                
-                # Copy payment fields
-                payment_copy_fields = [
-                    'mode_of_payment', 'account', 'type', 'default'
-                ]
-                
-                for field in payment_copy_fields:
-                    if hasattr(original_payment, field):
-                        new_payment.set(field, original_payment.get(field))
-                
-                new_payment.amount = payment_amount
-                new_payment.base_amount = flt(payment_amount * new_doc.conversion_rate)
-                
-                remaining_allocation -= payment_amount
-                
-                if remaining_allocation <= 0:
-                    break
-    
-    # Ensure at least one payment mode exists (POS requirement)
-    if not new_doc.payments:
-        # Create default payment mode
-        default_mode = get_default_payment_mode(new_doc.pos_profile)
-        if default_mode:
-            new_payment = new_doc.append('payments')
-            new_payment.mode_of_payment = default_mode["mode_of_payment"]  # Fixed: use bracket notation
-            new_payment.account = default_mode["default_account"]  # Fixed: use bracket notation
-            new_payment.amount = allocated_payment
-            new_payment.base_amount = flt(allocated_payment * new_doc.conversion_rate)
-        elif original_doc.payments:
-            # Fallback: copy first payment mode from original
-            new_payment = new_doc.append('payments')
-            original_payment = original_doc.payments[0]
-            
-            payment_copy_fields = [
-                'mode_of_payment', 'account', 'type', 'default'
-            ]
-            
-            for field in payment_copy_fields:
-                if hasattr(original_payment, field):
-                    new_payment.set(field, original_payment.get(field))
-            
-            new_payment.amount = allocated_payment
-            new_payment.base_amount = flt(allocated_payment * new_doc.conversion_rate)
-    
-    # Update paid amount
-    new_doc.paid_amount = allocated_payment
-    new_doc.outstanding_amount = flt(new_doc.grand_total - allocated_payment)
-    
-    # Save the new invoice
-    new_doc.insert()
-    
-    return new_doc
+	return {"success": True, "message": f"Table {table_name} status updated to {new_status}"}
+
+def log_table_status_change(table_name, old_status, new_status, reason):
+	"""Log table status changes for tracking"""
+	try:
+		log_entry = frappe.get_doc({
+			"doctype": "Table Status Log",
+			"table": table_name,
+			"old_status": old_status,
+			"new_status": new_status,
+			"changed_by": frappe.session.user,
+			"change_reason": reason,
+			"change_type": "Status Change" if "Manual" not in reason else "Override",
+			"timestamp": frappe.utils.now()
+		})
+		log_entry.insert(ignore_permissions=True)
+		frappe.db.commit()
+	except Exception as e:
+		# Log the error but don't fail the main operation
+		frappe.log_error(f"Failed to log table status change: {str(e)}", "Table Status Logging")
 
 
-def update_original_invoice_with_payments(original_doc, invoice_groups, payment_distribution):
-    """Update original invoice by removing/reducing split items and adjusting payments"""
-    
-    # Calculate total quantities being split per item
-    split_totals = {}
-    for invoice_num, items in invoice_groups.items():
-        for item in items:
-            item_code = item['item_code']
-            split_qty = flt(item['split_qty'])
-            
-            if item_code in split_totals:
-                split_totals[item_code] += split_qty
-            else:
-                split_totals[item_code] = split_qty
-    
-    # Update or remove items
-    items_to_remove = []
-    
-    for i, item in enumerate(original_doc.items):
-        if item.item_code in split_totals:
-            total_split = split_totals[item.item_code]
-            
-            if flt(item.qty) <= total_split:
-                # Remove entire item
-                items_to_remove.append(i)
-            else:
-                # Reduce quantity
-                item.qty = flt(item.qty) - total_split
-                item.amount = flt(item.qty * item.rate)
-                item.base_amount = flt(item.amount * original_doc.conversion_rate)
-    
-    # Remove items (in reverse order to maintain indices)
-    for i in reversed(items_to_remove):
-        original_doc.items.pop(i)
-    
-    # Recalculate totals
-    original_doc.run_method("calculate_taxes_and_totals")
-    
-    # Handle edge case where all items are removed
-    if original_doc.grand_total == 0:
-        # If no amount left, set minimal payment to satisfy POS requirement
-        if original_doc.payments:
-            # Keep one payment method with 0 amount
-            first_payment = original_doc.payments[0]
-            original_doc.payments = [first_payment]
-            first_payment.amount = 0
-            first_payment.base_amount = 0
-        else:
-            # Create a minimal payment entry if none exists
-            default_mode = get_default_payment_mode(original_doc.pos_profile)
-            if default_mode:
-                new_payment = original_doc.append('payments')
-                new_payment.mode_of_payment = default_mode["mode_of_payment"]  # Fixed: use bracket notation
-                new_payment.account = default_mode["default_account"]  # Fixed: use bracket notation
-                new_payment.amount = 0
-                new_payment.base_amount = 0
-        
-        original_doc.paid_amount = 0
-        original_doc.outstanding_amount = 0
-        
-    elif payment_distribution:
-        # Calculate total allocated payments to new invoices
-        total_allocated = sum(
-            flt(payment_info.get('payment_amount', 0)) 
-            for payment_info in payment_distribution.values()
-        )
-        
-        # Remaining payment should stay with original
-        remaining_payment = flt(original_doc.paid_amount - total_allocated)
-        
-        # Ensure we keep at least one payment method for POS requirement
-        if remaining_payment > 0 and original_doc.payments:
-            # Adjust payment amounts to match remaining payment
-            total_original_payments = sum(payment.amount for payment in original_doc.payments)
-            
-            if total_original_payments > 0:
-                for payment in original_doc.payments:
-                    # Calculate proportional reduction
-                    payment_ratio = remaining_payment / total_original_payments
-                    payment.amount = flt(payment.amount * payment_ratio)
-                    payment.base_amount = flt(payment.amount * original_doc.conversion_rate)
-        elif remaining_payment <= 0 and original_doc.payments:
-            # Keep first payment method with 0 amount to satisfy POS requirement
-            first_payment = original_doc.payments[0]
-            original_doc.payments = [first_payment]
-            first_payment.amount = 0
-            first_payment.base_amount = 0
-            remaining_payment = 0
-        elif not original_doc.payments:
-            # Create a minimal payment entry if none exists
-            default_mode = get_default_payment_mode(original_doc.pos_profile)
-            if default_mode:
-                new_payment = original_doc.append('payments')
-                new_payment.mode_of_payment = default_mode["mode_of_payment"]  # Fixed: use bracket notation
-                new_payment.account = default_mode["default_account"]  # Fixed: use bracket notation
-                new_payment.amount = max(0, remaining_payment)
-                new_payment.base_amount = flt(new_payment.amount * original_doc.conversion_rate)
-        
-        # Update totals
-        original_doc.paid_amount = max(0, remaining_payment)
-        original_doc.outstanding_amount = flt(original_doc.grand_total - original_doc.paid_amount)
-        
-    elif original_doc.payments and original_doc.grand_total > 0:
-        # If no payment distribution provided, keep original payment structure
-        # but adjust amounts proportionally to new grand total
-        original_paid_amount = original_doc.paid_amount
-        
-        if original_paid_amount > 0:
-            payment_ratio = min(1.0, original_doc.grand_total / original_paid_amount)
-            
-            for payment in original_doc.payments:
-                payment.amount = flt(payment.amount * payment_ratio)
-                payment.base_amount = flt(payment.amount * original_doc.conversion_rate)
-            
-            original_doc.paid_amount = flt(original_doc.paid_amount * payment_ratio)
-        
-        original_doc.outstanding_amount = flt(original_doc.grand_total - original_doc.paid_amount)
-        
-    elif not original_doc.payments and original_doc.grand_total > 0:
-        # Create outstanding invoice with default payment method
-        default_mode = get_default_payment_mode(original_doc.pos_profile)
-        if default_mode:
-            new_payment = original_doc.append('payments')
-            new_payment.mode_of_payment = default_mode["mode_of_payment"]  # Fixed: use bracket notation
-            new_payment.account = default_mode["default_account"]  # Fixed: use bracket notation
-            new_payment.amount = 0
-            new_payment.base_amount = 0
-        
-        original_doc.paid_amount = 0
-        original_doc.outstanding_amount = original_doc.grand_total
-    
-    # Save updated original
-    original_doc.save()
-    
-    return original_doc
+# KOT API Functions
+import json
 
-def get_default_payment_mode(pos_profile):
-    """Get default payment mode from POS profile"""
-    try:
-        if pos_profile:
-            pos_doc = frappe.get_doc("POS Profile", pos_profile)
-            if pos_doc.payments:
-                payment_method = pos_doc.payments[0]  # This is a POSPaymentMethod object
-                return {
-                    "mode_of_payment": payment_method.mode_of_payment,
-                    "default_account": payment_method.default_account
-                }
-        
-        # Fallback to any available mode of payment
-        mode_of_payment = frappe.get_all("Mode of Payment", 
-                                        filters={"enabled": 1}, 
-                                        fields=["name"], 
-                                        limit=1)
-        if mode_of_payment:
-            # Get default account for this mode of payment
-            account = frappe.get_value("Mode of Payment Account", 
-                                     {"parent": mode_of_payment[0].name}, 
-                                     "default_account")
-            return {
-                "mode_of_payment": mode_of_payment[0].name,
-                "default_account": account
-            }
-    except Exception as e:
-        frappe.log_error(f"Error getting default payment mode: {str(e)}", "Payment Mode Error")
-    
-    return None
+def load_json(data):
+	"""Load JSON data or return as is if it's already a Python dictionary"""
+	if isinstance(data, str):
+		return json.loads(data)
+	return data
 
-def on_submit_pos_invoice(doc, method):
-    """Hook called when Sales Invoice is submitted"""
-    try:
-        if doc.doctype == 'Sales Invoice':
-            # Check if this is a split payment
-            active_payments = [p for p in doc.payments if flt(p.amount) > 0]
-            if len(active_payments) > 1:
-                # Log split payment for audit
-                log_split_payment_details(doc, active_payments)
-                
-                # Additional processing for split payments if needed
-                create_split_payment_log(doc, active_payments)
-                
-    except Exception as e:
-        frappe.log_error(f"Error in split payment submission hook: {str(e)}", "Split Payment Submission")
+
+def create_order_items(items):
+	"""Create a list of order items from a list of input items"""
+	order_items = []
+	for item in items:
+		order_item = {
+			"item_code": item.get("item_code", item.get("item", "")),
+			"qty": item.get("qty", item.get("quantity", 0)),
+			"item_name": item.get("item_name", ""),
+			"comments": item.get("comments", ""),
+		}
+		order_items.append(order_item)
+	return order_items
+
+
+def compare_two_arrays(array_1, array_2):
+	"""Compare two arrays and return the items that are different"""
+	final_array = []
+	for item1 in array_1:
+		found = False
+		for item2 in array_2:
+			if item1["item_code"] == item2["item_code"]:
+				qty_diff = item1["qty"] - item2["qty"]
+				if qty_diff != 0:
+					item1_copy = item1.copy()
+					item1_copy["qty"] = qty_diff
+					final_array.append(item1_copy)
+				found = True
+				break
+		if not found:
+			final_array.append(item1)
+	return final_array
+
+
+def get_removed_items(array_1, array_2):
+	"""Get the items that have been removed from the second array compared to the first array"""
+	removed_items = []
+	for item2 in array_2:
+		found = False
+		for item1 in array_1:
+			if item1["item_code"] == item2["item_code"]:
+				found = True
+				break
+		if not found:
+			removed_items.append(item2)
+	return removed_items
+
+
+def create_kot_doc(invoice_id, customer, restaurant_table, items, kot_type, comments, pos_profile_id, kot_naming_series, production=None):
+	"""Create a KOT document with enhanced fields"""
+	pos_invoice = frappe.get_doc("POS Invoice", invoice_id)
+	order_number = pos_invoice.name or ""
+
+	# Get menu for the branch
+	branch = frappe.db.get_value("POS Profile", pos_profile_id, "branch")
+	menu = None
+	if branch:
+		menu = frappe.db.get_value("Menu", {"branch": branch, "is_active": 1}, "name")
+
+	# Check if aggregator order
+	is_aggregator = 0
+	aggregator_id = ""
+	if hasattr(pos_invoice, 'order_type') and pos_invoice.order_type == "Aggregators":
+		is_aggregator = 1
+		aggregator_id = getattr(pos_invoice, 'custom_aggregator_id', "") or ""
+
+	kot_items = []
+	for item in items:
+		# Get course and serve_priority from Menu Item
+		course = "Main Course"
+		serve_priority = 1
+
+		if menu:
+			menu_item = frappe.db.get_value("Menu Item",
+				{"item": item["item_code"], "parent": menu, "parenttype": "Menu"},
+				["course", "serve_priority"])
+			if menu_item:
+				course = menu_item[0] or "Main Course"
+				serve_priority = menu_item[1] or 1
+
+		kot_items.append({
+			"item": item["item_code"],
+			"item_name": item["item_name"],
+			"quantity": item["qty"],
+			"comments": item.get("comments", ""),
+			"course": course,
+			"serve_priority": serve_priority,
+			"production_unit": production
+		})
+
+	kot_doc = frappe.get_doc({
+		"doctype": "KOT",
+		"invoice": invoice_id,
+		"restaurant_table": restaurant_table,
+		"customer_name": customer,
+		"pos_profile": pos_profile_id,
+		"comments": comments,
+		"type": kot_type,
+		"naming_series": kot_naming_series,
+		"production": production,
+		"order_no": order_number,
+		"menu": menu,
+		"is_aggregator": is_aggregator,
+		"aggregator_id": aggregator_id,
+		"time": frappe.utils.nowtime(),
+		"branch": branch,
+		"kot_items": kot_items
+	})
+
+	kot_doc.insert()
+	kot_doc.save()
+	frappe.db.commit()
+	return kot_doc
+
 
 @frappe.whitelist()
-def create_simple_payment_entry(invoice_name, mode_of_payment, amount):
-    """
-    Create a simple payment entry for a Sales Invoice and add to payments table
-    """
-    try:
-        # Get the invoice
-        invoice = frappe.get_doc("Sales Invoice", invoice_name)
-        
-        if not invoice:
-            return {"success": False, "error": "Invoice not found"}
-        
-        if invoice.outstanding_amount <= 0:
-            return {"success": False, "error": "No outstanding amount to pay"}
-        
-        amount = flt(amount)
-        
-        # Calculate allocated amount (shouldn't exceed outstanding)
-        allocated_amount = min(amount, invoice.outstanding_amount)
-        change_amount = amount - allocated_amount if amount > invoice.outstanding_amount else 0
-        
-        # Create payment entry
-        payment_entry = frappe.new_doc("Payment Entry")
-        payment_entry.payment_type = "Receive"
-        payment_entry.company = invoice.company
-        payment_entry.posting_date = nowdate()
-        payment_entry.mode_of_payment = mode_of_payment
-        payment_entry.party_type = "Customer"
-        payment_entry.party = invoice.customer
-        
-        # Get party account
-        party_account = get_party_account("Customer", invoice.customer, invoice.company)
-        
-        # Get bank/cash account for the mode of payment
-        bank_account = get_default_bank_cash_account(
-            invoice.company, 
-            "Bank", 
-            mode_of_payment=mode_of_payment
-        )
-        
-        if not bank_account:
-            bank_account = get_default_bank_cash_account(
-                invoice.company, 
-                "Cash", 
-                mode_of_payment=mode_of_payment
-            )
-        
-        if not bank_account:
-            return {"success": False, "error": f"No bank/cash account found for mode of payment: {mode_of_payment}"}
-        
-        payment_entry.paid_from = party_account
-        payment_entry.paid_to = bank_account.account
-        payment_entry.paid_from_account_currency = invoice.currency
-        payment_entry.paid_to_account_currency = bank_account.account_currency
-        payment_entry.paid_amount = amount  # Full amount paid
-        payment_entry.received_amount = amount  # Full amount received
-        
-        # Add reference to the invoice - only allocate outstanding amount
-        payment_entry.append("references", {
-            "reference_doctype": "Sales Invoice",
-            "reference_name": invoice.name,
-            "allocated_amount": allocated_amount
-        })
-        
-        # Set reference number and date to avoid validation error
-        payment_entry.reference_no = f"PAY-{invoice.name}-{frappe.utils.now()}"
-        payment_entry.reference_date = nowdate()
-        
-        # Add remarks about change if applicable
-        remarks = f"Payment for {invoice.name}"
-        if change_amount > 0:
-            remarks += f" | Amount Paid: {amount} | Change: {change_amount}"
-        payment_entry.remarks = remarks
-        
-        # Set other required fields
-        payment_entry.setup_party_account_field()
-        payment_entry.set_missing_values()
-        payment_entry.set_amounts()
-        
-        # Insert and submit
-        payment_entry.insert(ignore_permissions=True)
-        payment_entry.submit()
-        
-        # NOW ADD TO SALES INVOICE PAYMENTS TABLE (Sales Invoice Payment doctype)
-        invoice.reload()  # Reload to get fresh data
-        
-        # Check if this mode of payment already exists in payments table
-        existing_payment = None
-        for payment in invoice.payments:
-            if payment.mode_of_payment == mode_of_payment:
-                existing_payment = payment
-                break
-        
-        if existing_payment:
-            # Update existing payment amount
-            existing_payment.amount = (existing_payment.amount or 0) + allocated_amount
-            existing_payment.base_amount = existing_payment.amount
-        else:
-            # Create new Sales Invoice Payment entry and add to payments table
-            new_payment = frappe.new_doc("Sales Invoice Payment")
-            new_payment.mode_of_payment = mode_of_payment
-            new_payment.amount = allocated_amount
-            new_payment.base_amount = allocated_amount
-            new_payment.account = bank_account.account
-            new_payment.type = "Cash" if "cash" in mode_of_payment.lower() else "Bank"
-            new_payment.default = 0
-            
-            # Add to the invoice's payments table
-            invoice.append("payments", new_payment)
-        
-        # Recalculate totals
-        total_payments = sum([p.amount for p in invoice.payments])
-        invoice.paid_amount = total_payments
-        invoice.outstanding_amount = invoice.grand_total - total_payments
-        
-        # Update status based on payment
-        if invoice.outstanding_amount <= 0.01:  # Account for rounding
-            invoice.status = "Paid"
-        elif invoice.paid_amount > 0:
-            invoice.status = "Partly Paid"
-        else:
-            invoice.status = "Unpaid"
-        
-        # Save the invoice with special flags to allow update after submit
-        invoice.flags.ignore_validate_update_after_submit = True
-        invoice.flags.ignore_links = True
-        invoice.save(ignore_permissions=True)
-        
-        # Commit the changes
-        frappe.db.commit()
-        
-        return {
-            "success": True, 
-            "payment_entry": payment_entry.name,
-            "change_amount": change_amount,
-            "allocated_amount": allocated_amount,
-            "total_paid": invoice.paid_amount,
-            "outstanding": invoice.outstanding_amount,
-            "payments_count": len(invoice.payments),
-            "message": f"Payment entry {payment_entry.name} created successfully and added to invoice payments table"
-        }
-        
-    except Exception as e:
-        frappe.log_error(f"Error creating payment entry: {str(e)}")
-        frappe.db.rollback()  # Rollback in case of error
-        return {"success": False, "error": str(e)}
+def kot_execute(invoice_id, customer, restaurant_table=None, current_items=[], previous_items=[], comments=None):
+	"""Main function to handle KOT entry"""
+	print(f"KOT: kot_execute called with invoice_id={invoice_id}")
 
-@frappe.whitelist()
-def get_available_mpesa_payments():
-    """Get Mpesa payments that have remaining amounts available"""
-    payments = frappe.db.sql("""
-        SELECT 
-            name, 
-            full_name, 
-            transid, 
-            transamount, 
-            transtime,
-            IFNULL(remaining_amount, transamount) as available_amount,
-            IFNULL(payment_status, 'Unapplied') as payment_status
-        FROM `tabMpesa C2B Payment Register`
-        WHERE docstatus = 0 
-        AND (payment_status IS NULL OR payment_status != 'Fully Applied')
-        AND IFNULL(remaining_amount, transamount) > 0
-        ORDER BY transtime DESC
-        LIMIT 50
-    """, as_dict=1)
-    
-    return payments
+	current_items = load_json(current_items)
+	previous_items = load_json(previous_items)
 
-@frappe.whitelist()
-def apply_partial_mpesa_payments(payments_data, invoice_name):
-    """Apply partial Mpesa payments to an invoice"""
-    import json
-    
-    if isinstance(payments_data, str):
-        payments_data = json.loads(payments_data)
-    
-    total_applied = 0
-    invoice_doc = frappe.get_doc("Sales Invoice", invoice_name)
-    customer = invoice_doc.customer
-    
-    for payment_data in payments_data:
-        mpesa_doc = frappe.get_doc("Mpesa C2B Payment Register", payment_data['id'])
-        applied_amount = flt(payment_data['amount'])
+	new_invoice_items_array = create_order_items(previous_items)
+	new_order_items_array = create_order_items(current_items)
 
-        if not mpesa_doc.customer and customer:
-            mpesa_doc.customer = customer
-        
-        # Validate available amount
-        current_remaining = flt(mpesa_doc.remaining_amount) if mpesa_doc.remaining_amount else flt(mpesa_doc.transamount)
-        
-        if applied_amount > current_remaining:
-            frappe.throw(_("Cannot apply {0} from payment {1}. Available amount: {2}").format(
-                applied_amount, mpesa_doc.transid, current_remaining))
-        
-        # Add to applied invoices table
-        mpesa_doc.append("applied_invoices", {
-            "invoice_number": invoice_name,
-            "applied_amount": applied_amount,
-            "application_date": now()
-        })
-        
-        # Update remaining amount
-        new_remaining = current_remaining - applied_amount
-        mpesa_doc.remaining_amount = new_remaining
-        
-        # Update status
-        if new_remaining == 0:
-            mpesa_doc.payment_status = "Fully Applied"
-            mpesa_doc.save()
-            mpesa_doc.submit()
-        elif new_remaining < flt(mpesa_doc.transamount):
-            mpesa_doc.payment_status = "Partly Applied"
-            mpesa_doc.save()
-        else:
-            mpesa_doc.payment_status = "Unapplied"
-            mpesa_doc.save()
-        
-        total_applied += applied_amount
-    
-    return {
-        "success": True,
-        "total_applied": total_applied,
-        "message": _("Successfully applied {0} from {1} Mpesa payment(s)").format(
-            total_applied, len(payments_data))
-    }
+	final_array = compare_two_arrays(new_order_items_array, new_invoice_items_array)
+	removed_item = get_removed_items(new_order_items_array, new_invoice_items_array)
 
-@frappe.whitelist()
-def get_mpesa_payment_history(payment_id):
-    """Get application history for a specific Mpesa payment"""
-    payment_doc = frappe.get_doc("Mpesa C2B Payment Register", payment_id)
-    
-    history = []
-    for applied_invoice in payment_doc.applied_invoices:
-        history.append({
-            "invoice_number": applied_invoice.invoice_number,
-            "applied_amount": applied_invoice.applied_amount,
-            "application_date": applied_invoice.application_date
-        })
-    
-    return {
-        "payment_id": payment_id,
-        "transaction_id": payment_doc.transid,
-        "original_amount": payment_doc.transamount,
-        "remaining_amount": payment_doc.remaining_amount or payment_doc.transamount,
-        "status": payment_doc.payment_status or "Unapplied",
-        "history": history
-    }
+	pos_invoice = frappe.get_doc("POS Invoice", invoice_id)
+	pos_profile_id = pos_invoice.pos_profile
+	pos_profile = frappe.get_doc("POS Profile", pos_profile_id)
+	kot_naming_series = pos_profile.custom_kot_naming_series
 
-@frappe.whitelist()
-def reverse_mpesa_application(payment_id, invoice_number):
-    """Reverse a specific Mpesa application"""
-    mpesa_doc = frappe.get_doc("Mpesa C2B Payment Register", payment_id)
-    
-    # Find the application to reverse
-    application_to_remove = None
-    for idx, applied_invoice in enumerate(mpesa_doc.applied_invoices):
-        if applied_invoice.invoice_number == invoice_number:
-            application_to_remove = idx
-            reversed_amount = applied_invoice.applied_amount
-            break
-    
-    if application_to_remove is None:
-        frappe.throw(_("No application found for invoice {0}").format(invoice_number))
-    
-    # Remove the application
-    mpesa_doc.applied_invoices.pop(application_to_remove)
-    
-    # Update remaining amount
-    current_remaining = flt(mpesa_doc.remaining_amount) if mpesa_doc.remaining_amount else 0
-    mpesa_doc.remaining_amount = current_remaining + reversed_amount
-    
-    # Update status
-    total_applied = sum([flt(app.applied_amount) for app in mpesa_doc.applied_invoices])
-    original_amount = flt(mpesa_doc.transamount)
-    
-    if total_applied == 0:
-        mpesa_doc.payment_status = "Unapplied"
-    elif total_applied < original_amount:
-        mpesa_doc.payment_status = "Partly Applied"
-    else:
-        mpesa_doc.payment_status = "Fully Applied"
-    
-    mpesa_doc.save()
-    
-    return {
-        "success": True,
-        "reversed_amount": reversed_amount,
-        "message": _("Successfully reversed {0} for invoice {1}").format(reversed_amount, invoice_number)
-    }
+	if not kot_naming_series:
+		frappe.throw("KOT Naming Series is mandatory. Ensure it is configured in the POS Profile.")
 
-def set_initial_remaining_amount(doc, method=None):
-    if not doc.remaining_amount or doc.remaining_amount == 0:
-        doc.remaining_amount = doc.transamount or 0
+	cancel_kot_naming_series = f"CNCL-{kot_naming_series}"
+
+	positive_qty_items = [item for item in final_array if int(item["qty"]) > 0]
+	negative_qty_items = [item for item in final_array if int(item["qty"]) <= 0]
+	total_cancel_items = negative_qty_items + removed_item
+
+	created_kots = []
+
+	if positive_qty_items:
+		print("KOT: Creating New Order KOT")
+		kot_doc = process_items_for_kot(
+			invoice_id,
+			customer,
+			restaurant_table,
+			positive_qty_items,
+			comments,
+			pos_profile_id,
+			kot_naming_series,
+			"New Order",
+		)
+		if kot_doc:
+			created_kots.append(kot_doc)
+
+	if total_cancel_items:
+		print("KOT: Creating Cancelled KOT")
+		kot_doc = process_items_for_cancel_kot(
+			invoice_id,
+			customer,
+			restaurant_table,
+			total_cancel_items,
+			comments,
+			pos_profile_id,
+			cancel_kot_naming_series,
+			"Cancelled",
+			invoice_items=new_invoice_items_array
+		)
+		if kot_doc:
+			created_kots.append(kot_doc)
+
+	result = created_kots[0] if created_kots else None
+	print(f"KOT: Returning {result.name if result else None}")
+	return result
+
+
+def process_items_for_kot(invoice_id, customer, restaurant_table, items, comments, pos_profile_id, kot_naming_series, kot_type):
+	"""Process items to create KOT documents with production unit assignment"""
+	pos_invoice = frappe.get_doc("POS Invoice", invoice_id)
+	branch = frappe.db.get_value("POS Profile", pos_profile_id, "branch") or None
+
+	# Group items by production unit
+	production_units = {}
+	for item in items:
+		item_group = frappe.db.get_value("Item", item["item_code"], "item_group")
+		production_unit = get_production_unit_for_item_group(item_group, branch)
+
+		if production_unit not in production_units:
+			production_units[production_unit] = []
+		production_units[production_unit].append(item)
+
+	created_kots = []
+	for production_unit, unit_items in production_units.items():
+		kot_doc = create_kot_doc(
+			invoice_id,
+			customer,
+			restaurant_table,
+			unit_items,
+			kot_type,
+			comments,
+			pos_profile_id,
+			kot_naming_series,
+			production_unit,
+		)
+		if kot_doc:
+			created_kots.append(kot_doc)
+
+	return created_kots[0] if created_kots else None
+
+
+def get_production_unit_for_item_group(item_group, branch):
+	"""Get production unit for item group and branch"""
+	if not item_group or not branch:
+		return None
+
+	# Get all production units for the branch
+	production_units = frappe.get_all("Production Unit",
+		filters={"branch": branch},
+		fields=["name"])
+
+	# Check each production unit to see if it contains the item group
+	for pu in production_units:
+		production_unit_doc = frappe.get_doc("Production Unit", pu.name)
+		for item_group_entry in production_unit_doc.item_groups:
+			if item_group_entry.item_group == item_group:
+				return pu.name
+
+	return None
+
+
+def process_items_for_cancel_kot(invoice_id, customer, restaurant_table, cancel_items, comments, pos_profile_id, cancel_kot_naming_series, kot_type, invoice_items=None):
+	"""Process items to create a cancel KOT document"""
+	pos_invoice = frappe.get_doc("POS Invoice", invoice_id)
+
+	kot_doc = frappe.get_doc({
+		"doctype": "KOT",
+		"naming_series": cancel_kot_naming_series,
+		"restaurant_table": restaurant_table,
+		"customer_name": customer,
+		"type": kot_type,
+		"invoice": invoice_id,
+		"pos_profile": pos_profile_id,
+		"comments": comments,
+		"time": frappe.utils.nowtime(),
+		"branch": frappe.db.get_value("POS Profile", pos_profile_id, "branch") or None
+	})
+
+	for cancel_item in cancel_items:
+		# Find matching item in invoice for quantity reference
+		original_qty = 0
+		if invoice_items:
+			for inv_item in invoice_items:
+				if inv_item["item_code"] == cancel_item["item_code"]:
+					original_qty = inv_item["qty"]
+					break
+
+		kot_doc.append("kot_items", {
+			"item": cancel_item["item_code"],
+			"item_name": cancel_item["item_name"],
+			"cancelled_qty": abs(int(cancel_item["qty"])),
+			"quantity": original_qty,
+			"comments": cancel_item.get("comments", ""),
+		})
+
+	kot_doc.insert()
+	kot_doc.save()
+	frappe.db.commit()
+	return kot_doc

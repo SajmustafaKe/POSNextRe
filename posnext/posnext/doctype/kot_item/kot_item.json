@@ -1,0 +1,87 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-01-28 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "item",
+  "item_name",
+  "quantity",
+  "comments",
+  "course",
+  "production_unit",
+  "serve_priority",
+  "cancelled_qty",
+  "striked"
+ ],
+ "fields": [
+  {
+   "fieldname": "item",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Item",
+   "options": "Item",
+   "reqd": 1
+  },
+  {
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Item Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "quantity",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Quantity",
+   "reqd": 1
+  },
+  {
+   "fieldname": "comments",
+   "fieldtype": "Small Text",
+   "label": "Comments"
+  },
+  {
+   "fieldname": "course",
+   "fieldtype": "Data",
+   "label": "Course"
+  },
+  {
+   "fieldname": "production_unit",
+   "fieldtype": "Link",
+   "label": "Production Unit",
+   "options": "Production Unit"
+  },
+  {
+   "fieldname": "serve_priority",
+   "fieldtype": "Int",
+   "label": "Serve Priority",
+   "default": "1"
+  },
+  {
+   "fieldname": "cancelled_qty",
+   "fieldtype": "Float",
+   "label": "Cancelled Qty"
+  },
+  {
+   "fieldname": "striked",
+   "fieldtype": "Check",
+   "label": "Striked"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_child_table": 1,
+ "links": [],
+ "modified": "2025-01-28 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "POSNext",
+ "name": "KOT Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

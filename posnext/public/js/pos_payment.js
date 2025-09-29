@@ -18,7 +18,46 @@ posnext.PointOfSale.Payment = class {
 
 	prepare_dom() {
 		this.wrapper.append(
-			`<section class="payment-container">
+			`<style>
+				.action-buttons {
+					display: flex;
+					gap: 12px;
+					margin-top: 16px;
+				}
+				.send-kot-btn, .submit-order-btn {
+					flex: 1;
+					padding: 12px 16px;
+					border-radius: 6px;
+					text-align: center;
+					font-weight: 600;
+					cursor: pointer;
+					transition: all 0.2s;
+					font-size: 14px;
+				}
+				.send-kot-btn {
+					background: #f59e0b;
+					color: #fff;
+					border: 2px solid #f59e0b;
+				}
+				.send-kot-btn:hover:not(:disabled) {
+					background: #d97706;
+					border-color: #d97706;
+				}
+				.submit-order-btn {
+					background: #4CAF50;
+					color: #fff;
+					border: 2px solid #4CAF50;
+				}
+				.submit-order-btn:hover:not(:disabled) {
+					background: #3d8b40;
+					border-color: #3d8b40;
+				}
+				.send-kot-btn:disabled, .submit-order-btn:disabled {
+					opacity: 0.5;
+					cursor: not-allowed;
+				}
+			</style>
+			<section class="payment-container">
 				<div class="section-label payment-section">${__('Payment Method')}</div>
 				<div class="payment-modes"></div>
 				<div class="fields-numpad-container">
@@ -31,7 +70,10 @@ posnext.PointOfSale.Payment = class {
 				<div class="totals-section">
 					<div class="totals"></div>
 				</div>
-				<div class="submit-order-btn">${__("Complete Order")}</div>
+				<div class="action-buttons">
+					<div class="send-kot-btn">${__("Send to Kitchen")}</div>
+					<div class="submit-order-btn">${__("Complete Order")}</div>
+				</div>
 			</section>`
 		);
 		this.$component = this.wrapper.find('.payment-container');
@@ -156,17 +198,11 @@ posnext.PointOfSale.Payment = class {
 
 				me.selected_mode = me[`${mode}_control`];
 				me.selected_mode && me.selected_mode.$input.get(0).focus();
-				//me.auto_set_remaining_amount();
+				me.auto_set_remaining_amount();
 			}
 		});
 
-		// Add Apply Mpesa Payment button click event
-		this.$payment_modes.on('click', '.apply-mpesa-payment', function(e) {
-			e.stopPropagation();
-			me.show_mpesa_payment_popup();
-		});
-
-		frappe.ui.form.on('Sales Invoice', 'contact_mobile', (frm) => {
+		frappe.ui.form.on('POS Invoice', 'contact_mobile', (frm) => {
 			const contact = frm.doc.contact_mobile;
 			const request_button = $(this.request_for_payment_field?.$input[0]);
 			if (contact) {
@@ -176,7 +212,7 @@ posnext.PointOfSale.Payment = class {
 			}
 		});
 
-		frappe.ui.form.on('Sales Invoice', 'coupon_code', (frm) => {
+		frappe.ui.form.on('POS Invoice', 'coupon_code', (frm) => {
 			if (frm.doc.coupon_code && !frm.applying_pos_coupon_code) {
 				if (!frm.doc.ignore_pricing_rule) {
 					frm.applying_pos_coupon_code = true;
@@ -210,8 +246,8 @@ posnext.PointOfSale.Payment = class {
 			const paid_amount = doc.paid_amount;
 			const items = doc.items;
 
-			if (paid_amount < 0 || !items.length) {
-				const message = items.length ? __("You cannot submit the order with NEGATIVE payment.") : __("You cannot submit empty order.");
+			if (paid_amount == 0 || !items.length) {
+				const message = items.length ? __("You cannot submit the order without payment.") : __("You cannot submit empty order.");
 				frappe.show_alert({ message, indicator: "orange" });
 				frappe.utils.play_sound("error");
 				return;
@@ -220,7 +256,20 @@ posnext.PointOfSale.Payment = class {
 			this.events.submit_invoice();
 		});
 
-		frappe.ui.form.on('Sales Invoice', 'paid_amount', (frm) => {
+		this.$component.on('click', '.send-kot-btn', () => {
+			const doc = this.events.get_frm().doc;
+			const items = doc.items;
+
+			if (!items.length) {
+				frappe.show_alert({ message: __("You cannot send empty order to kitchen."), indicator: "orange" });
+				frappe.utils.play_sound("error");
+				return;
+			}
+
+			this.send_to_kitchen(doc);
+		});
+
+		frappe.ui.form.on('POS Invoice', 'paid_amount', (frm) => {
 			this.update_totals_section(frm.doc);
 
 			// need to re calculate cash shortcuts after discount is applied
@@ -230,7 +279,7 @@ posnext.PointOfSale.Payment = class {
 			this.render_payment_mode_dom();
 		});
 
-		frappe.ui.form.on('Sales Invoice', 'loyalty_amount', (frm) => {
+		frappe.ui.form.on('POS Invoice', 'loyalty_amount', (frm) => {
 			const formatted_currency = format_currency(frm.doc.loyalty_amount, frm.doc.currency);
 			this.$payment_modes.find(`.loyalty-amount-amount`).html(formatted_currency);
 		});
@@ -244,312 +293,6 @@ posnext.PointOfSale.Payment = class {
 			}
 		});
 	}
-
-show_mpesa_payment_popup() {
-    const me = this;
-    const doc = this.events.get_frm().doc;
-    const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
-    const outstanding_amount = grand_total - doc.paid_amount;
-
-    // Fetch available Mpesa payments
-    frappe.call({
-        method: 'posnext.posnext.page.posnext.point_of_sale.get_available_mpesa_payments',
-        callback: function(r) {
-            if (r.message && r.message.length > 0) {
-                me.create_partial_mpesa_dialog(r.message, doc, outstanding_amount);
-            } else {
-                frappe.msgprint({
-                    title: __('No Available Payments'),
-                    message: __('No Mpesa payments with available amounts found.'),
-                    indicator: 'orange'
-                });
-            }
-        }
-    });
-}	
-
-create_partial_mpesa_dialog(payments, doc, outstanding_amount) {
-    const me = this;
-    
-    // Create table rows for payments
-    const payment_rows = payments.map(payment => {
-        const formatted_amount = format_currency(payment.transamount, doc.currency);
-        const available_amount = format_currency(payment.available_amount, doc.currency);
-        const formatted_time = frappe.datetime.str_to_user(payment.transtime);
-        const status_color = payment.payment_status === 'Unapplied' ? '#28a745' : 
-                           payment.payment_status === 'Partly Applied' ? '#ffc107' : '#6c757d';
-        
-        return `
-            <tr data-payment-id="${payment.name}" data-available="${payment.available_amount}">
-                <td style="text-align: center;">
-                    <input type="checkbox" class="payment-checkbox" />
-                </td>
-                <td>${payment.full_name || ''}</td>
-                <td>${payment.transid || ''}</td>
-                <td style="text-align: right;">${formatted_amount}</td>
-                <td style="text-align: right; font-weight: bold;">${available_amount}</td>
-                <td>
-                    <span style="color: ${status_color}; font-size: 12px; font-weight: bold;">
-                        ${__(payment.payment_status)}
-                    </span>
-                </td>
-                <td style="text-align: center;">
-                    <input type="number" class="form-control amount-input" 
-                           style="width: 100px; font-size: 12px;" 
-                           min="0" max="${payment.available_amount}" 
-                           step="0.01" placeholder="Amount" disabled />
-                </td>
-                <td>${formatted_time}</td>
-            </tr>
-        `;
-    }).join('');
-
-    const dialog_html = `
-        <div class="mpesa-payment-dialog">
-            <div style="margin-bottom: 15px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px; background-color: #f8f9fa; border-radius: 6px;">
-                    <strong>${__('Outstanding Amount')}: ${format_currency(outstanding_amount, doc.currency)}</strong>
-                    <span id="selected-total" style="color: #28a745; font-weight: bold;">
-                        ${__('Selected')}: ${format_currency(0, doc.currency)}
-                    </span>
-                </div>
-            </div>
-
-            <div style="max-height: 500px; overflow-y: auto; border: 1px solid #ddd; border-radius: 6px;">
-                <table class="table table-striped" style="margin: 0;">
-                    <thead style="background-color: #f8f9fa; position: sticky; top: 0;">
-                        <tr>
-                            <th style="text-align: center; width: 50px;">${__('Select')}</th>
-                            <th>${__('Name')}</th>
-                            <th>${__('Trans ID')}</th>
-                            <th style="text-align: right;">${__('Original')}</th>
-                            <th style="text-align: right;">${__('Available')}</th>
-                            <th>${__('Status')}</th>
-                            <th style="text-align: center;">${__('Apply Amount')}</th>
-                            <th>${__('Time')}</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${payment_rows}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    `;
-
-    const dialog = new frappe.ui.Dialog({
-        title: __('Apply Partial Mpesa Payments'),
-        fields: [
-            {
-                fieldtype: 'HTML',
-                fieldname: 'payment_selection',
-                options: dialog_html
-            }
-        ],
-        size: 'extra-large',
-        primary_action_label: __('Apply Selected Payments'),
-        primary_action: function() {
-            me.apply_partial_mpesa_payments(dialog, doc);
-        },
-        secondary_action_label: __('Cancel')
-    });
-
-    dialog.show();
-
-    // Add event listeners
-    setTimeout(() => {
-        const dialog_wrapper = dialog.$wrapper;
-        
-        // Handle checkbox changes
-        dialog_wrapper.find('.payment-checkbox').on('change', function() {
-            const row = $(this).closest('tr');
-            const amount_input = row.find('.amount-input');
-            const available_amount = parseFloat(row.data('available'));
-            
-            if ($(this).is(':checked')) {
-                amount_input.prop('disabled', false);
-                // Auto-fill with available amount or remaining amount, whichever is smaller
-                const auto_amount = Math.min(available_amount, outstanding_amount);
-                amount_input.val(auto_amount);
-            } else {
-                amount_input.prop('disabled', true).val('');
-            }
-            
-            me.update_partial_payment_total(dialog_wrapper, doc.currency);
-        });
-
-        // Handle amount input changes
-        dialog_wrapper.find('.amount-input').on('input', function() {
-            me.update_partial_payment_total(dialog_wrapper, doc.currency);
-        });
-    }, 100);
-}
-
-// New method to update total for partial payments
-update_partial_payment_total(dialog_wrapper, currency) {
-    let total = 0;
-    dialog_wrapper.find('.payment-checkbox:checked').each(function() {
-        const row = $(this).closest('tr');
-        const amount_input = row.find('.amount-input');
-        const amount = parseFloat(amount_input.val()) || 0;
-        total += amount;
-    });
-    
-    dialog_wrapper.find('#selected-total').html(
-        `${__('Selected')}: ${format_currency(total, currency)}`
-    );
-}	
-
-	update_selected_total(dialog_wrapper, currency) {
-		let total = 0;
-		dialog_wrapper.find('.payment-checkbox:checked').each(function() {
-			total += flt($(this).data('amount'));
-		});
-		
-		dialog_wrapper.find('#selected-total').html(
-			`${__('Selected')}: ${format_currency(total, currency)}`
-		);
-	}
-
-	update_select_all_state(dialog_wrapper) {
-		const total_checkboxes = dialog_wrapper.find('.payment-checkbox').length;
-		const checked_checkboxes = dialog_wrapper.find('.payment-checkbox:checked').length;
-		
-		const select_all = dialog_wrapper.find('#select-all-payments');
-		if (checked_checkboxes === 0) {
-			select_all.prop('indeterminate', false).prop('checked', false);
-		} else if (checked_checkboxes === total_checkboxes) {
-			select_all.prop('indeterminate', false).prop('checked', true);
-		} else {
-			select_all.prop('indeterminate', true);
-		}
-	}
-
-apply_partial_mpesa_payments(dialog, doc) {
-    const me = this;
-    const selected_payments = [];
-    let total_amount = 0;
-    let has_error = false;
-
-    dialog.$wrapper.find('.payment-checkbox:checked').each(function() {
-        const row = $(this).closest('tr');
-        const payment_id = row.data('payment-id');
-        const available_amount = parseFloat(row.data('available'));
-        const amount_input = row.find('.amount-input');
-        const apply_amount = parseFloat(amount_input.val()) || 0;
-        
-        if (apply_amount <= 0) {
-            frappe.msgprint({
-                title: __('Invalid Amount'),
-                message: __('Please enter a valid amount for all selected payments.'),
-                indicator: 'red'
-            });
-            has_error = true;
-            return false;
-        }
-        
-        if (apply_amount > available_amount) {
-            frappe.msgprint({
-                title: __('Amount Exceeds Available'),
-                message: __('Applied amount cannot exceed available amount for payment {0}', [payment_id]),
-                indicator: 'red'
-            });
-            has_error = true;
-            return false;
-        }
-
-        
-        selected_payments.push({
-            id: payment_id,
-            amount: apply_amount
-        });
-        total_amount += apply_amount;
-    });
-
-	const outstanding_amount = doc.grand_total - doc.paid_amount;
-	if (total_amount > outstanding_amount) {
-    frappe.msgprint({
-        title: __('Amount Exceeds Outstanding'),
-        message: __('Total applied amount ({0}) cannot exceed outstanding amount ({1})', [
-            format_currency(total_amount, doc.currency),
-            format_currency(outstanding_amount, doc.currency)
-        ]),
-        indicator: 'red'
-    });
-    return;
-	}
-
-    if (has_error || selected_payments.length === 0) {
-        if (selected_payments.length === 0) {
-            frappe.msgprint({
-                title: __('No Selection'),
-                message: __('Please select at least one payment to apply.'),
-                indicator: 'orange'
-            });
-        }
-        return;
-    }
-
-    // Show confirmation
-    frappe.confirm(
-        __('Apply {0} selected payments totaling {1}?', [
-            selected_payments.length,
-            format_currency(total_amount, doc.currency)
-        ]),
-        function() {
-            me.process_partial_mpesa_payments(selected_payments, doc, total_amount);
-            dialog.hide();
-        }
-    );
-}
-
-process_partial_mpesa_payments(selected_payments, doc, total_amount) {
-    const me = this;
-    
-    frappe.show_alert({
-        message: __('Processing partial Mpesa payments...'),
-        indicator: 'blue'
-    });
-
-    frappe.call({
-        method: 'posnext.posnext.page.posnext.point_of_sale.apply_partial_mpesa_payments',
-        args: {
-            payments_data: selected_payments,
-            invoice_name: doc.name
-        },
-        callback: function(r) {
-            if (r.message && r.message.success) {
-                // Update the mpesa-tenacity payment amount
-                const mpesa_control = me['mpesa-tenacity_control'];
-                if (mpesa_control) {
-                    mpesa_control.set_value(total_amount);
-                }
-
-                frappe.show_alert({
-                    message: r.message.message,
-                    indicator: 'green'
-                });
-
-                // Trigger update of totals
-                me.update_totals_section(doc);
-            } else {
-                frappe.msgprint({
-                    title: __('Error'),
-                    message: r.message.message || __('Failed to apply payments. Please try again.'),
-                    indicator: 'red'
-                });
-            }
-        },
-        error: function(error) {
-            console.error('Error applying partial payments:', error);
-            frappe.msgprint({
-                title: __('Error'),
-                message: __('Failed to apply payments. Please try again.'),
-                indicator: 'red'
-            });
-        }
-    });
-}
 
 	setup_listener_for_payments() {
 		frappe.realtime.on("process_phone_payment", (data) => {
@@ -579,14 +322,13 @@ process_partial_mpesa_payments(selected_payments, doc, total_amount) {
 	}
 
 	auto_set_remaining_amount() {
-		/*const doc = this.events.get_frm().doc;
+		const doc = this.events.get_frm().doc;
 		const grand_total = cint(frappe.sys_defaults.disable_rounded_total) ? doc.grand_total : doc.rounded_total;
 		const remaining_amount = grand_total - doc.paid_amount;
 		const current_value = this.selected_mode ? this.selected_mode.get_value() : undefined;
 		if (!current_value && remaining_amount > 0 && this.selected_mode) {
 			this.selected_mode.set_value(remaining_amount);
-		}*/
-		return;
+		}
 	}
 
 	attach_shortcuts() {
@@ -684,27 +426,12 @@ process_partial_mpesa_payments(selected_payments, doc, total_amount) {
 				const margin = i % 2 === 0 ? 'pr-2' : 'pl-2';
 				const amount = p.amount > 0 ? format_currency(p.amount, currency) : '';
 
-				// Add special button for mpesa-paybill mode
-				const mpesa_button = mode === 'mpesa-tenacity' ? 
-					`<div class="apply-mpesa-payment" style="
-						background: #28a745; 
-						color: white; 
-						padding: 4px 8px; 
-						border-radius: 4px; 
-						font-size: 11px; 
-						cursor: pointer; 
-						margin-top: 4px;
-						text-align: center;
-						user-select: none;
-					">${__('Apply Mpesa Payment')}</div>` : '';
-
 				return (`
 					<div class="payment-mode-wrapper">
 						<div class="mode-of-payment" data-mode="${mode}" data-payment-type="${payment_type}">
 							${p.mode_of_payment}
 							<div class="${mode}-amount pay-amount">${amount}</div>
 							<div class="${mode} mode-of-payment-control"></div>
-							${mpesa_button}
 						</div>
 					</div>
 				`);
@@ -746,23 +473,14 @@ process_partial_mpesa_payments(selected_payments, doc, total_amount) {
 	focus_on_default_mop() {
 		const doc = this.events.get_frm().doc;
 		const payments = doc.payments;
-		/*payments.forEach(p => {
+		payments.forEach(p => {
 			const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
 			if (p.default) {
 				setTimeout(() => {
 					this.$payment_modes.find(`.${mode}.mode-of-payment-control`).parent().click();
 				}, 500);
 			}
-		});*/
-		payments.forEach(p => {
-        const mode = p.mode_of_payment.replace(/ +/g, "_").toLowerCase();
-        if (p.default) {
-            // Just focus, don't click
-            setTimeout(() => {
-                this.$payment_modes.find(`.${mode}.mode-of-payment-control input`).focus();
-            }, 500);
-        }
-    	});
+		});
 	}
 
 	attach_cash_shortcuts(doc) {
@@ -898,6 +616,47 @@ process_partial_mpesa_payments(selected_payments, doc, total_amount) {
 				<div class="value">${format_currency(change || remaining, currency)}</div>
 			</div>`
 		);
+	}
+
+	send_to_kitchen(doc) {
+		// Convert items to the format expected by KOT API
+		const current_items = doc.items.map(item => ({
+			item_code: item.item_code,
+			item_name: item.item_name,
+			qty: item.qty,
+			comments: item.comments || ""
+		}));
+
+		// Disable the button during processing
+		this.$component.find('.send-kot-btn').prop('disabled', true).text(__('Sending...'));
+
+		frappe.call({
+			method: 'posnext.posnext.page.posnext.point_of_sale.kot_execute',
+			args: {
+				invoice_id: doc.name,
+				customer: doc.customer,
+				restaurant_table: doc.pos_table,
+				current_items: current_items,
+				previous_items: [], // Empty for new orders
+				comments: doc.order_comments || ""
+			},
+			callback: (r) => {
+				this.$component.find('.send-kot-btn').prop('disabled', false).text(__('Send to Kitchen'));
+				if (r.exc) {
+					frappe.show_alert({
+						message: __('Failed to send order to kitchen. Please try again.'),
+						indicator: 'red'
+					});
+					frappe.utils.play_sound("error");
+				} else {
+					frappe.show_alert({
+						message: __('Order sent to kitchen successfully!'),
+						indicator: 'green'
+					});
+					frappe.utils.play_sound("success");
+				}
+			}
+		});
 	}
 
 	toggle_component(show) {

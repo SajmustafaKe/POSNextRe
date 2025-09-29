@@ -4,14 +4,15 @@ from erpnext.accounts.doctype.pos_invoice.pos_invoice import get_bin_qty,get_bun
 @frappe.whitelist()
 def get_stock_availability(item_code, warehouse):
 	if not frappe.db.exists("Item", item_code):
-		return {}, False
+		return {warehouse: 0}, False
 
 	is_stock_item = frappe.db.get_value("Item", item_code, "is_stock_item")
 	if not is_stock_item:
 		if frappe.db.exists("Product Bundle", {"name": item_code, "disabled": 0}):
-			# You can implement a similar breakdown for bundles if needed
-			return {}, True
-		return {}, False
+			# For bundles, return the bundle availability
+			from erpnext.accounts.doctype.pos_invoice.pos_invoice import get_bundle_availability
+			return {warehouse: get_bundle_availability(item_code, warehouse)}, True
+		return {warehouse: 0}, False
 
 	is_group = frappe.db.get_value("Warehouse", warehouse, "is_group")
 	if is_group:
@@ -25,11 +26,16 @@ def get_stock_availability(item_code, warehouse):
 	else:
 		child_warehouses = [warehouse]
 
-	# Get qty per warehouse
-	qty_map = {}
+	# Calculate total available quantity across all child warehouses
+	total_qty = 0
 	for wh in child_warehouses:
 		qty = get_bin_qty(item_code, wh)
 		if qty:
-			qty_map[wh] = qty
+			total_qty += qty
 
-	return qty_map, True
+	# Subtract POS reserved quantity
+	from erpnext.accounts.doctype.pos_invoice.pos_invoice import get_pos_reserved_qty
+	pos_reserved = get_pos_reserved_qty(item_code, warehouse)
+	total_qty -= pos_reserved
+
+	return {warehouse: total_qty}, True
