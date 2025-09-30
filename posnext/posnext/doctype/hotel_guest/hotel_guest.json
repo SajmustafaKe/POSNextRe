@@ -1,0 +1,309 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-09-29 12:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "guest_name",
+  "first_name",
+  "last_name",
+  "email",
+  "phone",
+  "column_break_6",
+  "date_of_birth",
+  "gender",
+  "nationality",
+  "passport_number",
+  "section_break_11",
+  "address_line_1",
+  "address_line_2",
+  "city",
+  "state",
+  "country",
+  "postal_code",
+  "column_break_19",
+  "company",
+  "designation",
+  "loyalty_program",
+  "loyalty_number",
+  "section_break_24",
+  "preferred_room_type",
+  "special_requests",
+  "dietary_restrictions",
+  "accessibility_needs",
+  "column_break_29",
+  "vip_status",
+  "blacklist_status",
+  "blacklist_reason",
+  "section_break_33",
+  "total_stays",
+  "total_nights",
+  "total_spent",
+  "last_visit_date",
+  "column_break_38",
+  "preferred_payment_method",
+  "credit_card_info",
+  "emergency_contact"
+ ],
+ "fields": [
+  {
+   "fieldname": "guest_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Guest Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "first_name",
+   "fieldtype": "Data",
+   "label": "First Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "last_name",
+   "fieldtype": "Data",
+   "label": "Last Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "label": "Email",
+   "options": "Email"
+  },
+  {
+   "fieldname": "phone",
+   "fieldtype": "Data",
+   "label": "Phone",
+   "options": "Phone"
+  },
+  {
+   "fieldname": "column_break_6",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "date_of_birth",
+   "fieldtype": "Date",
+   "label": "Date of Birth"
+  },
+  {
+   "fieldname": "gender",
+   "fieldtype": "Select",
+   "label": "Gender",
+   "options": "Male\nFemale\nOther"
+  },
+  {
+   "fieldname": "nationality",
+   "fieldtype": "Link",
+   "label": "Nationality",
+   "options": "Country"
+  },
+  {
+   "fieldname": "passport_number",
+   "fieldtype": "Data",
+   "label": "Passport Number"
+  },
+  {
+   "fieldname": "section_break_11",
+   "fieldtype": "Section Break",
+   "label": "Address Information"
+  },
+  {
+   "fieldname": "address_line_1",
+   "fieldtype": "Data",
+   "label": "Address Line 1"
+  },
+  {
+   "fieldname": "address_line_2",
+   "fieldtype": "Data",
+   "label": "Address Line 2"
+  },
+  {
+   "fieldname": "city",
+   "fieldtype": "Data",
+   "label": "City"
+  },
+  {
+   "fieldname": "state",
+   "fieldtype": "Data",
+   "label": "State/Province"
+  },
+  {
+   "fieldname": "country",
+   "fieldtype": "Link",
+   "label": "Country",
+   "options": "Country"
+  },
+  {
+   "fieldname": "postal_code",
+   "fieldtype": "Data",
+   "label": "Postal Code"
+  },
+  {
+   "fieldname": "column_break_19",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Data",
+   "label": "Company"
+  },
+  {
+   "fieldname": "designation",
+   "fieldtype": "Data",
+   "label": "Designation"
+  },
+  {
+   "fieldname": "loyalty_program",
+   "fieldtype": "Data",
+   "label": "Loyalty Program"
+  },
+  {
+   "fieldname": "loyalty_number",
+   "fieldtype": "Data",
+   "label": "Loyalty Number"
+  },
+  {
+   "fieldname": "section_break_24",
+   "fieldtype": "Section Break",
+   "label": "Preferences & Requirements"
+  },
+  {
+   "fieldname": "preferred_room_type",
+   "fieldtype": "Link",
+   "label": "Preferred Room Type",
+   "options": "Room Type"
+  },
+  {
+   "fieldname": "special_requests",
+   "fieldtype": "Small Text",
+   "label": "Special Requests"
+  },
+  {
+   "fieldname": "dietary_restrictions",
+   "fieldtype": "Small Text",
+   "label": "Dietary Restrictions"
+  },
+  {
+   "fieldname": "accessibility_needs",
+   "fieldtype": "Small Text",
+   "label": "Accessibility Needs"
+  },
+  {
+   "fieldname": "column_break_29",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "vip_status",
+   "fieldtype": "Check",
+   "label": "VIP Status"
+  },
+  {
+   "fieldname": "blacklist_status",
+   "fieldtype": "Check",
+   "label": "Blacklist Status"
+  },
+  {
+   "fieldname": "blacklist_reason",
+   "fieldtype": "Small Text",
+   "label": "Blacklist Reason"
+  },
+  {
+   "fieldname": "section_break_33",
+   "fieldtype": "Section Break",
+   "label": "Guest History"
+  },
+  {
+   "fieldname": "total_stays",
+   "fieldtype": "Int",
+   "label": "Total Stays",
+   "default": "0"
+  },
+  {
+   "fieldname": "total_nights",
+   "fieldtype": "Int",
+   "label": "Total Nights",
+   "default": "0"
+  },
+  {
+   "fieldname": "total_spent",
+   "fieldtype": "Currency",
+   "label": "Total Spent"
+  },
+  {
+   "fieldname": "last_visit_date",
+   "fieldtype": "Date",
+   "label": "Last Visit Date"
+  },
+  {
+   "fieldname": "column_break_38",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "preferred_payment_method",
+   "fieldtype": "Select",
+   "label": "Preferred Payment Method",
+   "options": "Cash\nCredit Card\nDebit Card\nBank Transfer\nDigital Wallet"
+  },
+  {
+   "fieldname": "credit_card_info",
+   "fieldtype": "Small Text",
+   "label": "Credit Card Info (Last 4 digits)"
+  },
+  {
+   "fieldname": "emergency_contact",
+   "fieldtype": "Small Text",
+   "label": "Emergency Contact"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-09-29 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Posnext",
+ "name": "Hotel Guest",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Desk",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "title_field": "guest_name",
+ "track_changes": 1
+}

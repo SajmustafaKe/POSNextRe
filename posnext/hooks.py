@@ -126,9 +126,9 @@ doctype_js = {"POS Profile" : "public/js/pos_profile.js"}
 # ---------------
 # Override standard doctype classes
 
-# override_doctype_class = {
-# 	"ToDo": "custom_app.overrides.CustomToDo"
-# }
+override_doctype_class = {
+	"Sales Invoice": "posnext.overrides.sales_invoice.PosnextSalesInvoice"
+}
 
 # Document Events
 # ---------------
@@ -242,6 +242,25 @@ override_whitelisted_methods = {
 # 	"Logging DocType Name": 30  # days to retain logs
 # }
 
+# Pages
+# ------
+# Add custom pages to the desk
+pages = [
+	{
+		"title": "Hotel Dashboard",
+		"name": "hotel_dashboard",
+		"icon": "fa fa-bed",
+		"type": "page",
+		"link": "hotel_dashboard"
+	},
+	{
+		"title": "Restaurant Dashboard",
+		"name": "restaurant_dashboard",
+		"icon": "fa fa-cutlery",
+		"type": "page",
+		"link": "restaurant_dashboard"
+	}
+]
 
 fixtures = [
 	{
@@ -254,4 +273,20 @@ fixtures = [
             ]
         ]
 	},
+	{
+		"doctype": "Role",
+		"filters": [
+			{
+				"name": ["in", ["Hotel Manager", "Front Desk", "Housekeeping", "Restaurant Manager"]]
+			}
+		]
+	},
+	{
+		"doctype": "Module Profile",
+		"filters": [
+			{
+				"name": "Hospitality"
+			}
+		]
+	}
 ]

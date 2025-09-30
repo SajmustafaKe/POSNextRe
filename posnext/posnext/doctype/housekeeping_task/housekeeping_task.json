@@ -1,0 +1,251 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-09-29 12:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "room",
+  "task_type",
+  "priority",
+  "status",
+  "column_break_5",
+  "scheduled_date",
+  "scheduled_time",
+  "estimated_duration",
+  "section_break_9",
+  "assigned_to",
+  "assigned_by",
+  "assigned_date",
+  "column_break_13",
+  "started_at",
+  "completed_at",
+  "actual_duration",
+  "section_break_17",
+  "task_description",
+  "special_instructions",
+  "column_break_20",
+  "quality_check",
+  "qc_passed",
+  "qc_notes",
+  "section_break_24",
+  "room_status_before",
+  "room_status_after",
+  "column_break_27",
+  "supplies_used",
+  "issues_found",
+  "follow_up_required"
+ ],
+ "fields": [
+  {
+   "fieldname": "room",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Room",
+   "options": "Hotel Room",
+   "reqd": 1
+  },
+  {
+   "fieldname": "task_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Task Type",
+   "options": "Daily Cleaning\nDeep Cleaning\nMaintenance\nTurndown Service\nInspection\nRestocking\nSpecial Request",
+   "reqd": 1
+  },
+  {
+   "fieldname": "priority",
+   "fieldtype": "Select",
+   "label": "Priority",
+   "options": "Low\nMedium\nHigh\nUrgent",
+   "default": "Medium"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Pending\nAssigned\nIn Progress\nCompleted\nCancelled\nOn Hold",
+   "default": "Pending",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "scheduled_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Scheduled Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "scheduled_time",
+   "fieldtype": "Time",
+   "label": "Scheduled Time"
+  },
+  {
+   "fieldname": "estimated_duration",
+   "fieldtype": "Duration",
+   "label": "Estimated Duration (minutes)"
+  },
+  {
+   "fieldname": "section_break_9",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "assigned_to",
+   "fieldtype": "Link",
+   "label": "Assigned To",
+   "options": "User"
+  },
+  {
+   "fieldname": "assigned_by",
+   "fieldtype": "Link",
+   "label": "Assigned By",
+   "options": "User"
+  },
+  {
+   "fieldname": "assigned_date",
+   "fieldtype": "Datetime",
+   "label": "Assigned Date"
+  },
+  {
+   "fieldname": "column_break_13",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Started At"
+  },
+  {
+   "fieldname": "completed_at",
+   "fieldtype": "Datetime",
+   "label": "Completed At"
+  },
+  {
+   "fieldname": "actual_duration",
+   "fieldtype": "Duration",
+   "label": "Actual Duration (minutes)"
+  },
+  {
+   "fieldname": "section_break_17",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "task_description",
+   "fieldtype": "Text",
+   "label": "Task Description"
+  },
+  {
+   "fieldname": "special_instructions",
+   "fieldtype": "Text",
+   "label": "Special Instructions"
+  },
+  {
+   "fieldname": "column_break_20",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "quality_check",
+   "fieldtype": "Check",
+   "label": "Quality Check Required"
+  },
+  {
+   "fieldname": "qc_passed",
+   "fieldtype": "Check",
+   "label": "QC Passed"
+  },
+  {
+   "fieldname": "qc_notes",
+   "fieldtype": "Text",
+   "label": "QC Notes"
+  },
+  {
+   "fieldname": "section_break_24",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "room_status_before",
+   "fieldtype": "Select",
+   "label": "Room Status Before",
+   "options": "Clean\nDirty\nOut of Order\nMaintenance"
+  },
+  {
+   "fieldname": "room_status_after",
+   "fieldtype": "Select",
+   "label": "Room Status After",
+   "options": "Clean\nDirty\nOut of Order\nMaintenance"
+  },
+  {
+   "fieldname": "column_break_27",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "supplies_used",
+   "fieldtype": "Text",
+   "label": "Supplies Used"
+  },
+  {
+   "fieldname": "issues_found",
+   "fieldtype": "Text",
+   "label": "Issues Found"
+  },
+  {
+   "fieldname": "follow_up_required",
+   "fieldtype": "Check",
+   "label": "Follow-up Required"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-09-29 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Posnext",
+ "name": "Housekeeping Task",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Housekeeping",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Desk",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "room"
+}

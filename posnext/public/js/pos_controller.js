@@ -12,8 +12,24 @@ posnext.PointOfSale.Controller = class {
 			() => this.reload_status = true,
 		]);
 
+		this.setup_form_events();
 
+	}
 
+	setup_form_events() {
+		frappe.ui.form.on('Sales Invoice', {
+			after_save: function(frm) {
+				if (!frm.doc.pos_profile) return;
+
+				frappe.db.get_doc('POS Profile', frm.doc.pos_profile)
+					.then(pos_profile => {
+						if (pos_profile.custom_stock_update) {
+							frm.set_value('update_stock', 0);
+							// frm.save();
+						}
+					});
+			}
+		});
 	}
 
 	fetch_opening_entry(value) {
@@ -476,6 +492,7 @@ init_item_cart() {
             save_draft_invoice: () => this.save_draft_invoice(),
             toggle_recent_order: () => this.toggle_recent_order(),
             show_recent_order_list: () => this.show_recent_order_list(),
+            show_order_list: () => this.show_recent_order_list(), // Alias for compatibility
             customer_details_updated: (details) => { /* Handle customer details update */ },
             load_new_invoice: (from_held) => this.make_new_invoice(from_held)
         }
@@ -601,8 +618,6 @@ init_item_cart() {
 				reset_summary: () => this.order_summary.toggle_summary_placeholder(true),
 				previous_screen: () => {
 					this.recent_order_list.toggle_component(false);
-					this.cart.load_invoice()
-					this.item_selector.toggle_component(true)
 					this.wrapper.find('.past-order-summary').css("display","none");
 				},
 
@@ -632,7 +647,18 @@ init_item_cart() {
 					this.recent_order_list.toggle_component(false);
 					frappe.run_serially([
 						() => this.frm.refresh(name),
-						() => this.frm.call('reset_mode_of_payments'),
+						() => {
+							// Add error handling for reset_mode_of_payments
+							return new Promise((resolve, reject) => {
+								this.frm.call('reset_mode_of_payments').then(() => {
+									resolve();
+								}).catch((error) => {
+									console.error('Error resetting mode of payments:', error);
+									frappe.msgprint(__('Error resetting payment modes. Please try again.'));
+									reject(error);
+								});
+							});
+						},
 						() => this.cart.load_invoice(),
 						() => this.item_selector.toggle_component(true)
 					]);
@@ -645,8 +671,7 @@ init_item_cart() {
 				new_order: () => {
 					frappe.run_serially([
 						() => frappe.dom.freeze(),
-						() => this.make_new_invoice(),
-						() => this.table_selector.toggle_component(true),
+						() => this.reset_to_table_selector(),
 						() => frappe.dom.unfreeze(),
 					]);
 				}
@@ -659,6 +684,11 @@ init_item_cart() {
     this.recent_order_list.toggle_component(show);
     this.order_summary.toggle_component(show);
     
+    // Refresh the list when showing it to ensure updated data
+    if (show && this.recent_order_list) {
+        this.recent_order_list.refresh_list();
+    }
+    
     // Return a resolved promise for consistency with async callers
     return Promise.resolve();
 }
@@ -666,12 +696,40 @@ init_item_cart() {
 	toggle_components(show) {
 		this.cart.toggle_component(show);
 		this.item_selector.toggle_component(show);
-		if (this.table_selector) {
-			this.table_selector.toggle_component(!show);
+		if (this.table_selector && typeof this.table_selector.toggle_component === 'function') {
+			try {
+				this.table_selector.toggle_component(!show);
+			} catch (error) {
+				console.error('Error toggling table selector:', error);
+			}
 		}
 
 		// do not show item details or payment if recent order is toggled off
-		!show ? (this.item_details.toggle_component(false) || this.payment.toggle_component(false)) : '';
+		if (!show) {
+			if (this.item_details) this.item_details.toggle_component(false);
+			if (this.payment) this.payment.toggle_component(false);
+		}
+	}
+
+	reset_to_table_selector() {
+		// Clear all current components
+		this.$components_wrapper.empty();
+
+		// Reset order-related state
+		this.selected_table = null;
+		this.frm = null;
+		this.doc = null;
+
+		// Hide recent order list and order summary if they exist
+		if (this.recent_order_list) {
+			this.recent_order_list.toggle_component(false);
+		}
+		if (this.order_summary) {
+			this.order_summary.toggle_component(false);
+		}
+
+		// Recreate the table selector
+		this.show_table_selector();
 	}
 
 make_new_invoice(from_held = false) {
@@ -803,6 +861,27 @@ async on_cart_update(args) {
             if (!item_code)
                 return;
 
+            if (this.settings.custom_product_bundle) {
+                const product_bundle = await this.get_product_bundle(item_code);
+                if (product_bundle && Array.isArray(product_bundle.items)) {
+                    const bundle_items = product_bundle.items.map(bundle_item => ({
+                        item_code: bundle_item.item_code,
+                        qty: bundle_item.qty * value,
+                        rate: bundle_item.rate,
+                        uom: bundle_item.uom,
+                        custom_bundle_id: product_bundle.name
+                    }));
+
+                    for (const bundle_item of bundle_items) {
+                        const bundle_item_row = this.frm.add_child('items', bundle_item);
+                        await this.trigger_new_item_events(bundle_item_row);
+                    }
+
+                    this.update_cart_html();
+                    return;
+                }
+            }
+
             const new_item = { item_code, batch_no, rate, uom, [field]: value };
             if(value){
                 new_item['qty'] = value
@@ -847,6 +926,16 @@ async on_cart_update(args) {
 			indicator: 'orange'
 		});
 		frappe.utils.play_sound("error");
+	}
+
+	async get_product_bundle(item_code) {
+		const response = await frappe.call({
+			method: "posnext.doc_events.item.get_product_bundle_with_items",
+			args: {
+				item_code: item_code
+			}
+			});
+		return response.message;
 	}
 
 get_item_from_frm({ name, item_code, batch_no, uom, rate }) {
@@ -909,11 +998,12 @@ get_item_from_frm({ name, item_code, batch_no, uom, rate }) {
 	async trigger_new_item_events(item_row) {
 		await this.frm.script_manager.trigger('item_code', item_row.doctype, item_row.name);
 		await this.frm.script_manager.trigger('qty', item_row.doctype, item_row.name);
+		await this.frm.script_manager.trigger('discount_percentage', item_row.doctype, item_row.name);
 	}
 
 	async check_stock_availability(item_row, qty_needed, warehouse) {
     const resp = (await this.get_available_stock(item_row.item_code, warehouse)).message;
-    const available_qty = resp[0][warehouse] || 0;
+    const available_qty = resp[0];
     const is_stock_item = resp[1];
 	console.log('Debug:', {
         item_code: item_row.item_code, 
@@ -1001,12 +1091,70 @@ get_item_from_frm({ name, item_code, batch_no, uom, rate }) {
 				this.update_cart_html(current_item, true);
 				this.item_details.toggle_item_details_section(null);
 				frappe.dom.unfreeze();
+
+				var total_incoming_rate = 0
+				this.frm.doc.items.forEach(item => {
+					total_incoming_rate += (parseFloat(item.valuation_rate) * item.qty)
+				});
+				this.item_selector.update_total_incoming_rate(total_incoming_rate)
 			})
 			.catch(e => console.log(e));
 	}
 
 	async save_and_checkout() {
+		if (!this.frm.doc.items || this.frm.doc.items.length === 0) {
+			frappe.show_alert({
+				message: __('Please add items to cart before checkout.'),
+				indicator: 'red'
+			});
+			frappe.utils.play_sound("error");
+			return;
+		}
 		if (this.frm.is_dirty()) {
+			if(this.settings.custom_add_reference_details){
+			const dialog = new frappe.ui.Dialog({
+				title: __('Enter Reference Details'),
+				fields: [
+					{
+						fieldtype: 'Data',
+						label: __('Reference Number'),
+						fieldname: 'reference_no',
+					},
+					{
+						fieldtype: 'Data',
+						label: __('Reference Name'),
+						fieldname: 'reference_name',
+					}
+				],
+				primary_action_label: __('Proceed to Payment'),
+				primary_action: async (values) => {
+					this.frm.doc.custom_reference_no = values.reference_no;
+					this.frm.doc.custom_reference_name = values.reference_name;
+
+					const div = document.getElementById("customer-cart-container2");
+					div.style.gridColumn = "";
+					
+					let save_error = false;
+					await this.frm.save(null, null, null, () => save_error = true);
+					
+					dialog.hide();
+					
+					if (!save_error) {
+						this.payment.checkout();
+					} else {
+						setTimeout(() => {
+							this.cart.toggle_checkout_btn(true);
+						}, 300); // wait for save to finish
+					}
+				}
+			});
+
+			
+			dialog.show();
+			}else{
+
+			const div = document.getElementById("customer-cart-container2");
+			div.style.gridColumn = "";
 			let save_error = false;
 			await this.frm.save(null, null, null, () => save_error = true);
 			// only move to payment section if save is successful
@@ -1015,6 +1163,10 @@ get_item_from_frm({ name, item_code, batch_no, uom, rate }) {
 			save_error && setTimeout(() => {
 				this.cart.toggle_checkout_btn(true);
 			}, 300); // wait for save to finish
+			}
+
+
+
 		} else {
 			this.payment.checkout();
 		}

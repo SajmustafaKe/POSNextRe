@@ -1,0 +1,348 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "naming_series:",
+ "creation": "2025-01-29 10:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "naming_series",
+  "event_name",
+  "event_type",
+  "customer",
+  "contact_person",
+  "contact_number",
+  "contact_email",
+  "column_break_1",
+  "status",
+  "banquet_hall",
+  "expected_guests",
+  "event_date",
+  "start_time",
+  "end_time",
+  "setup_date",
+  "column_break_2",
+  "duration_hours",
+  "total_amount",
+  "advance_amount",
+  "balance_amount",
+  "event_details_section",
+  "event_description",
+  "special_requirements",
+  "services_section",
+  "services_required",
+  "catering_details",
+  "decoration_details",
+  "entertainment_details",
+  "column_break_3",
+  "av_requirements",
+  "other_services",
+  "payment_section",
+  "payment_terms",
+  "payment_schedule",
+  "cancellation_policy",
+  "refund_policy",
+  "column_break_4",
+  "contract_signed",
+  "deposit_received",
+  "final_payment_due",
+  "attachments_section",
+  "contract_attachment",
+  "floor_plan",
+  "menu_card",
+  "other_attachments"
+ ],
+ "fields": [
+  {
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "label": "Series",
+   "options": "EVENT-.YYYY.-.#####",
+   "default": "EVENT-.YYYY.-.#####"
+  },
+  {
+   "fieldname": "event_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Event Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "event_type",
+   "fieldtype": "Select",
+   "label": "Event Type",
+   "options": "Wedding\nCorporate Meeting\nBirthday Party\nAnniversary\nConference\nSeminar\nProduct Launch\nCharity Event\nOther",
+   "reqd": 1
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "label": "Customer",
+   "options": "Customer",
+   "reqd": 1
+  },
+  {
+   "fieldname": "contact_person",
+   "fieldtype": "Data",
+   "label": "Contact Person",
+   "reqd": 1
+  },
+  {
+   "fieldname": "contact_number",
+   "fieldtype": "Data",
+   "label": "Contact Number",
+   "reqd": 1
+  },
+  {
+   "fieldname": "contact_email",
+   "fieldtype": "Data",
+   "label": "Contact Email"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nConfirmed\nIn Progress\nCompleted\nCancelled",
+   "reqd": 1
+  },
+  {
+   "fieldname": "banquet_hall",
+   "fieldtype": "Link",
+   "label": "Banquet Hall",
+   "options": "Banquet Hall",
+   "reqd": 1
+  },
+  {
+   "fieldname": "expected_guests",
+   "fieldtype": "Int",
+   "label": "Expected Guests",
+   "reqd": 1
+  },
+  {
+   "fieldname": "event_date",
+   "fieldtype": "Date",
+   "label": "Event Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "start_time",
+   "fieldtype": "Time",
+   "label": "Start Time",
+   "reqd": 1
+  },
+  {
+   "fieldname": "end_time",
+   "fieldtype": "Time",
+   "label": "End Time",
+   "reqd": 1
+  },
+  {
+   "fieldname": "setup_date",
+   "fieldtype": "Date",
+   "label": "Setup Date"
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "duration_hours",
+   "fieldtype": "Float",
+   "label": "Duration (Hours)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "label": "Total Amount",
+   "reqd": 1
+  },
+  {
+   "fieldname": "advance_amount",
+   "fieldtype": "Currency",
+   "label": "Advance Amount"
+  },
+  {
+   "fieldname": "balance_amount",
+   "fieldtype": "Currency",
+   "label": "Balance Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "event_details_section",
+   "fieldtype": "Section Break",
+   "label": "Event Details"
+  },
+  {
+   "fieldname": "event_description",
+   "fieldtype": "Text",
+   "label": "Event Description"
+  },
+  {
+   "fieldname": "special_requirements",
+   "fieldtype": "Text",
+   "label": "Special Requirements"
+  },
+  {
+   "fieldname": "services_section",
+   "fieldtype": "Section Break",
+   "label": "Services & Requirements"
+  },
+  {
+   "fieldname": "services_required",
+   "fieldtype": "Table",
+   "label": "Services Required",
+   "options": "Event Booking Service"
+  },
+  {
+   "fieldname": "catering_details",
+   "fieldtype": "Text",
+   "label": "Catering Details"
+  },
+  {
+   "fieldname": "decoration_details",
+   "fieldtype": "Text",
+   "label": "Decoration Details"
+  },
+  {
+   "fieldname": "entertainment_details",
+   "fieldtype": "Text",
+   "label": "Entertainment Details"
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "av_requirements",
+   "fieldtype": "Text",
+   "label": "AV Requirements"
+  },
+  {
+   "fieldname": "other_services",
+   "fieldtype": "Text",
+   "label": "Other Services"
+  },
+  {
+   "fieldname": "payment_section",
+   "fieldtype": "Section Break",
+   "label": "Payment & Terms"
+  },
+  {
+   "fieldname": "payment_terms",
+   "fieldtype": "Text",
+   "label": "Payment Terms"
+  },
+  {
+   "fieldname": "payment_schedule",
+   "fieldtype": "Text",
+   "label": "Payment Schedule"
+  },
+  {
+   "fieldname": "cancellation_policy",
+   "fieldtype": "Text",
+   "label": "Cancellation Policy"
+  },
+  {
+   "fieldname": "refund_policy",
+   "fieldtype": "Text",
+   "label": "Refund Policy"
+  },
+  {
+   "fieldname": "column_break_4",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "contract_signed",
+   "fieldtype": "Check",
+   "label": "Contract Signed"
+  },
+  {
+   "default": "0",
+   "fieldname": "deposit_received",
+   "fieldtype": "Check",
+   "label": "Deposit Received"
+  },
+  {
+   "fieldname": "final_payment_due",
+   "fieldtype": "Date",
+   "label": "Final Payment Due"
+  },
+  {
+   "fieldname": "attachments_section",
+   "fieldtype": "Section Break",
+   "label": "Attachments"
+  },
+  {
+   "fieldname": "contract_attachment",
+   "fieldtype": "Attach",
+   "label": "Contract Attachment"
+  },
+  {
+   "fieldname": "floor_plan",
+   "fieldtype": "Attach",
+   "label": "Floor Plan"
+  },
+  {
+   "fieldname": "menu_card",
+   "fieldtype": "Attach",
+   "label": "Menu Card"
+  },
+  {
+   "fieldname": "other_attachments",
+   "fieldtype": "Attach",
+   "label": "Other Attachments"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2025-01-29 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "POSNext",
+ "name": "Event Booking",
+ "naming_rule": "By \"naming_series\"",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "quick_entry": 0,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "event_name",
+ "track_changes": 1
+}

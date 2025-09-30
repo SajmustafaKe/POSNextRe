@@ -389,6 +389,20 @@
         () => this.check_opening_entry(""),
         () => this.reload_status = true
       ]);
+      this.setup_form_events();
+    }
+    setup_form_events() {
+      frappe.ui.form.on("Sales Invoice", {
+        after_save: function(frm) {
+          if (!frm.doc.pos_profile)
+            return;
+          frappe.db.get_doc("POS Profile", frm.doc.pos_profile).then((pos_profile) => {
+            if (pos_profile.custom_stock_update) {
+              frm.set_value("update_stock", 0);
+            }
+          });
+        }
+      });
     }
     fetch_opening_entry(value) {
       return frappe.call("posnext.posnext.page.posnext.point_of_sale.check_opening_entry", { "user": frappe.session.user, "value": value });
@@ -804,6 +818,7 @@
           save_draft_invoice: () => this.save_draft_invoice(),
           toggle_recent_order: () => this.toggle_recent_order(),
           show_recent_order_list: () => this.show_recent_order_list(),
+          show_order_list: () => this.show_recent_order_list(),
           customer_details_updated: (details) => {
           },
           load_new_invoice: (from_held) => this.make_new_invoice(from_held)
@@ -865,7 +880,7 @@
             this.cart.prev_action = null;
             this.cart.toggle_item_highlight();
           },
-          get_available_stock: (item_code, warehouse) => this.get_available_stock(item_code, warehouse)
+          get_available_stock: (item_code, warehouse2) => this.get_available_stock(item_code, warehouse2)
         }
       });
       if (selected_item) {
@@ -917,8 +932,6 @@
           reset_summary: () => this.order_summary.toggle_summary_placeholder(true),
           previous_screen: () => {
             this.recent_order_list.toggle_component(false);
-            this.cart.load_invoice();
-            this.item_selector.toggle_component(true);
             this.wrapper.find(".past-order-summary").css("display", "none");
           }
         }
@@ -945,7 +958,17 @@
             this.recent_order_list.toggle_component(false);
             frappe.run_serially([
               () => this.frm.refresh(name),
-              () => this.frm.call("reset_mode_of_payments"),
+              () => {
+                return new Promise((resolve, reject) => {
+                  this.frm.call("reset_mode_of_payments").then(() => {
+                    resolve();
+                  }).catch((error) => {
+                    console.error("Error resetting mode of payments:", error);
+                    frappe.msgprint(__("Error resetting payment modes. Please try again."));
+                    reject(error);
+                  });
+                });
+              },
               () => this.cart.load_invoice(),
               () => this.item_selector.toggle_component(true)
             ]);
@@ -958,8 +981,7 @@
           new_order: () => {
             frappe.run_serially([
               () => frappe.dom.freeze(),
-              () => this.make_new_invoice(),
-              () => this.table_selector.toggle_component(true),
+              () => this.reset_to_table_selector(),
               () => frappe.dom.unfreeze()
             ]);
           }
@@ -970,15 +992,40 @@
       this.toggle_components(!show);
       this.recent_order_list.toggle_component(show);
       this.order_summary.toggle_component(show);
+      if (show && this.recent_order_list) {
+        this.recent_order_list.refresh_list();
+      }
       return Promise.resolve();
     }
     toggle_components(show) {
       this.cart.toggle_component(show);
       this.item_selector.toggle_component(show);
-      if (this.table_selector) {
-        this.table_selector.toggle_component(!show);
+      if (this.table_selector && typeof this.table_selector.toggle_component === "function") {
+        try {
+          this.table_selector.toggle_component(!show);
+        } catch (error) {
+          console.error("Error toggling table selector:", error);
+        }
       }
-      !show ? this.item_details.toggle_component(false) || this.payment.toggle_component(false) : "";
+      if (!show) {
+        if (this.item_details)
+          this.item_details.toggle_component(false);
+        if (this.payment)
+          this.payment.toggle_component(false);
+      }
+    }
+    reset_to_table_selector() {
+      this.$components_wrapper.empty();
+      this.selected_table = null;
+      this.frm = null;
+      this.doc = null;
+      if (this.recent_order_list) {
+        this.recent_order_list.toggle_component(false);
+      }
+      if (this.order_summary) {
+        this.order_summary.toggle_component(false);
+      }
+      this.show_table_selector();
     }
     make_new_invoice(from_held = false) {
       const steps = [
@@ -1092,6 +1139,24 @@
           const { item_code, batch_no, serial_no, rate, uom } = item;
           if (!item_code)
             return;
+          if (this.settings.custom_product_bundle) {
+            const product_bundle = await this.get_product_bundle(item_code);
+            if (product_bundle && Array.isArray(product_bundle.items)) {
+              const bundle_items = product_bundle.items.map((bundle_item) => ({
+                item_code: bundle_item.item_code,
+                qty: bundle_item.qty * value,
+                rate: bundle_item.rate,
+                uom: bundle_item.uom,
+                custom_bundle_id: product_bundle.name
+              }));
+              for (const bundle_item of bundle_items) {
+                const bundle_item_row = this.frm.add_child("items", bundle_item);
+                await this.trigger_new_item_events(bundle_item_row);
+              }
+              this.update_cart_html();
+              return;
+            }
+          }
           const new_item = { item_code, batch_no, rate, uom, [field]: value };
           if (value) {
             new_item["qty"] = value;
@@ -1128,6 +1193,15 @@
         indicator: "orange"
       });
       frappe.utils.play_sound("error");
+    }
+    async get_product_bundle(item_code) {
+      const response = await frappe.call({
+        method: "posnext.doc_events.item.get_product_bundle_with_items",
+        args: {
+          item_code
+        }
+      });
+      return response.message;
     }
     get_item_from_frm({ name, item_code, batch_no, uom, rate }) {
       let item_row = null;
@@ -1174,10 +1248,11 @@
     async trigger_new_item_events(item_row) {
       await this.frm.script_manager.trigger("item_code", item_row.doctype, item_row.name);
       await this.frm.script_manager.trigger("qty", item_row.doctype, item_row.name);
+      await this.frm.script_manager.trigger("discount_percentage", item_row.doctype, item_row.name);
     }
-    async check_stock_availability(item_row, qty_needed, warehouse) {
-      const resp = (await this.get_available_stock(item_row.item_code, warehouse)).message;
-      const available_qty = resp[0][warehouse] || 0;
+    async check_stock_availability(item_row, qty_needed, warehouse2) {
+      const resp = (await this.get_available_stock(item_row.item_code, warehouse2)).message;
+      const available_qty = resp[0];
       const is_stock_item = resp[1];
       console.log("Debug:", {
         item_code: item_row.item_code,
@@ -1188,7 +1263,7 @@
       console.log(item_row);
       const bold_uom = item_row.uom.bold();
       const bold_item_code = item_row.item_code.bold();
-      const bold_warehouse = warehouse.bold();
+      const bold_warehouse = warehouse2.bold();
       const bold_available_qty = available_qty.toString().bold();
       if (!(available_qty > 0)) {
         if (is_stock_item) {
@@ -1208,9 +1283,9 @@
         frappe.utils.play_sound("error");
       }
     }
-    async check_serial_no_availablilty(item_code, warehouse, serial_no) {
+    async check_serial_no_availablilty(item_code, warehouse2, serial_no) {
       const method = "erpnext.stock.doctype.serial_no.serial_no.get_pos_reserved_serial_nos";
-      const args = { filters: { item_code, warehouse } };
+      const args = { filters: { item_code, warehouse: warehouse2 } };
       const res = await frappe.call({ method, args });
       if (res.message.includes(serial_no)) {
         frappe.throw({
@@ -1219,18 +1294,18 @@
         });
       }
     }
-    get_available_stock(item_code, warehouse) {
+    get_available_stock(item_code, warehouse2) {
       const me = this;
       return frappe.call({
         method: "erpnext.accounts.doctype.pos_invoice.pos_invoice.get_stock_availability",
         args: {
           "item_code": item_code,
-          "warehouse": warehouse
+          "warehouse": warehouse2
         },
         callback(res) {
           if (!me.item_stock_map[item_code])
             me.item_stock_map[item_code] = {};
-          me.item_stock_map[item_code][warehouse] = res.message;
+          me.item_stock_map[item_code][warehouse2] = res.message;
         }
       });
     }
@@ -1255,16 +1330,67 @@
         this.update_cart_html(current_item, true);
         this.item_details.toggle_item_details_section(null);
         frappe.dom.unfreeze();
+        var total_incoming_rate = 0;
+        this.frm.doc.items.forEach((item) => {
+          total_incoming_rate += parseFloat(item.valuation_rate) * item.qty;
+        });
+        this.item_selector.update_total_incoming_rate(total_incoming_rate);
       }).catch((e) => console.log(e));
     }
     async save_and_checkout() {
+      if (!this.frm.doc.items || this.frm.doc.items.length === 0) {
+        frappe.show_alert({
+          message: __("Please add items to cart before checkout."),
+          indicator: "red"
+        });
+        frappe.utils.play_sound("error");
+        return;
+      }
       if (this.frm.is_dirty()) {
-        let save_error = false;
-        await this.frm.save(null, null, null, () => save_error = true);
-        !save_error && this.payment.checkout();
-        save_error && setTimeout(() => {
-          this.cart.toggle_checkout_btn(true);
-        }, 300);
+        if (this.settings.custom_add_reference_details) {
+          const dialog = new frappe.ui.Dialog({
+            title: __("Enter Reference Details"),
+            fields: [
+              {
+                fieldtype: "Data",
+                label: __("Reference Number"),
+                fieldname: "reference_no"
+              },
+              {
+                fieldtype: "Data",
+                label: __("Reference Name"),
+                fieldname: "reference_name"
+              }
+            ],
+            primary_action_label: __("Proceed to Payment"),
+            primary_action: async (values) => {
+              this.frm.doc.custom_reference_no = values.reference_no;
+              this.frm.doc.custom_reference_name = values.reference_name;
+              const div = document.getElementById("customer-cart-container2");
+              div.style.gridColumn = "";
+              let save_error = false;
+              await this.frm.save(null, null, null, () => save_error = true);
+              dialog.hide();
+              if (!save_error) {
+                this.payment.checkout();
+              } else {
+                setTimeout(() => {
+                  this.cart.toggle_checkout_btn(true);
+                }, 300);
+              }
+            }
+          });
+          dialog.show();
+        } else {
+          const div = document.getElementById("customer-cart-container2");
+          div.style.gridColumn = "";
+          let save_error = false;
+          await this.frm.save(null, null, null, () => save_error = true);
+          !save_error && this.payment.checkout();
+          save_error && setTimeout(() => {
+            this.cart.toggle_checkout_btn(true);
+          }, 300);
+        }
       } else {
         this.payment.checkout();
       }
@@ -1870,7 +1996,20 @@
       this.show_order_list_button = settings.custom_show_order_list_button;
       this.mobile_number_based_customer = settings.custom_mobile_number_based_customer;
       this.show_checkout_button = settings.custom_show_checkout_button;
+      this.custom_edit_rate = settings.custom_edit_rate_and_uom;
+      this.custom_use_discount_percentage = settings.custom_use_discount_percentage;
+      this.custom_use_discount_amount = settings.custom_use_discount_amount;
+      this.custom_use_additional_discount_amount = settings.custom_use_additional_discount_amount;
+      this.custom_show_incoming_rate = settings.custom_show_incoming_rate && settings.custom_edit_rate_and_uom;
+      this.custom_show_last_customer_rate = settings.custom_show_last_customer_rate;
+      this.custom_show_logical_rack_in_cart = settings.custom_show_logical_rack_in_cart && settings.custom_edit_rate_and_uom;
+      this.custom_show_uom_in_cart = settings.custom_show_uom_in_cart && settings.custom_edit_rate_and_uom;
+      this.show_branch = settings.show_branch;
+      this.show_batch_in_cart = settings.show_batch_in_cart;
+      this.custom_show_item_discription = settings.custom_show_item_discription;
+      this.custom_show_item_barcode = settings.custom_show_item_barcode;
       this.settings = settings;
+      this.warehouse = settings.warehouse;
       this.init_component();
     }
     init_component() {
@@ -1880,14 +2019,213 @@
       this.attach_shortcuts();
     }
     prepare_dom() {
-      this.wrapper.append(
-        `<section class="customer-cart-container customer-cart-container1 " id="customer-cart-container2"></section>`
-      );
+      if (this.custom_edit_rate) {
+        this.wrapper.append(
+          `<section class="customer-cart-container customer-cart-container1 " style="grid-column: span 5 / span 5;" id="customer-cart-container2"></section>`
+        );
+      } else {
+        this.wrapper.append(
+          `<section class="customer-cart-container customer-cart-container1 " id="customer-cart-container2"></section>`
+        );
+      }
       this.$component = this.wrapper.find(".customer-cart-container1");
     }
     init_child_components() {
       this.init_customer_selector();
       this.init_cart_components();
+    }
+    bind_events() {
+      let me = this;
+      this.$component.on("click", ".checkout-btn", function() {
+        me.checkout_with_feedback();
+      });
+      this.$component.on("click", ".held-btn", function() {
+        const original_text = me.show_loading_state(".held-btn", "Loading...");
+        try {
+          me.events.show_held_invoices && me.events.show_held_invoices();
+        } finally {
+          setTimeout(() => me.hide_loading_state(".held-btn", original_text), 500);
+        }
+      });
+      this.$component.on("click", ".order-list-btn", function() {
+        const original_text = me.show_loading_state(".order-list-btn", "Loading...");
+        try {
+          me.events.show_order_list && me.events.show_order_list();
+        } finally {
+          setTimeout(() => me.hide_loading_state(".order-list-btn", original_text), 500);
+        }
+      });
+      this.$component.on("click", ".search-btn", function() {
+        me.events.show_item_search && me.events.show_item_search();
+      });
+      this.$component.on("mousedown", ".numpad-btn, .checkout-btn, .held-btn, .order-list-btn, .search-btn", function() {
+        $(this).addClass("btn-pressed");
+      });
+      this.$component.on("mouseup mouseleave", ".numpad-btn, .checkout-btn, .held-btn, .order-list-btn, .search-btn", function() {
+        $(this).removeClass("btn-pressed");
+      });
+      this.add_keyboard_shortcut_tooltips();
+    }
+    attach_shortcuts() {
+      let me = this;
+      $(document).on("keydown.pos_cart", function(e) {
+        if ($(e.target).is("input, textarea, select")) {
+          return;
+        }
+        switch (e.keyCode || e.which) {
+          case 112:
+            e.preventDefault();
+            me.events.checkout && me.events.checkout();
+            me.show_shortcut_feedback("F1", "Checkout");
+            break;
+          case 113:
+            e.preventDefault();
+            me.events.show_held_invoices && me.events.show_held_invoices();
+            me.show_shortcut_feedback("F2", "Hold Invoice");
+            break;
+          case 114:
+            e.preventDefault();
+            me.events.show_order_list && me.events.show_order_list();
+            me.show_shortcut_feedback("F3", "Order List");
+            break;
+          case 115:
+            e.preventDefault();
+            me.events.show_item_search && me.events.show_item_search();
+            me.show_shortcut_feedback("F4", "Search Items");
+            break;
+          case 27:
+            e.preventDefault();
+            me.clear_focus();
+            break;
+          case 13:
+            if (me.get_all_items().length > 0) {
+              e.preventDefault();
+              me.events.checkout && me.events.checkout();
+            }
+            break;
+        }
+      });
+    }
+    show_shortcut_feedback(key, action) {
+      let feedback = $(`<div class="shortcut-feedback">${key}: ${action}</div>`);
+      $("body").append(feedback);
+      feedback.css({
+        position: "fixed",
+        top: "50%",
+        left: "50%",
+        transform: "translate(-50%, -50%)",
+        background: "rgba(0, 123, 255, 0.9)",
+        color: "white",
+        padding: "10px 20px",
+        borderRadius: "5px",
+        zIndex: 9999,
+        fontWeight: "bold",
+        boxShadow: "0 4px 8px rgba(0,0,0,0.3)",
+        animation: "shortcut-feedback 0.5s ease-out"
+      });
+      setTimeout(function() {
+        feedback.fadeOut(300, function() {
+          feedback.remove();
+        });
+      }, 1e3);
+    }
+    clear_focus() {
+      $("input:focus, textarea:focus, select:focus").blur();
+    }
+    add_keyboard_shortcut_tooltips() {
+      const tooltips = {
+        ".checkout-btn": "F1 - Checkout",
+        ".held-btn": "F2 - Hold Invoice",
+        ".order-list-btn": "F3 - Order List",
+        ".search-btn": "F4 - Search Items"
+      };
+      Object.keys(tooltips).forEach((selector) => {
+        const $element = this.$component.find(selector);
+        if ($element.length) {
+          $element.addClass("tooltip");
+          $element.append(`<span class="tooltiptext">${tooltips[selector]}</span>`);
+        }
+      });
+    }
+    show_loading_state(button_selector, message = "Processing...") {
+      const $button = this.$component.find(button_selector);
+      const original_text = $button.text();
+      $button.prop("disabled", true);
+      $button.html(`<span class="loading-spinner"></span>${message}`);
+      return original_text;
+    }
+    hide_loading_state(button_selector, original_text) {
+      const $button = this.$component.find(button_selector);
+      $button.prop("disabled", false);
+      $button.text(original_text);
+    }
+    show_success_feedback(message, duration = 2e3) {
+      this.show_feedback(message, "success", duration);
+    }
+    show_error_feedback(message, duration = 3e3) {
+      this.show_feedback(message, "error", duration);
+    }
+    show_feedback(message, type = "info", duration = 2e3) {
+      const feedback = $(`<div class="feedback-message ${type}">${message}</div>`);
+      $("body").append(feedback);
+      const styles = {
+        success: { background: "#28a745", color: "white" },
+        error: { background: "#dc3545", color: "white" },
+        info: { background: "#007bff", color: "white" },
+        warning: { background: "#ffc107", color: "black" }
+      };
+      const style = styles[type] || styles.info;
+      feedback.css(__spreadProps(__spreadValues({
+        position: "fixed",
+        top: "20px",
+        right: "20px",
+        padding: "12px 20px",
+        borderRadius: "6px",
+        boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+        zIndex: 9999,
+        fontWeight: "bold",
+        maxWidth: "300px",
+        wordWrap: "break-word"
+      }, style), {
+        animation: type === "error" ? "error-shake 0.5s ease" : "success-bounce 0.5s ease"
+      }));
+      setTimeout(() => {
+        feedback.fadeOut(300, () => feedback.remove());
+      }, duration);
+    }
+    add_item_with_feedback(item) {
+      try {
+        this.add_item(item);
+        this.show_success_feedback(__("Item added to cart"));
+        this.update_cart_html();
+      } catch (error) {
+        this.show_error_feedback(__("Failed to add item: ") + error.message);
+      }
+    }
+    remove_item_with_feedback(idx) {
+      try {
+        const item = this.items[idx];
+        this.remove_item(idx);
+        this.show_success_feedback(__("Item removed from cart"));
+      } catch (error) {
+        this.show_error_feedback(__("Failed to remove item"));
+      }
+    }
+    async checkout_with_feedback() {
+      if (this.get_all_items().length === 0) {
+        this.show_error_feedback(__("Cart is empty"));
+        return;
+      }
+      const original_text = this.show_loading_state(".checkout-btn", "Processing...");
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 1e3));
+        this.events.checkout && this.events.checkout();
+        this.show_success_feedback(__("Checkout initiated successfully"));
+      } catch (error) {
+        this.show_error_feedback(__("Checkout failed: ") + error.message);
+      } finally {
+        this.hide_loading_state(".checkout-btn", original_text);
+      }
     }
     init_customer_selector() {
       this.$component.append(
@@ -1903,22 +2241,48 @@
       this.customer_field.set_focus();
     }
     init_cart_components() {
-      this.$component.append(
-        `<div class="cart-container">
+      var html = `<div class="cart-container">
 				<div class="abs-cart-container">
 					<div class="cart-label">${__("Item Cart")}</div>
 					<div class="cart-header">
-						<div class="name-header">${__("Item")}</div>
-						<div class="qty-header">${__("Quantity")}</div>
-						<div class="rate-amount-header">${__("Amount")}</div>
+						<div class="name-header" style="flex:3">${__("Item")}</div>
+						<div class="qty-header" style="flex: 1">${__("Qty")}</div>
+						`;
+      if (this.custom_show_uom_in_cart) {
+        html += `<div class="uom-header" style="flex: 1">${__("UOM")}</div>`;
+      }
+      if (this.show_batch_in_cart) {
+        html += `<div class="batch-header" style="flex: 1">${__("Batch")}</div>`;
+      }
+      if (this.custom_edit_rate) {
+        html += `<div class="rate-header" style="flex: 1">${__("Rate")}</div>`;
+      }
+      if (this.custom_use_discount_percentage) {
+        html += `<div class="discount-perc-header" style="flex: 1">${__("Disc%")}</div>`;
+      }
+      if (this.custom_use_discount_amount) {
+        html += `<div class="discount-amount-header" style="flex: 1">${__("Disc")}</div>`;
+      }
+      if (this.custom_show_incoming_rate) {
+        html += `<div class="incoming-rate-header" style="flex: 1">${__("Inc.Rate")}</div>`;
+      }
+      if (this.custom_show_logical_rack_in_cart) {
+        html += `<div class="incoming-rate-header" style="flex: 1">${__("Rack")}</div>`;
+      }
+      if (this.custom_show_last_customer_rate) {
+        html += `<div class="last-customer-rate-header" style="flex: 1">${__("LC Rate")}</div>`;
+      }
+      html += `<div class="rate-amount-header" style="flex: 1;text-align: left">${__("Amount")}</div>
 					</div>
-					<div class="cart-items-section"></div>
+					<div class="cart-items-section" ></div>
+					<div class="cart-branch-section"></div>
 					<div class="cart-totals-section"></div>
 					<div class="numpad-section"></div>
 				</div>
-			</div>`
-      );
+			</div>`;
+      this.$component.append(html);
       this.$cart_container = this.$component.find(".cart-container");
+      this.make_branch_section();
       this.make_cart_totals_section();
       this.make_cart_items_section();
       this.make_cart_numpad();
@@ -1934,6 +2298,105 @@
         `<div class="no-item-wrapper">${__("No items in cart")}</div>`
       );
     }
+    update_cart_html() {
+      let me = this;
+      let items = this.get_all_items();
+      if (items.length === 0) {
+        this.make_no_items_placeholder();
+        return;
+      }
+      this.$cart_header.css("display", "flex");
+      let html = "";
+      items.forEach(function(item, idx) {
+        html += me.get_item_html(item, idx);
+      });
+      this.$cart_items_wrapper.html(html);
+      this.bind_item_events();
+    }
+    get_item_html(item, idx) {
+      let me = this;
+      let item_html = `<div class="cart-item-wrapper" data-item-code="${item.item_code}" data-idx="${idx}">
+			<div class="item-name" style="flex:3">${item.item_name}</div>
+			<div class="item-qty" style="flex:1">
+				<input type="number" class="form-control qty-input" value="${item.qty}" min="0" step="any">
+			</div>`;
+      if (this.custom_show_uom_in_cart) {
+        item_html += `<div class="item-uom" style="flex:1">${item.uom || ""}</div>`;
+      }
+      if (this.show_batch_in_cart) {
+        item_html += `<div class="item-batch" style="flex:1">${item.batch_no || ""}</div>`;
+      }
+      if (this.custom_edit_rate) {
+        item_html += `<div class="item-rate" style="flex:1">
+				<input type="number" class="form-control rate-input" value="${item.rate}" min="0" step="any">
+			</div>`;
+      }
+      if (this.custom_use_discount_percentage) {
+        item_html += `<div class="item-discount-perc" style="flex:1">
+				<input type="number" class="form-control discount-perc-input" value="${item.discount_percentage || 0}" min="0" max="100" step="any">
+			</div>`;
+      }
+      if (this.custom_use_discount_amount) {
+        item_html += `<div class="item-discount-amount" style="flex:1">
+				<input type="number" class="form-control discount-amount-input" value="${item.discount_amount || 0}" min="0" step="any">
+			</div>`;
+      }
+      if (this.custom_show_incoming_rate) {
+        item_html += `<div class="item-incoming-rate" style="flex:1">${item.incoming_rate || ""}</div>`;
+      }
+      if (this.custom_show_logical_rack_in_cart) {
+        item_html += `<div class="item-rack" style="flex:1">${item.logical_rack || ""}</div>`;
+      }
+      if (this.custom_show_last_customer_rate) {
+        item_html += `<div class="item-last-customer-rate" style="flex:1">${item.last_customer_rate || ""}</div>`;
+      }
+      item_html += `<div class="item-amount" style="flex:1;text-align: left">${format_currency(item.amount, this.currency)}</div>
+			<div class="item-remove">
+				<svg class="icon icon-sm">
+					<use href="#icon-close"></use>
+				</svg>
+			</div>
+		</div>`;
+      return item_html;
+    }
+    bind_item_events() {
+      let me = this;
+      this.$cart_items_wrapper.find(".qty-input").on("change", function() {
+        let $item = $(this).closest(".cart-item-wrapper");
+        let idx = $item.data("idx");
+        let new_qty = parseFloat($(this).val()) || 0;
+        me.update_item_qty(idx, new_qty);
+      });
+      if (this.custom_edit_rate) {
+        this.$cart_items_wrapper.find(".rate-input").on("change", function() {
+          let $item = $(this).closest(".cart-item-wrapper");
+          let idx = $item.data("idx");
+          let new_rate = parseFloat($(this).val()) || 0;
+          me.update_item_rate(idx, new_rate);
+        });
+      }
+      if (this.custom_use_discount_percentage) {
+        this.$cart_items_wrapper.find(".discount-perc-input").on("change", function() {
+          let $item = $(this).closest(".cart-item-wrapper");
+          let idx = $item.data("idx");
+          let new_disc_perc = parseFloat($(this).val()) || 0;
+          me.update_item_discount_percentage(idx, new_disc_perc);
+        });
+      }
+      if (this.custom_use_discount_amount) {
+        this.$cart_items_wrapper.find(".discount-amount-input").on("change", function() {
+          let $item = $(this).closest(".cart-item-wrapper");
+          let idx = $item.data("idx");
+          let new_disc_amt = parseFloat($(this).val()) || 0;
+          me.update_item_discount_amount(idx, new_disc_amt);
+        });
+      }
+      this.$cart_items_wrapper.find(".item-remove").on("click", function() {
+        let $item = $(this).closest(".cart-item-wrapper");
+        let idx = $item.data("idx");
+        me.remove_item(idx);
+      });
+    }
     get_discount_icon() {
       return `<svg class="discount-icon" width="24" height="24" viewBox="0 0 24 24" stroke="currentColor" fill="none" xmlns="http://www.w3.org/2000/svg">
 				<path d="M19 15.6213C19 15.2235 19.158 14.842 19.4393 14.5607L20.9393 13.0607C21.5251 12.4749 21.5251 11.5251 20.9393 10.9393L19.4393 9.43934C19.158 9.15804 19 8.7765 19 8.37868V6.5C19 5.67157 18.3284 5 17.5 5H15.6213C15.2235 5 14.842 4.84196 14.5607 4.56066L13.0607 3.06066C12.4749 2.47487 11.5251 2.47487 10.9393 3.06066L9.43934 4.56066C9.15804 4.84196 8.7765 5 8.37868 5H6.5C5.67157 5 5 5.67157 5 6.5V8.37868C5 8.7765 4.84196 9.15804 4.56066 9.43934L3.06066 10.9393C2.47487 11.5251 2.47487 12.4749 3.06066 13.0607L4.56066 14.5607C4.84196 14.842 5 15.2235 5 15.6213V17.5C5 18.3284 5.67157 19 6.5 19H8.37868C8.7765 19 9.15804 19.158 9.43934 19.4393L10.9393 20.9393C11.5251 21.5251 12.4749 21.5251 13.0607 20.9393L14.5607 19.4393C14.842 19.158 15.2235 19 15.6213 19H17.5C18.3284 19 19 18.3284 19 17.5V15.6213Z" stroke-miterlimit="10" stroke-linecap="round" stroke-linejoin="round"/>
@@ -1941,6 +2404,24 @@
 				<path d="M10.5 9.5C10.5 10.0523 10.0523 10.5 9.5 10.5C8.94772 10.5 8.5 10.0523 8.5 9.5C8.5 8.94772 8.94772 8.5 9.5 8.5C10.0523 8.5 10.5 8.94772 10.5 9.5Z" fill="white" stroke-linecap="round" stroke-linejoin="round"/>
 				<path d="M15.5 14.5C15.5 15.0523 15.0523 15.5 14.5 15.5C13.9477 15.5 13.5 15.0523 13.5 14.5C13.5 13.9477 13.9477 13.5 14.5 13.5C15.0523 13.5 15.5 13.9477 15.5 14.5Z" fill="white" stroke-linecap="round" stroke-linejoin="round"/>
 			</svg>`;
+    }
+    make_branch_section() {
+      let me = this;
+      let html = `<div class="branch-section">
+			<div class="branch-label">${__("Branch")}</div>
+			<div class="branch-field">
+				<select class="form-control branch-select">
+					<option value="">Select Branch</option>
+				</select>
+			</div>
+		</div>`;
+      this.$component.find(".cart-branch-section").html(html);
+      this.$branch_select = this.$component.find(".branch-select");
+      this.$branch_select.on("change", function() {
+        me.branch = $(this).val();
+        me.events.on_branch_change && me.events.on_branch_change(me.branch);
+      });
+      this.load_branches();
     }
     make_cart_totals_section() {
       this.$totals_section = this.$component.find(".cart-totals-section");
@@ -1997,6 +2478,26 @@
       this.$add_discount_elem = this.$component.find(".add-discount-wrapper");
       this.highlight_checkout_btn(true);
     }
+    load_branches() {
+      let me = this;
+      frappe.call({
+        method: "frappe.client.get_list",
+        args: {
+          doctype: "Branch",
+          fields: ["name", "branch"],
+          limit_page_length: 0
+        },
+        callback: function(r) {
+          if (r.message) {
+            me.$branch_select.empty();
+            me.$branch_select.append('<option value="">Select Branch</option>');
+            r.message.forEach(function(branch) {
+              me.$branch_select.append(`<option value="${branch.name}">${branch.branch}</option>`);
+            });
+          }
+        }
+      });
+    }
     make_cart_numpad() {
       this.$numpad_section = this.$component.find(".numpad-section");
       this.number_pad = new posnext.PointOfSale.NumberPad({
@@ -2030,16 +2531,69 @@
         `<div class="numpad-btn checkout-btn" data-button-value="checkout">${__("Checkout")}</div>`
       );
     }
+    update_item_qty(idx, new_qty) {
+      let item = this.items[idx];
+      if (item) {
+        item.qty = new_qty;
+        this.update_item_amount(idx);
+        this.update_totals();
+        this.update_cart_html();
+      }
+    }
+    update_item_rate(idx, new_rate) {
+      let item = this.items[idx];
+      if (item) {
+        item.rate = new_rate;
+        this.update_item_amount(idx);
+        this.update_totals();
+        this.update_cart_html();
+      }
+    }
+    update_item_discount_percentage(idx, new_disc_perc) {
+      let item = this.items[idx];
+      if (item) {
+        item.discount_percentage = new_disc_perc;
+        this.update_item_amount(idx);
+        this.update_totals();
+        this.update_cart_html();
+      }
+    }
+    update_item_discount_amount(idx, new_disc_amt) {
+      let item = this.items[idx];
+      if (item) {
+        item.discount_amount = new_disc_amt;
+        this.update_item_amount(idx);
+        this.update_totals();
+        this.update_cart_html();
+      }
+    }
+    remove_item(idx) {
+      if (this.items[idx]) {
+        this.items.splice(idx, 1);
+        this.update_totals();
+        this.update_cart_html();
+      }
+    }
+    update_item_amount(idx) {
+      let item = this.items[idx];
+      if (item) {
+        let discount_amount = item.discount_amount || 0;
+        let discount_percentage = item.discount_percentage || 0;
+        let discounted_rate = item.rate * (1 - discount_percentage / 100);
+        item.amount = (discounted_rate - discount_amount) * item.qty;
+      }
+    }
     create_mobile_dialog(callback) {
       const me = this;
       let dialog = new frappe.ui.Dialog({
-        title: "Enter Mobile Number",
+        title: __("Enter Mobile Number"),
         fields: [
           {
-            label: "Mobile Number",
+            label: __("Mobile Number"),
             fieldname: "mobile_number",
             fieldtype: "Data",
-            reqd: 1
+            reqd: 1,
+            description: __("Enter 10-digit mobile number")
           },
           {
             label: "",
@@ -2051,23 +2605,69 @@
 							.custom-numpad {
 								display: grid;
 								grid-template-columns: repeat(3, 1fr);
-								gap: 10px;
-								max-width: 350px;
-								margin: 0 auto;
+								gap: 8px;
+								max-width: 320px;
+								margin: 15px auto;
 							}
 							.numpad-button {
-								padding: 15px;
-								font-size: 18px;
+								padding: 12px;
+								font-size: 16px;
+								font-weight: bold;
 								cursor: pointer;
-								background-color: #f1f1f1;
-								border: 1px solid #ccc;
-								border-radius: 5px;
+								background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+								color: white;
+								border: none;
+								border-radius: 8px;
 								text-align: center;
+								transition: all 0.2s ease;
+								box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 							}
 							.numpad-button:hover {
-								background-color: #ddd;
+								transform: translateY(-1px);
+								box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+								background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
 							}
+							.numpad-button:active {
+								transform: translateY(0);
+								box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+							}
+							.numpad-button.delete {
+								background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
+							}
+							.numpad-button.delete:hover {
+								background: linear-gradient(135deg, #ff5252 0%, #e74c3c 100%);
+							}
+							.numpad-button.clear {
+								background: linear-gradient(135deg, #ffa726 0%, #fb8c00 100%);
+							}
+							.numpad-button.clear:hover {
+								background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+							}
+							.mobile-input-display {
+								font-size: 18px;
+								font-weight: bold;
+								text-align: center;
+								padding: 10px;
+								margin-bottom: 15px;
+								border: 2px solid #e0e0e0;
+								border-radius: 8px;
+								background: #f8f9fa;
+								min-height: 40px;
+								display: flex;
+								align-items: center;
+								justify-content: center;
+							}
+							.validation-message {
+								text-align: center;
+								margin-top: 10px;
+								font-size: 14px;
+								min-height: 20px;
+							}
+							.valid { color: #28a745; }
+							.invalid { color: #dc3545; }
 							</style>
+							<div class="mobile-input-display" id="mobile-display">Enter mobile number</div>
+							<div class="validation-message" id="validation-msg"></div>
 							<button class="numpad-button one">1</button>
 							<button class="numpad-button two">2</button>
 							<button class="numpad-button three">3</button>
@@ -2077,7 +2677,7 @@
 							<button class="numpad-button seven">7</button>
 							<button class="numpad-button eight">8</button>
 							<button class="numpad-button nine">9</button>
-							<button class="numpad-button delete" style="color: red">x</button>
+							<button class="numpad-button delete">\u232B</button>
 							<button class="numpad-button zero">0</button>
 							<button class="numpad-button clear">C</button>
 						</div>
@@ -2085,23 +2685,69 @@
           }
         ],
         size: "small",
-        primary_action_label: "Continue",
-        primary_action: callback
+        primary_action_label: __("Continue"),
+        primary_action: function() {
+          const mobile = dialog.get_value("mobile_number") || "";
+          if (me.validate_mobile_number(mobile)) {
+            callback();
+          }
+        }
       });
       const numpad = dialog.wrapper.find(".custom-numpad");
+      const display = dialog.wrapper.find("#mobile-display");
+      const validationMsg = dialog.wrapper.find("#validation-msg");
+      const update_display = function(value) {
+        display.text(value || "Enter mobile number");
+        display.toggleClass("has-value", !!value);
+        if (value) {
+          const isValid = me.validate_mobile_number(value);
+          display.toggleClass("valid", isValid);
+          display.toggleClass("invalid", !isValid);
+          validationMsg.toggleClass("valid", isValid);
+          validationMsg.toggleClass("invalid", !isValid);
+          validationMsg.text(isValid ? "\u2713 Valid mobile number" : value.length < 10 ? "Enter 10 digits" : "Invalid mobile number");
+        } else {
+          display.removeClass("valid invalid");
+          validationMsg.removeClass("valid invalid");
+          validationMsg.text("");
+        }
+      };
       const numbers = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "zero"];
       numbers.forEach((num) => {
         numpad.on("click", "." + num, function() {
           const current_value = dialog.get_value("mobile_number") || "";
-          dialog.set_value("mobile_number", current_value + $(this).text());
+          if (current_value.length < 10) {
+            const new_value = current_value + $(this).text();
+            dialog.set_value("mobile_number", new_value);
+            update_display(new_value);
+          }
+          $(this).addClass("pressed");
+          setTimeout(() => $(this).removeClass("pressed"), 100);
         });
       });
-      numpad.on("click", ".clear", () => dialog.set_value("mobile_number", ""));
+      numpad.on("click", ".clear", function() {
+        dialog.set_value("mobile_number", "");
+        update_display("");
+        $(this).addClass("pressed");
+        setTimeout(() => $(this).removeClass("pressed"), 100);
+      });
       numpad.on("click", ".delete", function() {
         const current_value = dialog.get_value("mobile_number") || "";
-        dialog.set_value("mobile_number", current_value.slice(0, -1));
+        const new_value = current_value.slice(0, -1);
+        dialog.set_value("mobile_number", new_value);
+        update_display(new_value);
+        $(this).addClass("pressed");
+        setTimeout(() => $(this).removeClass("pressed"), 100);
+      });
+      dialog.wrapper.find('input[fieldname="mobile_number"]').on("input", function() {
+        const value = $(this).val();
+        update_display(value);
       });
       return dialog;
+    }
+    validate_mobile_number(mobile) {
+      const mobileRegex = /^[6-9]\d{9}$/;
+      return mobileRegex.test(mobile);
     }
     create_secret_dialog(callback) {
       let dialog = new frappe.ui.Dialog({
@@ -3260,6 +3906,190 @@
       show ? this.$component.css("display", "flex") : this.$component.css("display", "none");
     }
   };
+  $(document).ready(function() {
+    if (!$("#pos-ui-enhancements").length) {
+      $("head").append(`
+			<style id="pos-ui-enhancements">
+				/* Shortcut feedback animation */
+				@keyframes shortcut-feedback {
+					0% { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+					20% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+					80% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+					100% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+				}
+
+				.shortcut-feedback {
+					animation: shortcut-feedback 0.8s ease-out forwards;
+					pointer-events: none;
+				}
+
+				/* Button press effects */
+				.btn-pressed {
+					transform: scale(0.95) !important;
+					transition: transform 0.1s ease !important;
+				}
+
+				/* Enhanced numpad button effects */
+				.numpad-btn {
+					transition: all 0.2s ease;
+					position: relative;
+					overflow: hidden;
+				}
+
+				.numpad-btn:before {
+					content: '';
+					position: absolute;
+					top: 50%;
+					left: 50%;
+					width: 0;
+					height: 0;
+					border-radius: 50%;
+					background: rgba(255, 255, 255, 0.3);
+					transition: width 0.6s, height 0.6s;
+					transform: translate(-50%, -50%);
+				}
+
+				.numpad-btn:active:before {
+					width: 300px;
+					height: 300px;
+				}
+
+				/* Cart item hover effects */
+				.cart-item-wrapper {
+					transition: all 0.2s ease;
+					border-radius: 4px;
+				}
+
+				.cart-item-wrapper:hover {
+					background-color: rgba(0, 123, 255, 0.05);
+					transform: translateX(2px);
+				}
+
+				/* Input focus effects */
+				.cart-item-wrapper input:focus {
+					box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+					border-color: #007bff;
+				}
+
+				/* Loading animation for async operations */
+				@keyframes spin {
+					0% { transform: rotate(0deg); }
+					100% { transform: rotate(360deg); }
+				}
+
+				.loading-spinner {
+					display: inline-block;
+					width: 20px;
+					height: 20px;
+					border: 3px solid rgba(255, 255, 255, 0.3);
+					border-radius: 50%;
+					border-top-color: #fff;
+					animation: spin 1s ease-in-out infinite;
+					margin-right: 8px;
+				}
+
+				/* Success/Error animations */
+				@keyframes success-bounce {
+					0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
+					40% { transform: translateY(-10px); }
+					60% { transform: translateY(-5px); }
+				}
+
+				.success-animation {
+					animation: success-bounce 1s ease;
+				}
+
+				@keyframes error-shake {
+					0%, 100% { transform: translateX(0); }
+					10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+					20%, 40%, 60%, 80% { transform: translateX(5px); }
+				}
+
+				.error-animation {
+					animation: error-shake 0.5s ease;
+				}
+
+				/* Enhanced mobile input display */
+				.mobile-input-display.has-value {
+					background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
+					border-color: #2196f3;
+				}
+
+				.mobile-input-display.valid {
+					background: linear-gradient(135deg, #e8f5e8 0%, #f1f8e9 100%);
+					border-color: #4caf50;
+					color: #2e7d32;
+				}
+
+				.mobile-input-display.invalid {
+					background: linear-gradient(135deg, #ffebee 0%, #fce4ec 100%);
+					border-color: #f44336;
+					color: #c62828;
+				}
+
+				/* Numpad button press effect */
+				.numpad-button.pressed {
+					transform: scale(0.95);
+					transition: transform 0.1s ease;
+				}
+
+				/* Smooth transitions for cart updates */
+				.cart-items-section {
+					transition: all 0.3s ease;
+				}
+
+				/* Enhanced checkout button */
+				.checkout-btn {
+					position: relative;
+					overflow: hidden;
+				}
+
+				.checkout-btn:before {
+					content: '';
+					position: absolute;
+					top: 0;
+					left: -100%;
+					width: 100%;
+					height: 100%;
+					background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+					transition: left 0.5s;
+				}
+
+				.checkout-btn:hover:before {
+					left: 100%;
+				}
+
+				/* Tooltip styles for better UX */
+				.tooltip {
+					position: relative;
+					display: inline-block;
+				}
+
+				.tooltip .tooltiptext {
+					visibility: hidden;
+					width: 120px;
+					background-color: #555;
+					color: #fff;
+					text-align: center;
+					border-radius: 6px;
+					padding: 5px 0;
+					position: absolute;
+					z-index: 1;
+					bottom: 125%;
+					left: 50%;
+					margin-left: -60px;
+					opacity: 0;
+					transition: opacity 0.3s;
+				}
+
+				.tooltip:hover .tooltiptext {
+					visibility: visible;
+					opacity: 1;
+				}
+			</style>
+		`);
+    }
+  });
 
   // ../posnext/posnext/public/js/pos_item_details.js
   frappe.provide("posnext.PointOfSale");
@@ -3345,20 +4175,30 @@
       }
     }
     validate_serial_batch_item() {
-      const doc = this.events.get_frm().doc;
-      const item_row = doc.items.find((item) => item.name === this.name);
-      if (!item_row)
-        return;
-      const serialized = item_row.has_serial_no;
-      const batched = item_row.has_batch_no;
-      const no_bundle_selected = !item_row.serial_and_batch_bundle;
-      if (serialized && no_bundle_selected || batched && no_bundle_selected) {
+      try {
+        const doc = this.events.get_frm().doc;
+        const item_row = doc.items.find((item) => item.name === this.name);
+        if (!item_row) {
+          console.warn("Item row not found for validation");
+          return;
+        }
+        const serialized = item_row.has_serial_no;
+        const batched = item_row.has_batch_no;
+        const no_bundle_selected = !item_row.serial_and_batch_bundle;
+        if (serialized && no_bundle_selected || batched && no_bundle_selected) {
+          frappe.show_alert({
+            message: __("Item is removed since no serial / batch no selected."),
+            indicator: "orange"
+          });
+          frappe.utils.play_sound("cancel");
+          return this.events.remove_item_from_cart();
+        }
+      } catch (error) {
+        console.error("Error in validate_serial_batch_item:", error);
         frappe.show_alert({
-          message: __("Item is removed since no serial / batch no selected."),
-          indicator: "orange"
+          message: __("Error validating serial/batch item"),
+          indicator: "red"
         });
-        frappe.utils.play_sound("cancel");
-        return this.events.remove_item_from_cart();
       }
     }
     render_dom(item) {
@@ -3403,17 +4243,22 @@
     render_form(item) {
       const fields_to_display = this.get_form_fields(item);
       this.$form_container.html("");
-      fields_to_display.forEach((fieldname, idx) => {
+      fields_to_display.forEach(async (fieldname, idx) => {
         this.$form_container.append(
           `<div class="${fieldname}-control" data-fieldname="${fieldname}"></div>`
         );
         const field_meta = this.item_meta.fields.find((df) => df.fieldname === fieldname);
         fieldname === "discount_percentage" ? field_meta.label = __("Discount (%)") : "";
         const me = this;
-        var uoms = [];
-        frappe.db.get_doc("Item", me.current_item.item_code).then((doc) => {
-          uoms = doc.uoms.map((item2) => item2.uom);
-        });
+        let uoms = [];
+        if (fieldname === "uom") {
+          try {
+            const doc = await frappe.db.get_doc("Item", me.current_item.item_code);
+            uoms = doc.uoms ? doc.uoms.map((item2) => item2.uom) : [];
+          } catch (error) {
+            console.warn("Failed to fetch UOMs for item:", me.current_item.item_code, error);
+          }
+        }
         this[`${fieldname}_control`] = frappe.ui.form.make_control({
           df: __spreadProps(__spreadValues({}, field_meta), {
             onchange: function() {
@@ -3480,22 +4325,64 @@
         this.warehouse_control.df.onchange = function() {
           if (this.value) {
             me.events.form_updated(me.current_item, "warehouse", this.value).then(() => {
-              me.item_stock_map = me.events.get_item_stock_map();
-              const available_qty = me.item_stock_map[me.item_row.item_code][this.value][0];
-              const is_stock_item = Boolean(me.item_stock_map[me.item_row.item_code][this.value][1]);
-              if (available_qty === void 0) {
-                me.events.get_available_stock(me.item_row.item_code, this.value).then(() => {
-                  me.warehouse_control.set_value(this.value);
-                });
-              } else if (available_qty === 0 && is_stock_item) {
-                me.warehouse_control.set_value("");
-                const bold_item_code = me.item_row.item_code.bold();
-                const bold_warehouse = this.value.bold();
-                frappe.throw(
-                  __("Item Code: {0} is not available under warehouse {1}.", [bold_item_code, bold_warehouse])
-                );
+              try {
+                me.item_stock_map = me.events.get_item_stock_map();
+                if (!me.item_stock_map || !me.item_stock_map[me.item_row.item_code]) {
+                  console.warn("Stock map not available for item:", me.item_row.item_code);
+                  me.events.get_available_stock(me.item_row.item_code, this.value).then(() => {
+                    me.warehouse_control.set_value(this.value);
+                  });
+                  return;
+                }
+                let stock_info = me.item_stock_map[me.item_row.item_code][this.value];
+                if (stock_info === void 0 || stock_info === null) {
+                  me.events.get_available_stock(me.item_row.item_code, this.value).then(() => {
+                    me.warehouse_control.set_value(this.value);
+                  });
+                  return;
+                }
+                let available_qty, is_stock_item;
+                if (Array.isArray(stock_info)) {
+                  if (typeof stock_info[0] === "object" && stock_info[0] !== null) {
+                    const warehouse_qty_obj = stock_info[0];
+                    available_qty = warehouse_qty_obj[this.value] || warehouse_qty_obj[warehouse] || 0;
+                    is_stock_item = Boolean(stock_info[1]);
+                  } else {
+                    available_qty = stock_info[0];
+                    is_stock_item = Boolean(stock_info[1]);
+                  }
+                } else if (typeof stock_info === "object" && stock_info !== null) {
+                  available_qty = stock_info.qty !== void 0 ? stock_info.qty : stock_info.actual_qty !== void 0 ? stock_info.actual_qty : stock_info.available_qty !== void 0 ? stock_info.available_qty : 0;
+                  is_stock_item = Boolean(stock_info.is_stock_item || stock_info.has_stock || stock_info.stock_item);
+                } else if (typeof stock_info === "number") {
+                  available_qty = stock_info;
+                  is_stock_item = true;
+                } else {
+                  available_qty = 0;
+                  is_stock_item = false;
+                }
+                if (isNaN(available_qty) || available_qty === null || available_qty === void 0) {
+                  console.warn("Invalid available_qty:", available_qty, "for stock_info:", stock_info);
+                  available_qty = 0;
+                }
+                if (available_qty === 0 && is_stock_item) {
+                  me.warehouse_control.set_value("");
+                  const bold_item_code = me.item_row.item_code.bold();
+                  const bold_warehouse = this.value.bold();
+                  frappe.throw(
+                    __("Item Code: {0} is not available under warehouse {1}.", [bold_item_code, bold_warehouse])
+                  );
+                }
+                const qty_to_set = typeof available_qty === "number" ? available_qty : parseFloat(available_qty) || 0;
+                if (me.actual_qty_control) {
+                  me.actual_qty_control.set_value(qty_to_set);
+                }
+              } catch (error) {
+                console.error("Error updating warehouse stock info:", error);
+                if (me.actual_qty_control) {
+                  me.actual_qty_control.set_value(0);
+                }
               }
-              me.actual_qty_control.set_value(available_qty);
             });
           }
         };
@@ -3536,7 +4423,7 @@
           me.conversion_factor_control.refresh();
         };
       }
-      frappe.model.on("Sales Invoice Item", "*", (fieldname, value, item_row) => {
+      frappe.model.on("POS Invoice Item", "*", (fieldname, value, item_row) => {
         const field_control = this[`${fieldname}_control`];
         const item_row_is_being_edited = this.compare_with_current_item(item_row);
         if (item_row_is_being_edited && field_control && field_control.get_value() !== value) {
@@ -3551,28 +4438,42 @@
 `).filter((s) => s);
         if (!selected_serial_nos.length)
           return;
-        const serials_with_batch_no = await frappe.db.get_list("Serial No", {
-          filters: { "name": ["in", selected_serial_nos] },
-          fields: ["batch_no", "name"]
-        });
-        const batch_serial_map = serials_with_batch_no.reduce((acc, r) => {
-          if (!acc[r.batch_no]) {
-            acc[r.batch_no] = [];
+        try {
+          const serials_with_batch_no = await frappe.db.get_list("Serial No", {
+            filters: { "name": ["in", selected_serial_nos] },
+            fields: ["batch_no", "name"]
+          });
+          if (!serials_with_batch_no || serials_with_batch_no.length === 0) {
+            console.warn("No serial numbers found with batch information");
+            return;
           }
-          acc[r.batch_no] = [...acc[r.batch_no], r.name];
-          return acc;
-        }, {});
-        const batch_no = Object.keys(batch_serial_map)[0];
-        const batch_serial_nos = batch_serial_map[batch_no].join(`
+          const batch_serial_map = serials_with_batch_no.reduce((acc, r) => {
+            if (!acc[r.batch_no]) {
+              acc[r.batch_no] = [];
+            }
+            acc[r.batch_no] = [...acc[r.batch_no], r.name];
+            return acc;
+          }, {});
+          const batch_no = Object.keys(batch_serial_map)[0];
+          const batch_serial_nos = batch_serial_map[batch_no].join(`
 `);
-        const serial_nos_belongs_to_other_batch = selected_serial_nos.length !== batch_serial_map[batch_no].length;
-        const current_batch_no = this.batch_no_control.get_value();
-        current_batch_no != batch_no && await this.batch_no_control.set_value(batch_no);
-        if (serial_nos_belongs_to_other_batch) {
-          this.serial_no_control.set_value(batch_serial_nos);
-          this.qty_control.set_value(batch_serial_map[batch_no].length);
-          delete batch_serial_map[batch_no];
-          this.events.clone_new_batch_item_in_frm(batch_serial_map, this.current_item);
+          const serial_nos_belongs_to_other_batch = selected_serial_nos.length !== batch_serial_map[batch_no].length;
+          const current_batch_no = this.batch_no_control.get_value();
+          if (current_batch_no != batch_no) {
+            await this.batch_no_control.set_value(batch_no);
+          }
+          if (serial_nos_belongs_to_other_batch) {
+            this.serial_no_control.set_value(batch_serial_nos);
+            this.qty_control.set_value(batch_serial_map[batch_no].length);
+            delete batch_serial_map[batch_no];
+            this.events.clone_new_batch_item_in_frm(batch_serial_map, this.current_item);
+          }
+        } catch (error) {
+          console.error("Error in auto_update_batch_no:", error);
+          frappe.show_alert({
+            message: __("Error updating batch information"),
+            indicator: "red"
+          });
         }
       }
     }
@@ -3604,19 +4505,35 @@
     }
     bind_auto_serial_fetch_event() {
       this.$form_container.on("click", ".auto-fetch-btn", () => {
-        frappe.require("assets/erpnext/js/utils/serial_no_batch_selector.js", () => {
-          let frm = this.events.get_frm();
-          let item_row = this.item_row;
-          item_row.type_of_transaction = "Outward";
-          new erpnext.SerialBatchPackageSelector(frm, item_row, (r) => {
-            if (r) {
-              frappe.model.set_value(item_row.doctype, item_row.name, {
-                "serial_and_batch_bundle": r.name,
-                "qty": Math.abs(r.total_qty)
-              });
-            }
+        try {
+          frappe.require("assets/erpnext/js/utils/serial_no_batch_selector.js", () => {
+            let frm = this.events.get_frm();
+            let item_row = this.item_row;
+            item_row.type_of_transaction = "Outward";
+            new erpnext.SerialBatchPackageSelector(frm, item_row, (r) => {
+              if (r) {
+                try {
+                  frappe.model.set_value(item_row.doctype, item_row.name, {
+                    "serial_and_batch_bundle": r.name,
+                    "qty": Math.abs(r.total_qty)
+                  });
+                } catch (error) {
+                  console.error("Error setting serial/batch bundle:", error);
+                  frappe.show_alert({
+                    message: __("Error setting serial/batch information"),
+                    indicator: "red"
+                  });
+                }
+              }
+            });
           });
-        });
+        } catch (error) {
+          console.error("Error in auto serial fetch:", error);
+          frappe.show_alert({
+            message: __("Error opening serial/batch selector"),
+            indicator: "red"
+          });
+        }
       });
     }
     toggle_component(show) {
@@ -4538,7 +5455,9 @@ Return`,
       return this.toggle_component(true);
     }
     get_invoice_html(invoice) {
-      const posting_datetime = moment(invoice.posting_date + " " + invoice.posting_time).format("Do MMMM, h:mma");
+      const posting_date = typeof invoice.posting_date === "string" ? invoice.posting_date : moment(invoice.posting_date).format("YYYY-MM-DD");
+      const posting_time = typeof invoice.posting_time === "string" ? invoice.posting_time : moment(invoice.posting_time).format("HH:mm:ss");
+      const posting_datetime = moment(posting_date + " " + posting_time).format("Do MMMM, h:mma");
       const checkbox_html = this.can_merge_invoices ? `<div class="invoice-checkbox-container" style="margin-right: 10px; display: flex; align-items: center;">
 				<input type="checkbox" class="invoice-checkbox" style="margin: 0;">
 			</div>` : "";
@@ -6677,4 +7596,4 @@ Return`,
     }
   };
 })();
-//# sourceMappingURL=posnext.bundle.MUPG4V64.js.map
+//# sourceMappingURL=posnext.bundle.DGHJG6AE.js.map

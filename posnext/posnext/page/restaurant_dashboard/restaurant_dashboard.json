@@ -1,0 +1,28 @@
+{
+ "content": null,
+ "creation": "2025-09-29 12:00:00.000000",
+ "docstatus": 0,
+ "doctype": "Page",
+ "idx": 0,
+ "modified": "2025-09-29 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Posnext",
+ "name": "restaurant-dashboard",
+ "owner": "Administrator",
+ "page_name": "Restaurant Dashboard",
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Restaurant Manager"
+  },
+  {
+   "role": "Front Desk"
+  }
+ ],
+ "standard": "Yes",
+ "style": "",
+ "system_page": 0,
+ "title": "Restaurant Dashboard"
+}

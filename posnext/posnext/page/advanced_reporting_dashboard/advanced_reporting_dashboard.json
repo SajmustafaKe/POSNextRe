@@ -1,0 +1,28 @@
+{
+ "content": null,
+ "creation": "2025-01-29 10:00:00.000000",
+ "docstatus": 0,
+ "doctype": "Page",
+ "idx": 0,
+ "modified": "2025-01-29 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "POSNext",
+ "name": "advanced-reporting-dashboard",
+ "owner": "Administrator",
+ "page_name": "Advanced Reporting Dashboard",
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Hotel Manager"
+  },
+  {
+   "role": "Accounts Manager"
+  }
+ ],
+ "standard": "Yes",
+ "style": "",
+ "system_page": 0,
+ "title": "Advanced Reporting Dashboard"
+}

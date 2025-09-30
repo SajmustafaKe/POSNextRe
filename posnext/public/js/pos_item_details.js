@@ -100,22 +100,33 @@ posnext.PointOfSale.ItemDetails = class {
 	}
 
 	validate_serial_batch_item() {
-		const doc = this.events.get_frm().doc;
-		const item_row = doc.items.find(item => item.name === this.name);
+		try {
+			const doc = this.events.get_frm().doc;
+			const item_row = doc.items.find(item => item.name === this.name);
 
-		if (!item_row) return;
+			if (!item_row) {
+				console.warn('Item row not found for validation');
+				return;
+			}
 
-		const serialized = item_row.has_serial_no;
-		const batched = item_row.has_batch_no;
-		const no_bundle_selected = !item_row.serial_and_batch_bundle;
+			const serialized = item_row.has_serial_no;
+			const batched = item_row.has_batch_no;
+			const no_bundle_selected = !item_row.serial_and_batch_bundle;
 
-		if ((serialized && no_bundle_selected) || (batched && no_bundle_selected)) {
+			if ((serialized && no_bundle_selected) || (batched && no_bundle_selected)) {
+				frappe.show_alert({
+					message: __("Item is removed since no serial / batch no selected."),
+					indicator: 'orange'
+				});
+				frappe.utils.play_sound("cancel");
+				return this.events.remove_item_from_cart();
+			}
+		} catch (error) {
+			console.error('Error in validate_serial_batch_item:', error);
 			frappe.show_alert({
-				message: __("Item is removed since no serial / batch no selected."),
-				indicator: 'orange'
+				message: __('Error validating serial/batch item'),
+				indicator: 'red'
 			});
-			frappe.utils.play_sound("cancel");
-			return this.events.remove_item_from_cart();
 		}
 	}
 
@@ -168,7 +179,7 @@ posnext.PointOfSale.ItemDetails = class {
 		const fields_to_display = this.get_form_fields(item);
 		this.$form_container.html('');
 
-		fields_to_display.forEach((fieldname, idx) => {
+		fields_to_display.forEach(async (fieldname, idx) => {
 			this.$form_container.append(
 				`<div class="${fieldname}-control" data-fieldname="${fieldname}"></div>`
 			)
@@ -176,26 +187,34 @@ posnext.PointOfSale.ItemDetails = class {
 			const field_meta = this.item_meta.fields.find(df => df.fieldname === fieldname);
 			fieldname === 'discount_percentage' ? (field_meta.label = __('Discount (%)')) : '';
 			const me = this;
-			var uoms = []
-			frappe.db.get_doc("Item",me.current_item.item_code).then(doc => {
-				uoms = doc.uoms.map(item => item.uom);
-			})
+
+			// Enhanced UOM handling with proper async/await
+			let uoms = [];
+			if (fieldname === 'uom') {
+				try {
+					const doc = await frappe.db.get_doc("Item", me.current_item.item_code);
+					uoms = doc.uoms ? doc.uoms.map(item => item.uom) : [];
+				} catch (error) {
+					console.warn('Failed to fetch UOMs for item:', me.current_item.item_code, error);
+				}
+			}
+
 			this[`${fieldname}_control`] = frappe.ui.form.make_control({
 				df: {
 					...field_meta,
 					onchange: function() {
 						me.events.form_updated(me.current_item, fieldname, this.value);
 					},
-					get_query:function () {
-						if(fieldname === 'uom'){
+					get_query: function () {
+						if (fieldname === 'uom') {
 							return {
 								filters: {
-									name: ['in',uoms]
+									name: ['in', uoms]
 								}
 							}
 						}
-						return
-                    }
+						return;
+					}
 				},
 				parent: this.$form_container.find(`.${fieldname}-control`),
 				render_input: true,
@@ -204,7 +223,6 @@ posnext.PointOfSale.ItemDetails = class {
 		});
 
 		this.make_auto_serial_selection_btn(item);
-
 		this.bind_custom_control_change_event();
 	}
 
@@ -252,23 +270,89 @@ posnext.PointOfSale.ItemDetails = class {
 			this.warehouse_control.df.onchange = function() {
 				if (this.value) {
 					me.events.form_updated(me.current_item, 'warehouse', this.value).then(() => {
-						me.item_stock_map = me.events.get_item_stock_map();
-						const available_qty = me.item_stock_map[me.item_row.item_code][this.value][0];
-						const is_stock_item = Boolean(me.item_stock_map[me.item_row.item_code][this.value][1]);
-						if (available_qty === undefined) {
-							me.events.get_available_stock(me.item_row.item_code, this.value).then(() => {
-								// item stock map is updated now reset warehouse
-								me.warehouse_control.set_value(this.value);
-							})
-						} else if (available_qty === 0 && is_stock_item) {
-							me.warehouse_control.set_value('');
-							const bold_item_code = me.item_row.item_code.bold();
-							const bold_warehouse = this.value.bold();
-							frappe.throw(
-								__('Item Code: {0} is not available under warehouse {1}.', [bold_item_code, bold_warehouse])
-							);
+						try {
+							me.item_stock_map = me.events.get_item_stock_map();
+
+							// Add safety checks for stock map structure
+							if (!me.item_stock_map || !me.item_stock_map[me.item_row.item_code]) {
+								console.warn('Stock map not available for item:', me.item_row.item_code);
+								// Fetch stock data if not available
+								me.events.get_available_stock(me.item_row.item_code, this.value).then(() => {
+									// Trigger onchange again after stock data is fetched
+									me.warehouse_control.set_value(this.value);
+								});
+								return;
+							}
+
+							let stock_info = me.item_stock_map[me.item_row.item_code][this.value];
+
+							// Handle the case where stock_info is undefined/null
+							if (stock_info === undefined || stock_info === null) {
+								// Fetch stock data and retry
+								me.events.get_available_stock(me.item_row.item_code, this.value).then(() => {
+									// Trigger onchange again after stock data is fetched
+									me.warehouse_control.set_value(this.value);
+								});
+								return;
+							}
+
+							// Handle both array and object formats for backward compatibility
+							let available_qty, is_stock_item;
+							if (Array.isArray(stock_info)) {
+								// Handle array format: [qty, is_stock_item] or [{warehouse: qty}, is_stock_item]
+								if (typeof stock_info[0] === 'object' && stock_info[0] !== null) {
+									// Custom posnext format: [{warehouse: qty}, is_stock_item]
+									const warehouse_qty_obj = stock_info[0];
+									available_qty = warehouse_qty_obj[this.value] || warehouse_qty_obj[warehouse] || 0;
+									is_stock_item = Boolean(stock_info[1]);
+								} else {
+									// Standard ERPNext format: [qty, is_stock_item]
+									available_qty = stock_info[0];
+									is_stock_item = Boolean(stock_info[1]);
+								}
+							} else if (typeof stock_info === 'object' && stock_info !== null) {
+								// Handle object format - check multiple possible property names
+								available_qty = stock_info.qty !== undefined ? stock_info.qty :
+									(stock_info.actual_qty !== undefined ? stock_info.actual_qty :
+									(stock_info.available_qty !== undefined ? stock_info.available_qty : 0));
+								is_stock_item = Boolean(stock_info.is_stock_item || stock_info.has_stock || stock_info.stock_item);
+							} else if (typeof stock_info === 'number') {
+								// Handle case where stock_info is just a number (quantity)
+								available_qty = stock_info;
+								is_stock_item = true; // Assume it's stock item if we have a number
+							} else {
+								available_qty = 0;
+								is_stock_item = false;
+							}
+
+							// Validate that available_qty is a proper number
+							if (isNaN(available_qty) || available_qty === null || available_qty === undefined) {
+								console.warn('Invalid available_qty:', available_qty, 'for stock_info:', stock_info);
+								available_qty = 0;
+							}
+
+							if (available_qty === 0 && is_stock_item) {
+								me.warehouse_control.set_value('');
+								const bold_item_code = me.item_row.item_code.bold();
+								const bold_warehouse = this.value.bold();
+								frappe.throw(
+									__('Item Code: {0} is not available under warehouse {1}.', [bold_item_code, bold_warehouse])
+								);
+							}
+
+							// Ensure we set a valid numeric value
+							const qty_to_set = typeof available_qty === 'number' ? available_qty : parseFloat(available_qty) || 0;
+
+							if (me.actual_qty_control) {
+								me.actual_qty_control.set_value(qty_to_set);
+							}
+						} catch (error) {
+							console.error('Error updating warehouse stock info:', error);
+							// Always set a safe default value to prevent [object Object] display
+							if (me.actual_qty_control) {
+								me.actual_qty_control.set_value(0);
+							}
 						}
-						me.actual_qty_control.set_value(available_qty);
 					});
 				}
 			}
@@ -314,7 +398,7 @@ posnext.PointOfSale.ItemDetails = class {
 			}
 		}
 
-		frappe.model.on("Sales Invoice Item", "*", (fieldname, value, item_row) => {
+		frappe.model.on("POS Invoice Item", "*", (fieldname, value, item_row) => {
 			const field_control = this[`${fieldname}_control`];
 			const item_row_is_being_edited = this.compare_with_current_item(item_row);
 
@@ -330,33 +414,50 @@ posnext.PointOfSale.ItemDetails = class {
 			const selected_serial_nos = this.serial_no_control.get_value().split(`\n`).filter(s => s);
 			if (!selected_serial_nos.length) return;
 
-			// find batch nos of the selected serial no
-			const serials_with_batch_no = await frappe.db.get_list("Serial No", {
-				filters: { 'name': ["in", selected_serial_nos]},
-				fields: ["batch_no", "name"]
-			});
-			const batch_serial_map = serials_with_batch_no.reduce((acc, r) => {
-				if (!acc[r.batch_no]) {
-					acc[r.batch_no] = [];
+			try {
+				// find batch nos of the selected serial no
+				const serials_with_batch_no = await frappe.db.get_list("Serial No", {
+					filters: { 'name': ["in", selected_serial_nos]},
+					fields: ["batch_no", "name"]
+				});
+
+				if (!serials_with_batch_no || serials_with_batch_no.length === 0) {
+					console.warn('No serial numbers found with batch information');
+					return;
 				}
-				acc[r.batch_no] = [...acc[r.batch_no], r.name];
-				return acc;
-			}, {});
-			// set current item's batch no and serial no
-			const batch_no = Object.keys(batch_serial_map)[0];
-			const batch_serial_nos = batch_serial_map[batch_no].join(`\n`);
-			// eg. 10 selected serial no. -> 5 belongs to first batch other 5 belongs to second batch
-			const serial_nos_belongs_to_other_batch = selected_serial_nos.length !== batch_serial_map[batch_no].length;
 
-			const current_batch_no = this.batch_no_control.get_value();
-			current_batch_no != batch_no && await this.batch_no_control.set_value(batch_no);
+				const batch_serial_map = serials_with_batch_no.reduce((acc, r) => {
+					if (!acc[r.batch_no]) {
+						acc[r.batch_no] = [];
+					}
+					acc[r.batch_no] = [...acc[r.batch_no], r.name];
+					return acc;
+				}, {});
 
-			if (serial_nos_belongs_to_other_batch) {
-				this.serial_no_control.set_value(batch_serial_nos);
-				this.qty_control.set_value(batch_serial_map[batch_no].length);
+				// set current item's batch no and serial no
+				const batch_no = Object.keys(batch_serial_map)[0];
+				const batch_serial_nos = batch_serial_map[batch_no].join(`\n`);
+				// eg. 10 selected serial no. -> 5 belongs to first batch other 5 belongs to second batch
+				const serial_nos_belongs_to_other_batch = selected_serial_nos.length !== batch_serial_map[batch_no].length;
 
-				delete batch_serial_map[batch_no];
-				this.events.clone_new_batch_item_in_frm(batch_serial_map, this.current_item);
+				const current_batch_no = this.batch_no_control.get_value();
+				if (current_batch_no != batch_no) {
+					await this.batch_no_control.set_value(batch_no);
+				}
+
+				if (serial_nos_belongs_to_other_batch) {
+					this.serial_no_control.set_value(batch_serial_nos);
+					this.qty_control.set_value(batch_serial_map[batch_no].length);
+
+					delete batch_serial_map[batch_no];
+					this.events.clone_new_batch_item_in_frm(batch_serial_map, this.current_item);
+				}
+			} catch (error) {
+				console.error('Error in auto_update_batch_no:', error);
+				frappe.show_alert({
+					message: __('Error updating batch information'),
+					indicator: 'red'
+				});
 			}
 		}
 	}
@@ -393,20 +494,36 @@ posnext.PointOfSale.ItemDetails = class {
 
 	bind_auto_serial_fetch_event() {
 		this.$form_container.on('click', '.auto-fetch-btn', () => {
-			frappe.require("assets/erpnext/js/utils/serial_no_batch_selector.js", () => {
-				let frm = this.events.get_frm();
-				let item_row = this.item_row;
-				item_row.type_of_transaction = "Outward";
+			try {
+				frappe.require("assets/erpnext/js/utils/serial_no_batch_selector.js", () => {
+					let frm = this.events.get_frm();
+					let item_row = this.item_row;
+					item_row.type_of_transaction = "Outward";
 
-				new erpnext.SerialBatchPackageSelector(frm, item_row, (r) => {
-					if (r) {
-						frappe.model.set_value(item_row.doctype, item_row.name, {
-							"serial_and_batch_bundle": r.name,
-							"qty": Math.abs(r.total_qty)
-						});
-					}
+					new erpnext.SerialBatchPackageSelector(frm, item_row, (r) => {
+						if (r) {
+							try {
+								frappe.model.set_value(item_row.doctype, item_row.name, {
+									"serial_and_batch_bundle": r.name,
+									"qty": Math.abs(r.total_qty)
+								});
+							} catch (error) {
+								console.error('Error setting serial/batch bundle:', error);
+								frappe.show_alert({
+									message: __('Error setting serial/batch information'),
+									indicator: 'red'
+								});
+							}
+						}
+					});
 				});
-			});
+			} catch (error) {
+				console.error('Error in auto serial fetch:', error);
+				frappe.show_alert({
+					message: __('Error opening serial/batch selector'),
+					indicator: 'red'
+				});
+			}
 		})
 	}
 

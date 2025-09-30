@@ -38,4 +38,4 @@ def get_stock_availability(item_code, warehouse):
 	pos_reserved = get_pos_reserved_qty(item_code, warehouse)
 	total_qty -= pos_reserved
 
-	return {warehouse: total_qty}, True
+	return total_qty, True

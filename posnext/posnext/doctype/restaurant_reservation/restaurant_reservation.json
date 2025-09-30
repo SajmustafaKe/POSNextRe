@@ -1,0 +1,289 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-09-29 12:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "customer_name",
+  "phone",
+  "email",
+  "restaurant_table",
+  "column_break_5",
+  "reservation_date",
+  "reservation_time",
+  "party_size",
+  "duration_hours",
+  "status",
+  "section_break_10",
+  "special_requests",
+  "dietary_restrictions",
+  "occasion",
+  "column_break_14",
+  "booking_source",
+  "confirmation_number",
+  "deposit_amount",
+  "section_break_18",
+  "assigned_table",
+  "actual_arrival_time",
+  "actual_party_size",
+  "column_break_22",
+  "seated_time",
+  "departure_time",
+  "server_assigned",
+  "section_break_26",
+  "total_amount",
+  "paid_amount",
+  "outstanding_amount",
+  "column_break_30",
+  "payment_status",
+  "payment_method",
+  "bill_generated"
+ ],
+ "fields": [
+  {
+   "fieldname": "customer_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Customer Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "phone",
+   "fieldtype": "Data",
+   "label": "Phone",
+   "options": "Phone"
+  },
+  {
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "label": "Email",
+   "options": "Email"
+  },
+  {
+   "fieldname": "restaurant_table",
+   "fieldtype": "Link",
+   "label": "Preferred Table",
+   "options": "Table"
+  },
+  {
+   "fieldname": "column_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "reservation_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Reservation Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "reservation_time",
+   "fieldtype": "Time",
+   "in_list_view": 1,
+   "label": "Reservation Time",
+   "reqd": 1
+  },
+  {
+   "fieldname": "party_size",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Party Size",
+   "reqd": 1
+  },
+  {
+   "fieldname": "duration_hours",
+   "fieldtype": "Float",
+   "label": "Duration (Hours)",
+   "default": "2"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nConfirmed\nArrived\nSeated\nCompleted\nCancelled\nNo Show",
+   "default": "Draft",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_10",
+   "fieldtype": "Section Break",
+   "label": "Reservation Details"
+  },
+  {
+   "fieldname": "special_requests",
+   "fieldtype": "Small Text",
+   "label": "Special Requests"
+  },
+  {
+   "fieldname": "dietary_restrictions",
+   "fieldtype": "Small Text",
+   "label": "Dietary Restrictions"
+  },
+  {
+   "fieldname": "occasion",
+   "fieldtype": "Select",
+   "label": "Occasion",
+   "options": "Birthday\nAnniversary\nBusiness Meeting\nFamily Gathering\nDate Night\nOther"
+  },
+  {
+   "fieldname": "column_break_14",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "booking_source",
+   "fieldtype": "Select",
+   "label": "Booking Source",
+   "options": "Phone\nWalk-in\nOnline\nThird Party\nEmail"
+  },
+  {
+   "fieldname": "confirmation_number",
+   "fieldtype": "Data",
+   "label": "Confirmation Number",
+   "read_only": 1
+  },
+  {
+   "fieldname": "deposit_amount",
+   "fieldtype": "Currency",
+   "label": "Deposit Amount"
+  },
+  {
+   "fieldname": "section_break_18",
+   "fieldtype": "Section Break",
+   "label": "Service Details"
+  },
+  {
+   "fieldname": "assigned_table",
+   "fieldtype": "Link",
+   "label": "Assigned Table",
+   "options": "Table"
+  },
+  {
+   "fieldname": "actual_arrival_time",
+   "fieldtype": "Datetime",
+   "label": "Actual Arrival Time"
+  },
+  {
+   "fieldname": "actual_party_size",
+   "fieldtype": "Int",
+   "label": "Actual Party Size"
+  },
+  {
+   "fieldname": "column_break_22",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "seated_time",
+   "fieldtype": "Datetime",
+   "label": "Seated Time"
+  },
+  {
+   "fieldname": "departure_time",
+   "fieldtype": "Datetime",
+   "label": "Departure Time"
+  },
+  {
+   "fieldname": "server_assigned",
+   "fieldtype": "Link",
+   "label": "Server Assigned",
+   "options": "User"
+  },
+  {
+   "fieldname": "section_break_26",
+   "fieldtype": "Section Break",
+   "label": "Billing Information"
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "label": "Total Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "paid_amount",
+   "fieldtype": "Currency",
+   "label": "Paid Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "outstanding_amount",
+   "fieldtype": "Currency",
+   "label": "Outstanding Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_30",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "payment_status",
+   "fieldtype": "Select",
+   "label": "Payment Status",
+   "options": "Unpaid\nPartially Paid\nPaid",
+   "default": "Unpaid",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payment_method",
+   "fieldtype": "Select",
+   "label": "Payment Method",
+   "options": "Cash\nCredit Card\nDigital Wallet\nRoom Charge"
+  },
+  {
+   "fieldname": "bill_generated",
+   "fieldtype": "Check",
+   "label": "Bill Generated",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-09-29 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Posnext",
+ "name": "Restaurant Reservation",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Restaurant Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Desk",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "title_field": "customer_name",
+ "track_changes": 1
+}

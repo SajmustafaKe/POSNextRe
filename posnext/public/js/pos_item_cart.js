@@ -12,7 +12,20 @@ posnext.PointOfSale.ItemCart = class {
 		this.show_order_list_button = settings.custom_show_order_list_button;
 		this.mobile_number_based_customer = settings.custom_mobile_number_based_customer;
 		this.show_checkout_button = settings.custom_show_checkout_button;
+		this.custom_edit_rate = settings.custom_edit_rate_and_uom;
+		this.custom_use_discount_percentage = settings.custom_use_discount_percentage;
+		this.custom_use_discount_amount = settings.custom_use_discount_amount;
+		this.custom_use_additional_discount_amount = settings.custom_use_additional_discount_amount;
+		this.custom_show_incoming_rate = settings.custom_show_incoming_rate && settings.custom_edit_rate_and_uom;
+		this.custom_show_last_customer_rate = settings.custom_show_last_customer_rate;
+		this.custom_show_logical_rack_in_cart = settings.custom_show_logical_rack_in_cart && settings.custom_edit_rate_and_uom;
+		this.custom_show_uom_in_cart = settings.custom_show_uom_in_cart && settings.custom_edit_rate_and_uom;
+		this.show_branch = settings.show_branch;
+		this.show_batch_in_cart = settings.show_batch_in_cart
+		this.custom_show_item_discription = settings.custom_show_item_discription;
+		this.custom_show_item_barcode = settings.custom_show_item_barcode;
 		this.settings = settings;
+		this.warehouse = settings.warehouse;
 		this.init_component();
 	}
 
@@ -24,15 +37,264 @@ posnext.PointOfSale.ItemCart = class {
 	}
 
 	prepare_dom() {
-		this.wrapper.append(
-			`<section class="customer-cart-container customer-cart-container1 " id="customer-cart-container2"></section>`
-		)
+		if(this.custom_edit_rate){
+		    this.wrapper.append(
+			    `<section class="customer-cart-container customer-cart-container1 " style="grid-column: span 5 / span 5;" id="customer-cart-container2"></section>`
+		    )
+		} else {
+			this.wrapper.append(
+			    `<section class="customer-cart-container customer-cart-container1 " id="customer-cart-container2"></section>`
+		    )
+		}
+
 		this.$component = this.wrapper.find('.customer-cart-container1');
 	}
 
 	init_child_components() {
 		this.init_customer_selector();
 		this.init_cart_components();
+	}
+
+	bind_events() {
+		let me = this;
+
+		// Bind checkout button events with enhanced feedback
+		this.$component.on('click', '.checkout-btn', function() {
+			me.checkout_with_feedback();
+		});
+
+		// Bind held button events
+		this.$component.on('click', '.held-btn', function() {
+			const original_text = me.show_loading_state('.held-btn', 'Loading...');
+			try {
+				me.events.show_held_invoices && me.events.show_held_invoices();
+			} finally {
+				setTimeout(() => me.hide_loading_state('.held-btn', original_text), 500);
+			}
+		});
+
+		// Bind order list button events
+		this.$component.on('click', '.order-list-btn', function() {
+			const original_text = me.show_loading_state('.order-list-btn', 'Loading...');
+			try {
+				me.events.show_order_list && me.events.show_order_list();
+			} finally {
+				setTimeout(() => me.hide_loading_state('.order-list-btn', original_text), 500);
+			}
+		});
+
+		// Bind search button events
+		this.$component.on('click', '.search-btn', function() {
+			me.events.show_item_search && me.events.show_item_search();
+		});
+
+		// Add visual feedback for button clicks
+		this.$component.on('mousedown', '.numpad-btn, .checkout-btn, .held-btn, .order-list-btn, .search-btn', function() {
+			$(this).addClass('btn-pressed');
+		});
+
+		this.$component.on('mouseup mouseleave', '.numpad-btn, .checkout-btn, .held-btn, .order-list-btn, .search-btn', function() {
+			$(this).removeClass('btn-pressed');
+		});
+
+		// Add tooltips for keyboard shortcuts
+		this.add_keyboard_shortcut_tooltips();
+	}
+
+	attach_shortcuts() {
+		let me = this;
+
+		$(document).on('keydown.pos_cart', function(e) {
+			// Prevent shortcuts when typing in input fields
+			if ($(e.target).is('input, textarea, select')) {
+				return;
+			}
+
+			switch(e.keyCode || e.which) {
+				case 112: // F1 - Checkout
+					e.preventDefault();
+					me.events.checkout && me.events.checkout();
+					me.show_shortcut_feedback('F1', 'Checkout');
+					break;
+				case 113: // F2 - Hold Invoice
+					e.preventDefault();
+					me.events.show_held_invoices && me.events.show_held_invoices();
+					me.show_shortcut_feedback('F2', 'Hold Invoice');
+					break;
+				case 114: // F3 - Order List
+					e.preventDefault();
+					me.events.show_order_list && me.events.show_order_list();
+					me.show_shortcut_feedback('F3', 'Order List');
+					break;
+				case 115: // F4 - Search Items
+					e.preventDefault();
+					me.events.show_item_search && me.events.show_item_search();
+					me.show_shortcut_feedback('F4', 'Search Items');
+					break;
+				case 27: // Escape - Clear focus
+					e.preventDefault();
+					me.clear_focus();
+					break;
+				case 13: // Enter - Quick checkout if cart has items
+					if (me.get_all_items().length > 0) {
+						e.preventDefault();
+						me.events.checkout && me.events.checkout();
+					}
+					break;
+			}
+		});
+	}
+
+	show_shortcut_feedback(key, action) {
+		// Create a temporary feedback element
+		let feedback = $(`<div class="shortcut-feedback">${key}: ${action}</div>`);
+		$('body').append(feedback);
+
+		// Position it at the center of the screen
+		feedback.css({
+			position: 'fixed',
+			top: '50%',
+			left: '50%',
+			transform: 'translate(-50%, -50%)',
+			background: 'rgba(0, 123, 255, 0.9)',
+			color: 'white',
+			padding: '10px 20px',
+			borderRadius: '5px',
+			zIndex: 9999,
+			fontWeight: 'bold',
+			boxShadow: '0 4px 8px rgba(0,0,0,0.3)',
+			animation: 'shortcut-feedback 0.5s ease-out'
+		});
+
+		// Remove after animation
+		setTimeout(function() {
+			feedback.fadeOut(300, function() {
+				feedback.remove();
+			});
+		}, 1000);
+	}
+
+	clear_focus() {
+		// Clear focus from any input elements
+		$('input:focus, textarea:focus, select:focus').blur();
+	}
+
+	add_keyboard_shortcut_tooltips() {
+		// Add tooltips to buttons showing keyboard shortcuts
+		const tooltips = {
+			'.checkout-btn': 'F1 - Checkout',
+			'.held-btn': 'F2 - Hold Invoice',
+			'.order-list-btn': 'F3 - Order List',
+			'.search-btn': 'F4 - Search Items'
+		};
+
+		Object.keys(tooltips).forEach(selector => {
+			const $element = this.$component.find(selector);
+			if ($element.length) {
+				$element.addClass('tooltip');
+				$element.append(`<span class="tooltiptext">${tooltips[selector]}</span>`);
+			}
+		});
+	}
+
+	show_loading_state(button_selector, message = 'Processing...') {
+		const $button = this.$component.find(button_selector);
+		const original_text = $button.text();
+		$button.prop('disabled', true);
+		$button.html(`<span class="loading-spinner"></span>${message}`);
+		return original_text;
+	}
+
+	hide_loading_state(button_selector, original_text) {
+		const $button = this.$component.find(button_selector);
+		$button.prop('disabled', false);
+		$button.text(original_text);
+	}
+
+	show_success_feedback(message, duration = 2000) {
+		this.show_feedback(message, 'success', duration);
+	}
+
+	show_error_feedback(message, duration = 3000) {
+		this.show_feedback(message, 'error', duration);
+	}
+
+	show_feedback(message, type = 'info', duration = 2000) {
+		// Create feedback element
+		const feedback = $(`<div class="feedback-message ${type}">${message}</div>`);
+		$('body').append(feedback);
+
+		// Style based on type
+		const styles = {
+			success: { background: '#28a745', color: 'white' },
+			error: { background: '#dc3545', color: 'white' },
+			info: { background: '#007bff', color: 'white' },
+			warning: { background: '#ffc107', color: 'black' }
+		};
+
+		const style = styles[type] || styles.info;
+		feedback.css({
+			position: 'fixed',
+			top: '20px',
+			right: '20px',
+			padding: '12px 20px',
+			borderRadius: '6px',
+			boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+			zIndex: 9999,
+			fontWeight: 'bold',
+			maxWidth: '300px',
+			wordWrap: 'break-word',
+			...style,
+			animation: type === 'error' ? 'error-shake 0.5s ease' : 'success-bounce 0.5s ease'
+		});
+
+		// Auto-remove after duration
+		setTimeout(() => {
+			feedback.fadeOut(300, () => feedback.remove());
+		}, duration);
+	}
+
+	// Enhanced cart operations with feedback
+	add_item_with_feedback(item) {
+		try {
+			this.add_item(item);
+			this.show_success_feedback(__('Item added to cart'));
+			this.update_cart_html();
+		} catch (error) {
+			this.show_error_feedback(__('Failed to add item: ') + error.message);
+		}
+	}
+
+	remove_item_with_feedback(idx) {
+		try {
+			const item = this.items[idx];
+			this.remove_item(idx);
+			this.show_success_feedback(__('Item removed from cart'));
+		} catch (error) {
+			this.show_error_feedback(__('Failed to remove item'));
+		}
+	}
+
+	// Enhanced checkout with loading state
+	async checkout_with_feedback() {
+		if (this.get_all_items().length === 0) {
+			this.show_error_feedback(__('Cart is empty'));
+			return;
+		}
+
+		const original_text = this.show_loading_state('.checkout-btn', 'Processing...');
+
+		try {
+			// Simulate async operation (replace with actual checkout logic)
+			await new Promise(resolve => setTimeout(resolve, 1000));
+
+			this.events.checkout && this.events.checkout();
+			this.show_success_feedback(__('Checkout initiated successfully'));
+		} catch (error) {
+			this.show_error_feedback(__('Checkout failed: ') + error.message);
+		} finally {
+			this.hide_loading_state('.checkout-btn', original_text);
+		}
 	}
 
 	init_customer_selector() {
@@ -51,23 +313,50 @@ posnext.PointOfSale.ItemCart = class {
 	}
 
 	init_cart_components() {
-		this.$component.append(
-			`<div class="cart-container">
+		var html = `<div class="cart-container">
 				<div class="abs-cart-container">
 					<div class="cart-label">${__('Item Cart')}</div>
 					<div class="cart-header">
-						<div class="name-header">${__('Item')}</div>
-						<div class="qty-header">${__('Quantity')}</div>
-						<div class="rate-amount-header">${__('Amount')}</div>
+						<div class="name-header" style="flex:3">${__('Item')}</div>
+						<div class="qty-header" style="flex: 1">${__('Qty')}</div>
+						`
+			if(this.custom_show_uom_in_cart){
+				html += `<div class="uom-header" style="flex: 1">${__('UOM')}</div>`
+			}
+			if(this.show_batch_in_cart){
+				html += `<div class="batch-header" style="flex: 1">${__('Batch')}</div>`
+			}
+			if(this.custom_edit_rate){
+				html += `<div class="rate-header" style="flex: 1">${__('Rate')}</div>`
+			}
+			if(this.custom_use_discount_percentage){
+				html += `<div class="discount-perc-header" style="flex: 1">${__('Disc%')}</div>`
+			}
+			if(this.custom_use_discount_amount){
+				html += `<div class="discount-amount-header" style="flex: 1">${__('Disc')}</div>`
+			}
+			if(this.custom_show_incoming_rate){
+				html += `<div class="incoming-rate-header" style="flex: 1">${__('Inc.Rate')}</div>`
+			}
+			if(this.custom_show_logical_rack_in_cart){
+				html += `<div class="incoming-rate-header" style="flex: 1">${__('Rack')}</div>`
+			}
+			if(this.custom_show_last_customer_rate){
+				html += `<div class="last-customer-rate-header" style="flex: 1">${__('LC Rate')}</div>`
+			}
+			
+
+		html += `<div class="rate-amount-header" style="flex: 1;text-align: left">${__('Amount')}</div>
 					</div>
-					<div class="cart-items-section"></div>
+					<div class="cart-items-section" ></div>
+					<div class="cart-branch-section"></div>
 					<div class="cart-totals-section"></div>
 					<div class="numpad-section"></div>
 				</div>
 			</div>`
-		);
+		this.$component.append(html);
 		this.$cart_container = this.$component.find('.cart-container');
-
+		this.make_branch_section();
 		this.make_cart_totals_section();
 		this.make_cart_items_section();
 		this.make_cart_numpad();
@@ -87,6 +376,125 @@ posnext.PointOfSale.ItemCart = class {
 		);
 	}
 
+	update_cart_html() {
+		let me = this;
+		let items = this.get_all_items();
+
+		if(items.length === 0) {
+			this.make_no_items_placeholder();
+			return;
+		}
+
+		this.$cart_header.css('display', 'flex');
+		let html = '';
+
+		items.forEach(function(item, idx) {
+			html += me.get_item_html(item, idx);
+		});
+
+		this.$cart_items_wrapper.html(html);
+		this.bind_item_events();
+	}
+
+	get_item_html(item, idx) {
+		let me = this;
+		let item_html = `<div class="cart-item-wrapper" data-item-code="${item.item_code}" data-idx="${idx}">
+			<div class="item-name" style="flex:3">${item.item_name}</div>
+			<div class="item-qty" style="flex:1">
+				<input type="number" class="form-control qty-input" value="${item.qty}" min="0" step="any">
+			</div>`;
+
+		if(this.custom_show_uom_in_cart){
+			item_html += `<div class="item-uom" style="flex:1">${item.uom || ''}</div>`;
+		}
+		if(this.show_batch_in_cart){
+			item_html += `<div class="item-batch" style="flex:1">${item.batch_no || ''}</div>`;
+		}
+		if(this.custom_edit_rate){
+			item_html += `<div class="item-rate" style="flex:1">
+				<input type="number" class="form-control rate-input" value="${item.rate}" min="0" step="any">
+			</div>`;
+		}
+		if(this.custom_use_discount_percentage){
+			item_html += `<div class="item-discount-perc" style="flex:1">
+				<input type="number" class="form-control discount-perc-input" value="${item.discount_percentage || 0}" min="0" max="100" step="any">
+			</div>`;
+		}
+		if(this.custom_use_discount_amount){
+			item_html += `<div class="item-discount-amount" style="flex:1">
+				<input type="number" class="form-control discount-amount-input" value="${item.discount_amount || 0}" min="0" step="any">
+			</div>`;
+		}
+		if(this.custom_show_incoming_rate){
+			item_html += `<div class="item-incoming-rate" style="flex:1">${item.incoming_rate || ''}</div>`;
+		}
+		if(this.custom_show_logical_rack_in_cart){
+			item_html += `<div class="item-rack" style="flex:1">${item.logical_rack || ''}</div>`;
+		}
+		if(this.custom_show_last_customer_rate){
+			item_html += `<div class="item-last-customer-rate" style="flex:1">${item.last_customer_rate || ''}</div>`;
+		}
+
+		item_html += `<div class="item-amount" style="flex:1;text-align: left">${format_currency(item.amount, this.currency)}</div>
+			<div class="item-remove">
+				<svg class="icon icon-sm">
+					<use href="#icon-close"></use>
+				</svg>
+			</div>
+		</div>`;
+
+		return item_html;
+	}
+
+	bind_item_events() {
+		let me = this;
+
+		// Quantity input events
+		this.$cart_items_wrapper.find('.qty-input').on('change', function() {
+			let $item = $(this).closest('.cart-item-wrapper');
+			let idx = $item.data('idx');
+			let new_qty = parseFloat($(this).val()) || 0;
+			me.update_item_qty(idx, new_qty);
+		});
+
+		// Rate input events (if editable)
+		if(this.custom_edit_rate) {
+			this.$cart_items_wrapper.find('.rate-input').on('change', function() {
+				let $item = $(this).closest('.cart-item-wrapper');
+				let idx = $item.data('idx');
+				let new_rate = parseFloat($(this).val()) || 0;
+				me.update_item_rate(idx, new_rate);
+			});
+		}
+
+		// Discount percentage events
+		if(this.custom_use_discount_percentage) {
+			this.$cart_items_wrapper.find('.discount-perc-input').on('change', function() {
+				let $item = $(this).closest('.cart-item-wrapper');
+				let idx = $item.data('idx');
+				let new_disc_perc = parseFloat($(this).val()) || 0;
+				me.update_item_discount_percentage(idx, new_disc_perc);
+			});
+		}
+
+		// Discount amount events
+		if(this.custom_use_discount_amount) {
+			this.$cart_items_wrapper.find('.discount-amount-input').on('change', function() {
+				let $item = $(this).closest('.cart-item-wrapper');
+				let idx = $item.data('idx');
+				let new_disc_amt = parseFloat($(this).val()) || 0;
+				me.update_item_discount_amount(idx, new_disc_amt);
+			});
+		}
+
+		// Remove item events
+		this.$cart_items_wrapper.find('.item-remove').on('click', function() {
+			let $item = $(this).closest('.cart-item-wrapper');
+			let idx = $item.data('idx');
+			me.remove_item(idx);
+		});
+	}
+
 	get_discount_icon() {
 		return (
 			`<svg class="discount-icon" width="24" height="24" viewBox="0 0 24 24" stroke="currentColor" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -96,6 +504,25 @@ posnext.PointOfSale.ItemCart = class {
 				<path d="M15.5 14.5C15.5 15.0523 15.0523 15.5 14.5 15.5C13.9477 15.5 13.5 15.0523 13.5 14.5C13.5 13.9477 13.9477 13.5 14.5 13.5C15.0523 13.5 15.5 13.9477 15.5 14.5Z" fill="white" stroke-linecap="round" stroke-linejoin="round"/>
 			</svg>`
 		);
+	}
+
+	make_branch_section() {
+		let me = this;
+		let html = `<div class="branch-section">
+			<div class="branch-label">${__('Branch')}</div>
+			<div class="branch-field">
+				<select class="form-control branch-select">
+					<option value="">Select Branch</option>
+				</select>
+			</div>
+		</div>`;
+		this.$component.find('.cart-branch-section').html(html);
+		this.$branch_select = this.$component.find('.branch-select');
+		this.$branch_select.on('change', function() {
+			me.branch = $(this).val();
+			me.events.on_branch_change && me.events.on_branch_change(me.branch);
+		});
+		this.load_branches();
 	}
 
 make_cart_totals_section() {
@@ -156,6 +583,27 @@ make_cart_totals_section() {
     this.highlight_checkout_btn(true);
 }
 
+	load_branches() {
+		let me = this;
+		frappe.call({
+			method: "frappe.client.get_list",
+			args: {
+				doctype: "Branch",
+				fields: ["name", "branch"],
+				limit_page_length: 0
+			},
+			callback: function(r) {
+				if(r.message) {
+					me.$branch_select.empty();
+					me.$branch_select.append('<option value="">Select Branch</option>');
+					r.message.forEach(function(branch) {
+						me.$branch_select.append(`<option value="${branch.name}">${branch.branch}</option>`);
+					});
+				}
+			}
+		});
+	}
+
 	make_cart_numpad() {
 		this.$numpad_section = this.$component.find('.numpad-section');
 
@@ -193,17 +641,76 @@ make_cart_totals_section() {
 		)
 	}
 
-	// Optimized mobile number dialog creation
+	update_item_qty(idx, new_qty) {
+		let item = this.items[idx];
+		if(item) {
+			item.qty = new_qty;
+			this.update_item_amount(idx);
+			this.update_totals();
+			this.update_cart_html();
+		}
+	}
+
+	update_item_rate(idx, new_rate) {
+		let item = this.items[idx];
+		if(item) {
+			item.rate = new_rate;
+			this.update_item_amount(idx);
+			this.update_totals();
+			this.update_cart_html();
+		}
+	}
+
+	update_item_discount_percentage(idx, new_disc_perc) {
+		let item = this.items[idx];
+		if(item) {
+			item.discount_percentage = new_disc_perc;
+			this.update_item_amount(idx);
+			this.update_totals();
+			this.update_cart_html();
+		}
+	}
+
+	update_item_discount_amount(idx, new_disc_amt) {
+		let item = this.items[idx];
+		if(item) {
+			item.discount_amount = new_disc_amt;
+			this.update_item_amount(idx);
+			this.update_totals();
+			this.update_cart_html();
+		}
+	}
+
+	remove_item(idx) {
+		if(this.items[idx]) {
+			this.items.splice(idx, 1);
+			this.update_totals();
+			this.update_cart_html();
+		}
+	}
+
+	update_item_amount(idx) {
+		let item = this.items[idx];
+		if(item) {
+			let discount_amount = item.discount_amount || 0;
+			let discount_percentage = item.discount_percentage || 0;
+			let discounted_rate = item.rate * (1 - discount_percentage / 100);
+			item.amount = (discounted_rate - discount_amount) * item.qty;
+		}
+	}
+
+	// Enhanced mobile number dialog creation with validation and better UX
 	create_mobile_dialog(callback) {
 		const me = this;
 		let dialog = new frappe.ui.Dialog({
-			title: 'Enter Mobile Number',
+			title: __('Enter Mobile Number'),
 			fields: [
 				{
-					label: 'Mobile Number',
+					label: __('Mobile Number'),
 					fieldname: 'mobile_number',
 					fieldtype: 'Data',
-					reqd: 1
+					reqd: 1,
+					description: __('Enter 10-digit mobile number')
 				},
 				{
 					label: '',
@@ -215,23 +722,69 @@ make_cart_totals_section() {
 							.custom-numpad {
 								display: grid;
 								grid-template-columns: repeat(3, 1fr);
-								gap: 10px;
-								max-width: 350px;
-								margin: 0 auto;
+								gap: 8px;
+								max-width: 320px;
+								margin: 15px auto;
 							}
 							.numpad-button {
-								padding: 15px;
-								font-size: 18px;
+								padding: 12px;
+								font-size: 16px;
+								font-weight: bold;
 								cursor: pointer;
-								background-color: #f1f1f1;
-								border: 1px solid #ccc;
-								border-radius: 5px;
+								background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+								color: white;
+								border: none;
+								border-radius: 8px;
 								text-align: center;
+								transition: all 0.2s ease;
+								box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 							}
 							.numpad-button:hover {
-								background-color: #ddd;
+								transform: translateY(-1px);
+								box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+								background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
 							}
+							.numpad-button:active {
+								transform: translateY(0);
+								box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+							}
+							.numpad-button.delete {
+								background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
+							}
+							.numpad-button.delete:hover {
+								background: linear-gradient(135deg, #ff5252 0%, #e74c3c 100%);
+							}
+							.numpad-button.clear {
+								background: linear-gradient(135deg, #ffa726 0%, #fb8c00 100%);
+							}
+							.numpad-button.clear:hover {
+								background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+							}
+							.mobile-input-display {
+								font-size: 18px;
+								font-weight: bold;
+								text-align: center;
+								padding: 10px;
+								margin-bottom: 15px;
+								border: 2px solid #e0e0e0;
+								border-radius: 8px;
+								background: #f8f9fa;
+								min-height: 40px;
+								display: flex;
+								align-items: center;
+								justify-content: center;
+							}
+							.validation-message {
+								text-align: center;
+								margin-top: 10px;
+								font-size: 14px;
+								min-height: 20px;
+							}
+							.valid { color: #28a745; }
+							.invalid { color: #dc3545; }
 							</style>
+							<div class="mobile-input-display" id="mobile-display">Enter mobile number</div>
+							<div class="validation-message" id="validation-msg"></div>
 							<button class="numpad-button one">1</button>
 							<button class="numpad-button two">2</button>
 							<button class="numpad-button three">3</button>
@@ -241,7 +794,7 @@ make_cart_totals_section() {
 							<button class="numpad-button seven">7</button>
 							<button class="numpad-button eight">8</button>
 							<button class="numpad-button nine">9</button>
-							<button class="numpad-button delete" style="color: red">x</button>
+							<button class="numpad-button delete">⌫</button>
 							<button class="numpad-button zero">0</button>
 							<button class="numpad-button clear">C</button>
 						</div>
@@ -249,28 +802,83 @@ make_cart_totals_section() {
 				},
 			],
 			size: 'small',
-			primary_action_label: 'Continue',
-			primary_action: callback
+			primary_action_label: __('Continue'),
+			primary_action: function() {
+				const mobile = dialog.get_value('mobile_number') || '';
+				if (me.validate_mobile_number(mobile)) {
+					callback();
+				}
+			}
 		});
 
-		// Bind numpad events efficiently
+		// Enhanced numpad events with visual feedback
 		const numpad = dialog.wrapper.find(".custom-numpad");
+		const display = dialog.wrapper.find("#mobile-display");
+		const validationMsg = dialog.wrapper.find("#validation-msg");
+
+		const update_display = function(value) {
+			display.text(value || 'Enter mobile number');
+			display.toggleClass('has-value', !!value);
+
+			// Real-time validation
+			if (value) {
+				const isValid = me.validate_mobile_number(value);
+				display.toggleClass('valid', isValid);
+				display.toggleClass('invalid', !isValid);
+				validationMsg.toggleClass('valid', isValid);
+				validationMsg.toggleClass('invalid', !isValid);
+				validationMsg.text(isValid ? '✓ Valid mobile number' : value.length < 10 ? 'Enter 10 digits' : 'Invalid mobile number');
+			} else {
+				display.removeClass('valid invalid');
+				validationMsg.removeClass('valid invalid');
+				validationMsg.text('');
+			}
+		};
+
 		const numbers = ["one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "zero"];
-		
+
 		numbers.forEach(num => {
 			numpad.on('click', '.' + num, function() {
 				const current_value = dialog.get_value("mobile_number") || "";
-				dialog.set_value('mobile_number', current_value + $(this).text());
+				if (current_value.length < 10) {
+					const new_value = current_value + $(this).text();
+					dialog.set_value('mobile_number', new_value);
+					update_display(new_value);
+				}
+				$(this).addClass('pressed');
+				setTimeout(() => $(this).removeClass('pressed'), 100);
 			});
 		});
 
-		numpad.on('click', '.clear', () => dialog.set_value('mobile_number', ""));
+		numpad.on('click', '.clear', function() {
+			dialog.set_value('mobile_number', "");
+			update_display("");
+			$(this).addClass('pressed');
+			setTimeout(() => $(this).removeClass('pressed'), 100);
+		});
+
 		numpad.on('click', '.delete', function() {
 			const current_value = dialog.get_value("mobile_number") || "";
-			dialog.set_value('mobile_number', current_value.slice(0, -1));
+			const new_value = current_value.slice(0, -1);
+			dialog.set_value('mobile_number', new_value);
+			update_display(new_value);
+			$(this).addClass('pressed');
+			setTimeout(() => $(this).removeClass('pressed'), 100);
+		});
+
+		// Handle manual input changes
+		dialog.wrapper.find('input[fieldname="mobile_number"]').on('input', function() {
+			const value = $(this).val();
+			update_display(value);
 		});
 
 		return dialog;
+	}
+
+	validate_mobile_number(mobile) {
+		// Basic validation for 10-digit Indian mobile numbers
+		const mobileRegex = /^[6-9]\d{9}$/;
+		return mobileRegex.test(mobile);
 	}
 
 	// Optimized secret key dialog creation
@@ -1573,3 +2181,190 @@ reset_cart_state(from_held = false) {
 	}
 
 };
+
+// Add global CSS styles for POS UI enhancements
+$(document).ready(function() {
+	// Add CSS for shortcut feedback animation
+	if (!$('#pos-ui-enhancements').length) {
+		$('head').append(`
+			<style id="pos-ui-enhancements">
+				/* Shortcut feedback animation */
+				@keyframes shortcut-feedback {
+					0% { opacity: 0; transform: translate(-50%, -50%) scale(0.8); }
+					20% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+					80% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+					100% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+				}
+
+				.shortcut-feedback {
+					animation: shortcut-feedback 0.8s ease-out forwards;
+					pointer-events: none;
+				}
+
+				/* Button press effects */
+				.btn-pressed {
+					transform: scale(0.95) !important;
+					transition: transform 0.1s ease !important;
+				}
+
+				/* Enhanced numpad button effects */
+				.numpad-btn {
+					transition: all 0.2s ease;
+					position: relative;
+					overflow: hidden;
+				}
+
+				.numpad-btn:before {
+					content: '';
+					position: absolute;
+					top: 50%;
+					left: 50%;
+					width: 0;
+					height: 0;
+					border-radius: 50%;
+					background: rgba(255, 255, 255, 0.3);
+					transition: width 0.6s, height 0.6s;
+					transform: translate(-50%, -50%);
+				}
+
+				.numpad-btn:active:before {
+					width: 300px;
+					height: 300px;
+				}
+
+				/* Cart item hover effects */
+				.cart-item-wrapper {
+					transition: all 0.2s ease;
+					border-radius: 4px;
+				}
+
+				.cart-item-wrapper:hover {
+					background-color: rgba(0, 123, 255, 0.05);
+					transform: translateX(2px);
+				}
+
+				/* Input focus effects */
+				.cart-item-wrapper input:focus {
+					box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
+					border-color: #007bff;
+				}
+
+				/* Loading animation for async operations */
+				@keyframes spin {
+					0% { transform: rotate(0deg); }
+					100% { transform: rotate(360deg); }
+				}
+
+				.loading-spinner {
+					display: inline-block;
+					width: 20px;
+					height: 20px;
+					border: 3px solid rgba(255, 255, 255, 0.3);
+					border-radius: 50%;
+					border-top-color: #fff;
+					animation: spin 1s ease-in-out infinite;
+					margin-right: 8px;
+				}
+
+				/* Success/Error animations */
+				@keyframes success-bounce {
+					0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
+					40% { transform: translateY(-10px); }
+					60% { transform: translateY(-5px); }
+				}
+
+				.success-animation {
+					animation: success-bounce 1s ease;
+				}
+
+				@keyframes error-shake {
+					0%, 100% { transform: translateX(0); }
+					10%, 30%, 50%, 70%, 90% { transform: translateX(-5px); }
+					20%, 40%, 60%, 80% { transform: translateX(5px); }
+				}
+
+				.error-animation {
+					animation: error-shake 0.5s ease;
+				}
+
+				/* Enhanced mobile input display */
+				.mobile-input-display.has-value {
+					background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
+					border-color: #2196f3;
+				}
+
+				.mobile-input-display.valid {
+					background: linear-gradient(135deg, #e8f5e8 0%, #f1f8e9 100%);
+					border-color: #4caf50;
+					color: #2e7d32;
+				}
+
+				.mobile-input-display.invalid {
+					background: linear-gradient(135deg, #ffebee 0%, #fce4ec 100%);
+					border-color: #f44336;
+					color: #c62828;
+				}
+
+				/* Numpad button press effect */
+				.numpad-button.pressed {
+					transform: scale(0.95);
+					transition: transform 0.1s ease;
+				}
+
+				/* Smooth transitions for cart updates */
+				.cart-items-section {
+					transition: all 0.3s ease;
+				}
+
+				/* Enhanced checkout button */
+				.checkout-btn {
+					position: relative;
+					overflow: hidden;
+				}
+
+				.checkout-btn:before {
+					content: '';
+					position: absolute;
+					top: 0;
+					left: -100%;
+					width: 100%;
+					height: 100%;
+					background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+					transition: left 0.5s;
+				}
+
+				.checkout-btn:hover:before {
+					left: 100%;
+				}
+
+				/* Tooltip styles for better UX */
+				.tooltip {
+					position: relative;
+					display: inline-block;
+				}
+
+				.tooltip .tooltiptext {
+					visibility: hidden;
+					width: 120px;
+					background-color: #555;
+					color: #fff;
+					text-align: center;
+					border-radius: 6px;
+					padding: 5px 0;
+					position: absolute;
+					z-index: 1;
+					bottom: 125%;
+					left: 50%;
+					margin-left: -60px;
+					opacity: 0;
+					transition: opacity 0.3s;
+				}
+
+				.tooltip:hover .tooltiptext {
+					visibility: visible;
+					opacity: 1;
+				}
+			</style>
+		`);
+	}
+});

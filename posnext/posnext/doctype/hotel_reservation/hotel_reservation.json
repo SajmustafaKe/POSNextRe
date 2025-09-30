@@ -1,0 +1,395 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-09-29 12:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "guest",
+  "guest_name",
+  "phone",
+  "email",
+  "column_break_5",
+  "arrival_date",
+  "departure_date",
+  "nights",
+  "status",
+  "section_break_10",
+  "reservation_rooms",
+  "section_break_13",
+  "adults",
+  "children",
+  "infants",
+  "column_break_17",
+  "special_requests",
+  "dietary_restrictions",
+  "accessibility_needs",
+  "section_break_21",
+  "booking_source",
+  "booking_reference",
+  "travel_agent",
+  "column_break_25",
+  "guaranteed",
+  "guarantee_type",
+  "credit_card_info",
+  "section_break_29",
+  "estimated_arrival_time",
+  "actual_arrival_time",
+  "assigned_rooms",
+  "column_break_33",
+  "estimated_departure_time",
+  "actual_departure_time",
+  "checkout_remarks",
+  "section_break_37",
+  "total_rooms",
+  "total_guests",
+  "room_rate",
+  "column_break_41",
+  "subtotal",
+  "taxes",
+  "total_amount",
+  "section_break_45",
+  "paid_amount",
+  "outstanding_amount",
+  "payment_status",
+  "column_break_49",
+  "deposit_amount",
+  "deposit_date",
+  "deposit_refundable"
+ ],
+ "fields": [
+  {
+   "fieldname": "guest",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Guest",
+   "options": "Hotel Guest",
+   "reqd": 1
+  },
+  {
+   "fieldname": "guest_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Guest Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "phone",
+   "fieldtype": "Data",
+   "label": "Phone",
+   "options": "Phone"
+  },
+  {
+   "fieldname": "email",
+   "fieldtype": "Data",
+   "label": "Email",
+   "options": "Email"
+  },
+  {
+   "fieldname": "column_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "arrival_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Arrival Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "departure_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Departure Date",
+   "reqd": 1
+  },
+  {
+   "fieldname": "nights",
+   "fieldtype": "Int",
+   "label": "Nights",
+   "read_only": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Draft\nConfirmed\nChecked In\nChecked Out\nCancelled\nNo Show",
+   "default": "Draft",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_10",
+   "fieldtype": "Section Break",
+   "label": "Room Details"
+  },
+  {
+   "fieldname": "reservation_rooms",
+   "fieldtype": "Table",
+   "label": "Reservation Rooms",
+   "options": "Reservation Room",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_13",
+   "fieldtype": "Section Break",
+   "label": "Guest Details"
+  },
+  {
+   "fieldname": "adults",
+   "fieldtype": "Int",
+   "label": "Adults",
+   "default": "1"
+  },
+  {
+   "fieldname": "children",
+   "fieldtype": "Int",
+   "label": "Children",
+   "default": "0"
+  },
+  {
+   "fieldname": "infants",
+   "fieldtype": "Int",
+   "label": "Infants",
+   "default": "0"
+  },
+  {
+   "fieldname": "column_break_17",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "special_requests",
+   "fieldtype": "Small Text",
+   "label": "Special Requests"
+  },
+  {
+   "fieldname": "dietary_restrictions",
+   "fieldtype": "Small Text",
+   "label": "Dietary Restrictions"
+  },
+  {
+   "fieldname": "accessibility_needs",
+   "fieldtype": "Small Text",
+   "label": "Accessibility Needs"
+  },
+  {
+   "fieldname": "section_break_21",
+   "fieldtype": "Section Break",
+   "label": "Booking Information"
+  },
+  {
+   "fieldname": "booking_source",
+   "fieldtype": "Select",
+   "label": "Booking Source",
+   "options": "Direct\nOnline Travel Agency\nTravel Agent\nCorporate\nWalk-in\nPhone"
+  },
+  {
+   "fieldname": "booking_reference",
+   "fieldtype": "Data",
+   "label": "Booking Reference"
+  },
+  {
+   "fieldname": "travel_agent",
+   "fieldtype": "Link",
+   "label": "Travel Agent",
+   "options": "Supplier"
+  },
+  {
+   "fieldname": "column_break_25",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "guaranteed",
+   "fieldtype": "Check",
+   "label": "Guaranteed"
+  },
+  {
+   "fieldname": "guarantee_type",
+   "fieldtype": "Select",
+   "label": "Guarantee Type",
+   "options": "Credit Card\nCash Deposit\nCorporate Guarantee\nTravel Agent"
+  },
+  {
+   "fieldname": "credit_card_info",
+   "fieldtype": "Small Text",
+   "label": "Credit Card Info"
+  },
+  {
+   "fieldname": "section_break_29",
+   "fieldtype": "Section Break",
+   "label": "Check-in/Check-out"
+  },
+  {
+   "fieldname": "estimated_arrival_time",
+   "fieldtype": "Time",
+   "label": "Estimated Arrival Time"
+  },
+  {
+   "fieldname": "actual_arrival_time",
+   "fieldtype": "Datetime",
+   "label": "Actual Arrival Time"
+  },
+  {
+   "fieldname": "assigned_rooms",
+   "fieldtype": "Small Text",
+   "label": "Assigned Rooms"
+  },
+  {
+   "fieldname": "column_break_33",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "estimated_departure_time",
+   "fieldtype": "Time",
+   "label": "Estimated Departure Time"
+  },
+  {
+   "fieldname": "actual_departure_time",
+   "fieldtype": "Datetime",
+   "label": "Actual Departure Time"
+  },
+  {
+   "fieldname": "checkout_remarks",
+   "fieldtype": "Small Text",
+   "label": "Checkout Remarks"
+  },
+  {
+   "fieldname": "section_break_37",
+   "fieldtype": "Section Break",
+   "label": "Billing Information"
+  },
+  {
+   "fieldname": "total_rooms",
+   "fieldtype": "Int",
+   "label": "Total Rooms",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_guests",
+   "fieldtype": "Int",
+   "label": "Total Guests",
+   "read_only": 1
+  },
+  {
+   "fieldname": "room_rate",
+   "fieldtype": "Currency",
+   "label": "Room Rate"
+  },
+  {
+   "fieldname": "column_break_41",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "subtotal",
+   "fieldtype": "Currency",
+   "label": "Subtotal",
+   "read_only": 1
+  },
+  {
+   "fieldname": "taxes",
+   "fieldtype": "Currency",
+   "label": "Taxes",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_amount",
+   "fieldtype": "Currency",
+   "label": "Total Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_45",
+   "fieldtype": "Section Break",
+   "label": "Payment Information"
+  },
+  {
+   "fieldname": "paid_amount",
+   "fieldtype": "Currency",
+   "label": "Paid Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "outstanding_amount",
+   "fieldtype": "Currency",
+   "label": "Outstanding Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "payment_status",
+   "fieldtype": "Select",
+   "label": "Payment Status",
+   "options": "Unpaid\nPartially Paid\nPaid\nRefunded",
+   "default": "Unpaid",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_49",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "deposit_amount",
+   "fieldtype": "Currency",
+   "label": "Deposit Amount"
+  },
+  {
+   "fieldname": "deposit_date",
+   "fieldtype": "Date",
+   "label": "Deposit Date"
+  },
+  {
+   "fieldname": "deposit_refundable",
+   "fieldtype": "Check",
+   "label": "Deposit Refundable",
+   "default": "1"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-09-29 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Posnext",
+ "name": "Hotel Reservation",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Desk",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "title_field": "guest_name",
+ "track_changes": 1
+}

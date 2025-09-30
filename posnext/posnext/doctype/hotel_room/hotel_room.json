@@ -1,0 +1,235 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-09-29 12:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "room_number",
+  "room_type",
+  "floor",
+  "building_wing",
+  "status",
+  "column_break_6",
+  "max_occupancy",
+  "bed_type",
+  "room_size",
+  "amenities",
+  "section_break_11",
+  "current_guest",
+  "check_in_date",
+  "check_out_date",
+  "reservation_reference",
+  "column_break_16",
+  "housekeeping_status",
+  "last_cleaned",
+  "next_cleaning_due",
+  "maintenance_status",
+  "section_break_21",
+  "room_rate",
+  "currency",
+  "room_features",
+  "smoking_allowed",
+  "pets_allowed"
+ ],
+ "fields": [
+  {
+   "fieldname": "room_number",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Room Number",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "room_type",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Room Type",
+   "options": "Room Type",
+   "reqd": 1
+  },
+  {
+   "fieldname": "floor",
+   "fieldtype": "Data",
+   "label": "Floor"
+  },
+  {
+   "fieldname": "building_wing",
+   "fieldtype": "Data",
+   "label": "Building/Wing"
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Available\nOccupied\nOut of Order\nMaintenance\nReserved",
+   "default": "Available",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_6",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "max_occupancy",
+   "fieldtype": "Int",
+   "label": "Max Occupancy",
+   "default": "2"
+  },
+  {
+   "fieldname": "bed_type",
+   "fieldtype": "Select",
+   "label": "Bed Type",
+   "options": "King\nQueen\nDouble\nTwin\nSuite"
+  },
+  {
+   "fieldname": "room_size",
+   "fieldtype": "Data",
+   "label": "Room Size (sq ft)"
+  },
+  {
+   "fieldname": "amenities",
+   "fieldtype": "Table MultiSelect",
+   "label": "Amenities",
+   "options": "Room Amenity"
+  },
+  {
+   "fieldname": "section_break_11",
+   "fieldtype": "Section Break",
+   "label": "Current Reservation"
+  },
+  {
+   "fieldname": "current_guest",
+   "fieldtype": "Link",
+   "label": "Current Guest",
+   "options": "Hotel Guest"
+  },
+  {
+   "fieldname": "check_in_date",
+   "fieldtype": "Datetime",
+   "label": "Check-in Date"
+  },
+  {
+   "fieldname": "check_out_date",
+   "fieldtype": "Datetime",
+   "label": "Check-out Date"
+  },
+  {
+   "fieldname": "reservation_reference",
+   "fieldtype": "Link",
+   "label": "Reservation Reference",
+   "options": "Hotel Reservation"
+  },
+  {
+   "fieldname": "column_break_16",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "housekeeping_status",
+   "fieldtype": "Select",
+   "label": "Housekeeping Status",
+   "options": "Clean\nDirty\nIn Progress\nInspected",
+   "default": "Clean"
+  },
+  {
+   "fieldname": "last_cleaned",
+   "fieldtype": "Datetime",
+   "label": "Last Cleaned"
+  },
+  {
+   "fieldname": "next_cleaning_due",
+   "fieldtype": "Datetime",
+   "label": "Next Cleaning Due"
+  },
+  {
+   "fieldname": "maintenance_status",
+   "fieldtype": "Select",
+   "label": "Maintenance Status",
+   "options": "Good\nNeeds Repair\nUnder Maintenance",
+   "default": "Good"
+  },
+  {
+   "fieldname": "section_break_21",
+   "fieldtype": "Section Break",
+   "label": "Room Details"
+  },
+  {
+   "fieldname": "room_rate",
+   "fieldtype": "Currency",
+   "label": "Standard Room Rate"
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "default": "USD"
+  },
+  {
+   "fieldname": "room_features",
+   "fieldtype": "Small Text",
+   "label": "Room Features"
+  },
+  {
+   "fieldname": "smoking_allowed",
+   "fieldtype": "Check",
+   "label": "Smoking Allowed"
+  },
+  {
+   "fieldname": "pets_allowed",
+   "fieldtype": "Check",
+   "label": "Pets Allowed"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-09-29 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Posnext",
+ "name": "Hotel Room",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Desk",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "title_field": "room_number",
+ "track_changes": 1
+}

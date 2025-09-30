@@ -1,0 +1,61 @@
+{
+ "actions": [],
+ "creation": "2025-09-29 12:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "condition_type",
+  "condition_value",
+  "adjustment_type",
+  "adjustment_value",
+  "description"
+ ],
+ "fields": [
+  {
+   "fieldname": "condition_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Condition Type",
+   "options": "Stay Duration\nOccupancy\nDay of Week\nSeason\nAdvance Booking",
+   "reqd": 1
+  },
+  {
+   "fieldname": "condition_value",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Condition Value",
+   "reqd": 1
+  },
+  {
+   "fieldname": "adjustment_type",
+   "fieldtype": "Select",
+   "label": "Adjustment Type",
+   "options": "Fixed Amount\nPercentage\nMultiplier",
+   "reqd": 1
+  },
+  {
+   "fieldname": "adjustment_value",
+   "fieldtype": "Float",
+   "label": "Adjustment Value",
+   "reqd": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Data",
+   "label": "Description"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2025-09-29 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Posnext",
+ "name": "Hotel Room Package Pricing Rule",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}

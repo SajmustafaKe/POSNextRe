@@ -293,58 +293,74 @@ def create_opening_voucher(pos_profile, company, balance_details):
 
 
 @frappe.whitelist()
-@frappe.whitelist()
-def get_past_order_list(search_term, status, limit=20):
-	fields = ["name", "grand_total", "currency", "customer", "posting_time", "posting_date"]
+def get_past_order_list(search_term='', status='Draft', created_by='', limit=20):
+	# Convert limit to integer if it's passed as string
+	limit = int(limit) if limit else 20
+	fields = ["name", "grand_total", "currency", "customer", "posting_time", "posting_date", "owner"]
 	invoice_list = []
 
-	if search_term and status:
+	# Build base filters - only get POS invoices
+	base_filters = {"is_pos": 1}
+	if status:
+		base_filters["status"] = status
+	if created_by and created_by != 'All':
+		# Filter by owner field in Sales Invoice (standard Frappe field for creator)
+		base_filters["owner"] = created_by
+
+	if search_term and (status or created_by):
+		# Search by customer name
+		customer_filters = base_filters.copy()
+		customer_filters["customer"] = ["like", "%{}%".format(search_term)]
+
 		invoices_by_customer = frappe.db.get_all(
-			"POS Invoice",
-			filters={"customer": ["like", "%{}%".format(search_term)], "status": status},
+			"Sales Invoice",
+			filters=customer_filters,
 			fields=fields,
 			page_length=limit,
-		)
-		invoices_by_name = frappe.db.get_all(
-			"POS Invoice",
-			filters={"name": ["like", "%{}%".format(search_term)], "status": status},
-			fields=fields,
-			page_length=limit,
+			order_by="modified desc"
 		)
 
-		# Combine and remove duplicates based on invoice name
-		invoice_dict = {}
-		for invoice in invoices_by_customer + invoices_by_name:
-			invoice_dict[invoice.name] = invoice
-		invoice_list = list(invoice_dict.values())
-	elif search_term:
-		invoices_by_customer = frappe.db.get_all(
-			"POS Invoice",
-			filters={"customer": ["like", "%{}%".format(search_term)]},
-			fields=fields,
-			page_length=limit,
-		)
+		# Search by invoice name
+		name_filters = base_filters.copy()
+		name_filters["name"] = ["like", "%{}%".format(search_term)]
+
 		invoices_by_name = frappe.db.get_all(
-			"POS Invoice",
-			filters={"name": ["like", "%{}%".format(search_term)]},
+			"Sales Invoice",
+			filters=name_filters,
 			fields=fields,
 			page_length=limit,
+			order_by="modified desc"
 		)
 
-		# Combine and remove duplicates based on invoice name
-		invoice_dict = {}
-		for invoice in invoices_by_customer + invoices_by_name:
-			invoice_dict[invoice.name] = invoice
-		invoice_list = list(invoice_dict.values())
-	elif status:
+		# Combine results and remove duplicates
+		invoice_list = invoices_by_customer + invoices_by_name
+		# Remove duplicates by converting to dict with name as key, then back to list
+		unique_invoices = {}
+		for invoice in invoice_list:
+			unique_invoices[invoice.name] = invoice
+		invoice_list = list(unique_invoices.values())
+
+	elif status or created_by:
+		# Filter by status and/or created_by only
 		invoice_list = frappe.db.get_all(
-			"POS Invoice", filters={"status": status}, fields=fields, page_length=limit
+			"Sales Invoice",
+			filters=base_filters,
+			fields=fields,
+			page_length=limit,
+			order_by="modified desc"
 		)
 	else:
-		# If no search term and no status, return recent invoices
+		# No filters - get all POS invoices
 		invoice_list = frappe.db.get_all(
-			"POS Invoice", fields=fields, page_length=limit, order_by="creation desc"
+			"Sales Invoice",
+			filters={"is_pos": 1},
+			fields=fields,
+			page_length=limit,
+			order_by="modified desc"
 		)
+
+	# Sort by creation date (most recent first) and limit results
+	invoice_list = sorted(invoice_list, key=lambda x: x.get('creation', ''), reverse=True)[:limit]
 
 	return invoice_list
 
@@ -824,3 +840,379 @@ def process_items_for_cancel_kot(invoice_id, customer, restaurant_table, cancel_
 	kot_doc.save()
 	frappe.db.commit()
 	return kot_doc
+
+@frappe.whitelist()
+def make_sales_return(source_name, target_doc=None):
+	from erpnext.controllers.sales_and_purchase_return import make_return_doc
+
+	return make_return_doc("Sales Invoice", source_name, target_doc)
+
+@frappe.whitelist()
+def save_draft_invoice(doc):
+	try:
+		doc = frappe.parse_json(doc)
+
+		# Validate required fields
+		if not doc.get("pos_profile"):
+			frappe.throw("POS Profile is required for draft invoice")
+		if not doc.get("customer"):
+			frappe.throw("Customer is required for draft invoice")
+		if not doc.get("items"):
+			frappe.throw("Items are required for draft invoice")
+		if not doc.get("created_by_name"):
+			frappe.throw("Created By Name is required for draft invoice")
+
+		# Fetch POS Profile
+		pos_profile_doc = frappe.get_doc("POS Profile", doc.get("pos_profile"))
+
+		# Ensure "Cash" Mode of Payment exists
+		if not frappe.db.exists("Mode of Payment", "Cash"):
+			frappe.get_doc({
+				"doctype": "Mode of Payment",
+				"mode_of_payment": "Cash",
+				"enabled": 1
+			}).insert(ignore_permissions=True)
+
+		# Set payment methods
+		payment_methods = pos_profile_doc.get("payments", [])
+		default_payment = (
+			[{"mode_of_payment": payment_methods[0].mode_of_payment, "amount": 0}]
+			if payment_methods
+			else [{"mode_of_payment": "Cash", "amount": 0}]
+		)
+
+		# Check if invoice with the provided name exists and is in draft status
+		invoice_name = doc.get("name")
+		input_created_by_name = doc.get("created_by_name")
+
+		if invoice_name and frappe.db.exists("Sales Invoice", {"name": invoice_name, "docstatus": 0}):
+			# Load existing draft invoice
+			invoice = frappe.get_doc("Sales Invoice", invoice_name)
+
+			# Check if the input created_by_name matches the existing invoice's owner
+			if invoice.owner != input_created_by_name:
+				frappe.throw(
+					f"You are not authorized to edit this invoice. Only the creator ({invoice.owner}) can edit it.",
+					frappe.PermissionError
+				)
+
+			# Update existing draft invoice
+			invoice_data = {
+				"customer": doc.get("customer"),
+				"items": [
+					{
+						"item_code": item.get("item_code"),
+						"qty": item.get("qty", 1),
+						"rate": item.get("rate", 0),
+						"uom": item.get("uom"),
+						"warehouse": item.get("warehouse") or pos_profile_doc.warehouse,
+						"serial_no": item.get("serial_no"),
+						"batch_no": item.get("batch_no")
+					} for item in doc.get("items", [])
+				],
+				"pos_profile": doc.get("pos_profile"),
+				"company": doc.get("company") or pos_profile_doc.company,
+				"payments": default_payment,
+				"set_warehouse": pos_profile_doc.warehouse,
+				"posting_date": frappe.utils.nowdate(),
+				"posting_time": frappe.utils.nowtime(),
+				"currency": pos_profile_doc.currency or frappe.defaults.get_global_default("currency"),
+				"docstatus": 0
+			}
+			# Note: owner field is automatically set by Frappe and cannot be updated
+
+			invoice.update(invoice_data)
+			invoice.save()
+		else:
+			# Create new Sales Invoice
+			invoice = frappe.get_doc({
+				"doctype": "Sales Invoice",
+				"customer": doc.get("customer"),
+				"items": [
+					{
+						"item_code": item.get("item_code"),
+						"qty": item.get("qty", 1),
+						"rate": item.get("rate", 0),
+						"uom": item.get("uom"),
+						"warehouse": item.get("warehouse") or pos_profile_doc.warehouse,
+						"serial_no": item.get("serial_no"),
+						"batch_no": item.get("batch_no")
+					} for item in doc.get("items", [])
+				],
+				"is_pos": 1,
+				"pos_profile": doc.get("pos_profile"),
+				"company": doc.get("company") or pos_profile_doc.company,
+				"payments": default_payment,
+				"set_warehouse": pos_profile_doc.warehouse,
+				"posting_date": frappe.utils.nowdate(),
+				"posting_time": frappe.utils.nowtime(),
+				"currency": pos_profile_doc.currency or frappe.defaults.get_global_default("currency"),
+				"docstatus": 0
+			})
+			invoice.insert()
+
+		return {"name": invoice.name}
+	except Exception as e:
+		frappe.log_error(f"Save Draft Failed: {str(e)[:100]}", "POSNext")
+		raise
+
+@frappe.whitelist()
+def check_edit_permission(invoice_name, secret_key):
+	try:
+		if not frappe.db.exists("Sales Invoice", {"name": invoice_name, "docstatus": 0}):
+			frappe.throw("Invoice not found or is not in draft status")
+
+		# Get the user associated with the secret key
+		user = frappe.call("posnext.posnext.page.posnext.point_of_sale.get_user_name_from_secret_key", secret_key=secret_key)
+		if not user:
+			frappe.throw("Invalid secret key", frappe.AuthenticationError)
+
+		invoice = frappe.get_doc("Sales Invoice", invoice_name)
+
+		# Check if the user matches owner
+		if invoice.owner != user:
+			frappe.throw(
+				f"You did not create this invoice, hence you cannot edit it. Only the creator ({invoice.owner}) can edit it.",
+				frappe.PermissionError
+			)
+
+		return {
+			"can_edit": True,
+			"owner": invoice.owner
+		}
+	except Exception as e:
+		frappe.log_error(f"Permission Check Failed: {str(e)[:100]}", "POSNext")
+		raise
+
+@frappe.whitelist()
+def merge_invoices(invoice_names, customer):
+	"""
+	Merge multiple Sales Invoices into a single invoice
+	"""
+	try:
+		# Check if user has Waiter role - if they do, deny access
+		user_roles = frappe.get_roles(frappe.session.user)
+		if 'Waiter' in user_roles:
+			return {"success": False, "error": "You do not have permission to merge invoices"}
+
+		# Parse invoice_names if it's a string
+		if isinstance(invoice_names, str):
+			invoice_names = json.loads(invoice_names)
+
+		# Validate inputs
+		if not invoice_names or len(invoice_names) < 2:
+			return {"success": False, "error": "At least 2 invoices are required for merging"}
+
+		# Get all invoices to merge
+		invoices_to_merge = []
+		for name in invoice_names:
+			invoice = frappe.get_doc("Sales Invoice", name)
+			if invoice.customer != customer:
+				return {"success": False, "error": f"Invoice {name} belongs to a different customer"}
+			if invoice.docstatus != 0:  # Only draft invoices can be merged
+				return {"success": False, "error": f"Invoice {name} is not in draft status"}
+			invoices_to_merge.append(invoice)
+
+		# Create new merged invoice
+		first_invoice = invoices_to_merge[0]
+		merged_invoice = frappe.new_doc("Sales Invoice")
+
+		# Copy header information from first invoice
+		merged_invoice.customer = first_invoice.customer
+		merged_invoice.posting_date = first_invoice.posting_date
+		merged_invoice.posting_time = frappe.utils.nowtime()
+		merged_invoice.company = first_invoice.company
+		merged_invoice.pos_profile = first_invoice.pos_profile
+		merged_invoice.currency = first_invoice.currency
+		merged_invoice.selling_price_list = first_invoice.selling_price_list
+		merged_invoice.price_list_currency = first_invoice.price_list_currency
+		merged_invoice.plc_conversion_rate = first_invoice.plc_conversion_rate
+		merged_invoice.conversion_rate = first_invoice.conversion_rate
+		merged_invoice.is_pos = 1
+		merged_invoice.is_return = 0
+
+		# Copy created_by_name from first invoice
+		if hasattr(first_invoice, 'owner') and first_invoice.owner:
+			merged_invoice.owner = first_invoice.owner
+
+		# Copy customer details
+		merged_invoice.customer_name = first_invoice.customer_name
+		merged_invoice.customer_group = first_invoice.customer_group
+		merged_invoice.territory = first_invoice.territory
+
+		# Copy address and contact details if available
+		if hasattr(first_invoice, 'customer_address'):
+			merged_invoice.customer_address = first_invoice.customer_address
+		if hasattr(first_invoice, 'address_display'):
+			merged_invoice.address_display = first_invoice.address_display
+		if hasattr(first_invoice, 'contact_person'):
+			merged_invoice.contact_person = first_invoice.contact_person
+		if hasattr(first_invoice, 'contact_display'):
+			merged_invoice.contact_display = first_invoice.contact_display
+		if hasattr(first_invoice, 'contact_mobile'):
+			merged_invoice.contact_mobile = first_invoice.contact_mobile
+		if hasattr(first_invoice, 'contact_email'):
+			merged_invoice.contact_email = first_invoice.contact_email
+
+		# Merge all items from all invoices
+		item_dict = {}  # To consolidate same items
+
+		for invoice in invoices_to_merge:
+			for item in invoice.items:
+				key = (item.item_code, item.rate, item.uom)  # Group by item_code, rate, and uom
+
+				if key in item_dict:
+					# Add to existing item
+					item_dict[key]['qty'] += item.qty
+					item_dict[key]['amount'] += item.amount
+				else:
+					# Create new item entry
+					item_dict[key] = {
+						'item_code': item.item_code,
+						'item_name': item.item_name,
+						'description': item.description,
+						'qty': item.qty,
+						'uom': item.uom,
+						'rate': item.rate,
+						'amount': item.amount,
+						'item_group': item.item_group,
+						'warehouse': item.warehouse,
+						'income_account': item.income_account,
+						'expense_account': item.expense_account,
+						'cost_center': item.cost_center
+					}
+
+		# Add consolidated items to merged invoice
+		for item_data in item_dict.values():
+			merged_invoice.append("items", item_data)
+
+		# Handle taxes - use taxes from first invoice
+		for tax in first_invoice.taxes:
+			merged_invoice.append("taxes", {
+				'charge_type': tax.charge_type,
+				'account_head': tax.account_head,
+				'description': tax.description,
+				'rate': tax.rate,
+				'tax_amount': tax.tax_amount,
+				'total': tax.total,
+				'cost_center': tax.cost_center
+			})
+
+		# Handle payments - combine all payments
+		total_paid = 0
+		payment_dict = {}  # To consolidate same payment methods
+
+		for invoice in invoices_to_merge:
+			for payment in invoice.payments:
+				mode_of_payment = payment.mode_of_payment
+				if mode_of_payment in payment_dict:
+					payment_dict[mode_of_payment]['amount'] += payment.amount
+				else:
+					payment_dict[mode_of_payment] = {
+						'mode_of_payment': payment.mode_of_payment,
+						'account': payment.account,
+						'amount': payment.amount,
+						'default': payment.default
+					}
+				total_paid += payment.amount
+
+		# Add consolidated payments to merged invoice
+		for payment_data in payment_dict.values():
+			merged_invoice.append("payments", payment_data)
+
+		# Save the merged invoice
+		merged_invoice.insert()
+
+		# Calculate totals
+		merged_invoice.run_method("calculate_taxes_and_totals")
+		merged_invoice.save()
+
+		# Add comment showing all creators and original invoices
+		creators = list(set([inv.owner for inv in invoices_to_merge if hasattr(inv, 'owner') and inv.owner]))
+		original_invoices = [inv.name for inv in invoices_to_merge]
+
+		comment_parts = []
+		comment_parts.append(f"Merged from invoices: {', '.join(original_invoices)}")
+
+		if creators:
+			if len(creators) > 1:
+				comment_parts.append(f"Originally created by: {', '.join(creators)}")
+			else:
+				comment_parts.append(f"Originally created by: {creators[0]}")
+
+		merged_invoice.add_comment('Comment', ' | '.join(comment_parts))
+
+		# Cancel the original invoices
+		for invoice in invoices_to_merge:
+			# Add a comment about the merge
+			invoice.add_comment('Comment', f'Invoice merged into {merged_invoice.name}')
+			# Delete the draft invoice
+			frappe.delete_doc("Sales Invoice", invoice.name)
+
+		frappe.db.commit()
+
+		return {
+			"success": True,
+			"new_invoice": merged_invoice.name,
+			"message": f"Successfully merged {len(invoice_names)} invoices into {merged_invoice.name}"
+		}
+
+	except Exception as e:
+		frappe.db.rollback()
+		frappe.log_error(f"Error merging invoices: {str(e)}")
+		return {"success": False, "error": str(e)}
+
+@frappe.whitelist()
+def check_edit_permission(invoice_name, secret_key):
+	try:
+		if not frappe.db.exists("Sales Invoice", {"name": invoice_name, "docstatus": 0}):
+			frappe.throw("Invoice not found or is not in draft status")
+
+		# Get the user associated with the secret key
+		user = frappe.call("posnext.posnext.page.posnext.point_of_sale.get_user_name_from_secret_key", secret_key=secret_key)
+		if not user:
+			frappe.throw("Invalid secret key", frappe.AuthenticationError)
+
+		invoice = frappe.get_doc("Sales Invoice", invoice_name)
+
+		# Check if the user matches created_by_name
+		if invoice.created_by_name != user:
+			frappe.throw(
+				f"You did not create this invoice, hence you cannot edit it. Only the creator ({invoice.created_by_name}) can edit it.",
+				frappe.PermissionError
+			)
+
+		return {
+			"can_edit": True,
+			"created_by_name": invoice.created_by_name
+		}
+	except Exception as e:
+		frappe.log_error(f"Permission Check Failed: {str(e)[:100]}", "POSNext")
+		raise
+
+@frappe.whitelist()
+def get_available_opening_entry():
+	"""
+	Get any available POS Opening Entry for waiters to use
+	Returns the most recent opening entry that hasn't been closed
+	"""
+	# Get all open POS Opening Entries (not closed)
+	open_vouchers = frappe.db.get_all(
+		"POS Opening Entry",
+		filters={
+			"pos_closing_entry": ["in", ["", None]],
+			"docstatus": 1
+		},
+		fields=["name", "company", "pos_profile", "period_start_date", "user"],
+		order_by="period_start_date desc",
+		limit=1  # Get the most recent one
+	)
+
+	return open_vouchers
+
+@frappe.whitelist()
+def get_user_name_from_secret_key(secret_key):
+	if frappe.db.exists("User Secret Key", {"secret_key": secret_key}):
+		return frappe.get_value("User Secret Key", {"secret_key": secret_key}, "user_name")
+	else:
+		frappe.throw("Invalid secret key")

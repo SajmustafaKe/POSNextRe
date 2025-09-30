@@ -354,7 +354,12 @@ refresh_list(search_term = '', status = 'Draft', created_by = '') {
 	}
 
 	get_invoice_html(invoice) {
-		const posting_datetime = moment(invoice.posting_date+" "+invoice.posting_time).format("Do MMMM, h:mma");
+		// Ensure posting_date and posting_time are strings
+		const posting_date = typeof invoice.posting_date === 'string' ? invoice.posting_date : 
+			moment(invoice.posting_date).format('YYYY-MM-DD');
+		const posting_time = typeof invoice.posting_time === 'string' ? invoice.posting_time : 
+			moment(invoice.posting_time).format('HH:mm:ss');
+		const posting_datetime = moment(posting_date + " " + posting_time).format("Do MMMM, h:mma");
 		
 		// Show checkbox only if user can merge invoices
 		const checkbox_html = this.can_merge_invoices ? 

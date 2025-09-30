@@ -1,0 +1,279 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-09-29 12:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "room",
+  "issue_type",
+  "priority",
+  "status",
+  "column_break_5",
+  "reported_date",
+  "reported_time",
+  "reported_by",
+  "section_break_9",
+  "issue_description",
+  "location_details",
+  "column_break_12",
+  "issue_category",
+  "estimated_cost",
+  "section_break_15",
+  "assigned_to",
+  "assigned_date",
+  "scheduled_date",
+  "column_break_19",
+  "started_at",
+  "completed_at",
+  "actual_cost",
+  "section_break_23",
+  "resolution_details",
+  "parts_used",
+  "column_break_26",
+  "preventive_action",
+  "follow_up_date",
+  "section_break_29",
+  "housekeeping_reference",
+  "guest_complaint",
+  "column_break_32",
+  "customer_feedback",
+  "satisfaction_rating"
+ ],
+ "fields": [
+  {
+   "fieldname": "room",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Room",
+   "options": "Hotel Room",
+   "reqd": 1
+  },
+  {
+   "fieldname": "issue_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Issue Type",
+   "options": "Electrical\nPlumbing\nHVAC\nFurniture\nAppliance\nStructural\nCleaning\nPest Control\nSecurity\nOther",
+   "reqd": 1
+  },
+  {
+   "fieldname": "priority",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Priority",
+   "options": "Low\nMedium\nHigh\nCritical",
+   "default": "Medium",
+   "reqd": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Open\nAssigned\nIn Progress\nWaiting for Parts\nCompleted\nClosed\nCancelled",
+   "default": "Open",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_5",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "reported_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Reported Date",
+   "default": "Today",
+   "reqd": 1
+  },
+  {
+   "fieldname": "reported_time",
+   "fieldtype": "Time",
+   "label": "Reported Time",
+   "default": "Now"
+  },
+  {
+   "fieldname": "reported_by",
+   "fieldtype": "Link",
+   "label": "Reported By",
+   "options": "User",
+   "default": "frappe.session.user"
+  },
+  {
+   "fieldname": "section_break_9",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "issue_description",
+   "fieldtype": "Text",
+   "label": "Issue Description",
+   "reqd": 1
+  },
+  {
+   "fieldname": "location_details",
+   "fieldtype": "Text",
+   "label": "Location Details"
+  },
+  {
+   "fieldname": "column_break_12",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "issue_category",
+   "fieldtype": "Select",
+   "label": "Issue Category",
+   "options": "Guest Reported\nHousekeeping Found\nPreventive Maintenance\nSystem Check\nEmergency"
+  },
+  {
+   "fieldname": "estimated_cost",
+   "fieldtype": "Currency",
+   "label": "Estimated Cost"
+  },
+  {
+   "fieldname": "section_break_15",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "assigned_to",
+   "fieldtype": "Link",
+   "label": "Assigned To",
+   "options": "User"
+  },
+  {
+   "fieldname": "assigned_date",
+   "fieldtype": "Datetime",
+   "label": "Assigned Date"
+  },
+  {
+   "fieldname": "scheduled_date",
+   "fieldtype": "Date",
+   "label": "Scheduled Date"
+  },
+  {
+   "fieldname": "column_break_19",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "started_at",
+   "fieldtype": "Datetime",
+   "label": "Started At"
+  },
+  {
+   "fieldname": "completed_at",
+   "fieldtype": "Datetime",
+   "label": "Completed At"
+  },
+  {
+   "fieldname": "actual_cost",
+   "fieldtype": "Currency",
+   "label": "Actual Cost"
+  },
+  {
+   "fieldname": "section_break_23",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "resolution_details",
+   "fieldtype": "Text",
+   "label": "Resolution Details"
+  },
+  {
+   "fieldname": "parts_used",
+   "fieldtype": "Text",
+   "label": "Parts Used"
+  },
+  {
+   "fieldname": "column_break_26",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "preventive_action",
+   "fieldtype": "Text",
+   "label": "Preventive Action"
+  },
+  {
+   "fieldname": "follow_up_date",
+   "fieldtype": "Date",
+   "label": "Follow-up Date"
+  },
+  {
+   "fieldname": "section_break_29",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "housekeeping_reference",
+   "fieldtype": "Link",
+   "label": "Housekeeping Reference",
+   "options": "Housekeeping Task"
+  },
+  {
+   "fieldname": "guest_complaint",
+   "fieldtype": "Check",
+   "label": "Guest Complaint"
+  },
+  {
+   "fieldname": "column_break_32",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "customer_feedback",
+   "fieldtype": "Text",
+   "label": "Customer Feedback"
+  },
+  {
+   "fieldname": "satisfaction_rating",
+   "fieldtype": "Rating",
+   "label": "Satisfaction Rating"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-09-29 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Posnext",
+ "name": "Maintenance Task",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Hotel Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Maintenance",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Front Desk",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "room"
+}
